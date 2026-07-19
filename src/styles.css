@@ -150,9 +150,9 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 
 .character-page, .review-page, .settings-page { max-width: 960px; margin: 0 auto; }
 .character-hero { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; align-items: center; gap: 28px; padding: 22px; background: #1c3029; border-radius: 8px; color: white; }
-.character-portrait-wrap { position: relative; }
+.character-portrait-wrap { min-width: 0; display: grid; justify-items: start; gap: 8px; }
 .character-portrait-wrap .traveler-portrait { width: 100%; border: 3px solid #d4a852; border-radius: 7px; }
-.stage-badge { position: absolute; z-index: 2; top: 10px; left: 10px; padding: 4px 7px; border-radius: 4px; color: #50350b; background: #f5d89d; font-size: 11px; font-weight: 800; }
+.stage-badge { padding: 4px 7px; border-radius: 4px; color: #50350b; background: #f5d89d; font-size: 11px; font-weight: 800; }
 .character-progress { min-width: 0; display: grid; gap: 18px; }
 .character-level-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .character-level-line > div:first-child { display: grid; gap: 2px; }
@@ -370,10 +370,13 @@ label textarea { min-height: 84px; resize: vertical; }
   .portrait-frame { width: 62px; height: 62px; }
   .mission-card { min-height: 106px; padding: 12px 10px; gap: 10px; }
   .mission-card .complete-button { width: 48px; height: 48px; }
-  .character-hero { grid-template-columns: 106px minmax(0, 1fr); gap: 14px; padding: 14px; }
-  .character-level-line { display: grid; gap: 8px; }
+  .character-hero { grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px; }
+  .character-portrait-wrap { gap: 6px; }
+  .stage-badge { justify-self: stretch; text-align: center; }
+  .character-progress { align-self: stretch; align-content: center; gap: 12px; }
+  .character-level-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; }
   .character-level-line strong { font-size: 28px; }
-  .coin-balance { width: fit-content; }
+  .coin-balance { min-height: 44px; width: fit-content; padding: 6px 8px; }
   .hero-xp { gap: 3px 8px; }
   .hero-xp b { font-size: 19px; }
   .attribute-grid { grid-template-columns: 1fr; gap: 0; }

@@ -130,6 +130,18 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
 
   await page.getByRole('button', { name: '角色' }).click()
   await expectNoHorizontalOverflow(page)
+  const heroLayout = await page.evaluate(() => {
+    const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
+    const overlaps = (left?: DOMRect, right?: DOMRect) => Boolean(
+      left && right && left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top,
+    )
+    const portrait = rect('.character-portrait-wrap .traveler-portrait')
+    const stage = rect('.stage-badge')
+    const level = rect('.character-level-line > div:first-child')
+    const coins = rect('.coin-balance')
+    return { stageOverlapsPortrait: overlaps(stage, portrait), levelOverlapsCoins: overlaps(level, coins) }
+  })
+  expect(heroLayout).toEqual({ stageOverlapsPortrait: false, levelOverlapsCoins: false })
   await page.screenshot({ path: `test-results/character-${testInfo.project.name}.png`, fullPage: true })
 
   await page.getByRole('button', { name: '复盘' }).click()
