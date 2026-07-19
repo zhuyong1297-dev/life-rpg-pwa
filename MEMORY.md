@@ -19,4 +19,5 @@
 
 - 公开仓库目标：`zhuyong1297-dev/life-rpg-pwa`。
 - GitHub Pages 基础路径：`/life-rpg-pwa/`。
+- 线上地址：`https://zhuyong1297-dev.github.io/life-rpg-pwa/`；`2026-07-19` 已验证线上 Service Worker、缓存和离线刷新。
 - GitHub 凭据由本机 GitHub CLI 管理，本仓库不保存凭据。
