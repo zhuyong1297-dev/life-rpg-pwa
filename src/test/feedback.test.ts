@@ -41,4 +41,46 @@ describe('完成反馈降级', () => {
     expect(await sendCompletionFeedback({ notifications: true, vibration: false, sound: false }, detail)).toBe('sent')
     expect(showNotification).toHaveBeenCalledWith('行动已完成', expect.objectContaining({ body: '+5 XP · +2 金币 · 体魄' }))
   })
+
+  it('音频不支持时返回 false', async () => {
+    vi.resetModules()
+    Reflect.deleteProperty(window, 'AudioContext')
+    Reflect.deleteProperty(window, 'webkitAudioContext')
+    const { prepareCompletionAudio } = await import('../feedback')
+    expect(await prepareCompletionAudio()).toBe(false)
+  })
+
+  it('复用挂起的 AudioContext，并区分普通完成和角色升级音效', async () => {
+    vi.resetModules()
+    const starts: number[] = []
+    const resume = vi.fn(async function (this: { state: string }) { this.state = 'running' })
+    const context = {
+      state: 'suspended',
+      currentTime: 1,
+      destination: {},
+      resume,
+      createOscillator: () => ({
+        type: 'sine',
+        frequency: { setValueAtTime: vi.fn() },
+        connect: (target: unknown) => target,
+        start: (at: number) => starts.push(at),
+        stop: vi.fn(),
+      }),
+      createGain: () => ({
+        gain: { setValueAtTime: vi.fn(), linearRampToValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() },
+        connect() { return this },
+      }),
+    }
+    const AudioContextMock = vi.fn(function () { return context })
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: AudioContextMock })
+    const { playCompletionChime, prepareCompletionAudio } = await import('../feedback')
+
+    expect(await prepareCompletionAudio()).toBe(true)
+    expect(resume).toHaveBeenCalledOnce()
+    expect(await playCompletionChime('completion')).toBe(true)
+    expect(starts).toHaveLength(2)
+    expect(await playCompletionChime('level-up')).toBe(true)
+    expect(starts).toHaveLength(5)
+    expect(AudioContextMock).toHaveBeenCalledOnce()
+  })
 })

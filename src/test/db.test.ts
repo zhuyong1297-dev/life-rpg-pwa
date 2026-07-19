@@ -2,14 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
+  acknowledgeLevelMilestone,
   archiveHabit,
   cancelTodayCompletion,
   completeActivity,
   createActivity,
   getSnapshot,
   initializeDatabase,
+  claimMilestoneReward,
   redeemReward,
   restoreHabit,
+  syncLevelMilestones,
   undoCompletion,
   updateActivityGoal,
   updateHabit,
@@ -263,6 +266,53 @@ describe('IndexedDB 事务', () => {
     expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(20)
   })
 
+  it('撤销窗口结束后只生成一次历史新等级里程碑', async () => {
+    const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
+    await completeActivity(activity.id, '2026-01-05', '成果一', database)
+    await completeActivity(activity.id, '2026-01-06', '成果二', database)
+    const created = await syncLevelMilestones(database, new Date(Date.now() + 11_000))
+    expect(created).toMatchObject([{ level: 2 }])
+    expect(await syncLevelMilestones(database, new Date(Date.now() + 12_000))).toEqual([])
+    await acknowledgeLevelMilestone(2, '体魄', database)
+    const meta = await database.settings.get('meta')
+    expect(meta?.key === 'meta' ? meta.value.levelSystem : undefined).toMatchObject({
+      baselineLevel: 1,
+      highestLevelReached: 2,
+      focusAttribute: '体魄',
+      milestones: [{ level: 2, focusAttribute: '体魄' }],
+    })
+  })
+
+  it('撤销后净经验不足不会固化升级里程碑', async () => {
+    const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
+    await completeActivity(activity.id, '2026-01-05', '成果一', database)
+    const second = await completeActivity(activity.id, '2026-01-06', '成果二', database)
+    if (!second.awarded) throw new Error('测试前置完成失败')
+    await undoCompletion(second.completion.id, database)
+    expect(await syncLevelMilestones(database, new Date(Date.now() + 11_000))).toEqual([])
+  })
+
+  it('阶段礼券领取不扣金币且不能重复领取', async () => {
+    const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
+    for (let index = 0; index < 6; index += 1) {
+      await completeActivity(activity.id, `2026-01-${String(index + 5).padStart(2, '0')}`, `成果${index}`, database)
+    }
+    const created = await syncLevelMilestones(database, new Date(Date.now() + 11_000))
+    expect(created).toMatchObject([{ level: 2 }, { level: 3, voucherMaxCost: 30 }])
+    const reward = await database.rewards.get('reward-entertainment')
+    if (!reward) throw new Error('测试奖励不存在')
+    const coins = calculateStats(await database.ledgerEvents.toArray()).coins
+    await claimMilestoneReward(3, reward.id, database)
+    expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(coins)
+    expect(await database.ledgerEvents.get('milestone:level:3')).toMatchObject({
+      kind: 'milestone',
+      coinDelta: 0,
+      xpDelta: 0,
+      title: `阶段礼券：${reward.title}`,
+    })
+    await expect(claimMilestoneReward(3, reward.id, database)).rejects.toThrow('已经领取')
+  })
+
   it('损坏备份在整体替换前被拒绝并保留原数据', async () => {
     const activity = await createActivity(dailyHabit, database)
     await completeActivity(activity.id, '2026-01-05', undefined, database)
@@ -297,7 +347,20 @@ describe('IndexedDB 事务', () => {
   it('可以恢复 V2.3.0 的 schema 4 备份', async () => {
     await createActivity(dailyHabit, database)
     const current = await createBackup(database)
-    await restoreBackup({ ...current, appVersion: '2.3.0' }, database)
+    const legacySettings = current.settings.map((setting) => setting.key === 'meta'
+      ? { ...setting, value: { lastBackupAt: setting.value.lastBackupAt, migrationImportedAt: setting.value.migrationImportedAt } }
+      : setting)
+    await restoreBackup({ ...current, schemaVersion: 4, appVersion: '2.3.0', settings: legacySettings }, database)
     expect(await database.activities.count()).toBe(1)
+    const meta = await database.settings.get('meta')
+    expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
+  })
+
+  it('schema 5 备份完整保存等级系统', async () => {
+    const current = await createBackup(database)
+    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.5.0' })
+    await restoreBackup(current, database)
+    const meta = await database.settings.get('meta')
+    expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)
   })
 })

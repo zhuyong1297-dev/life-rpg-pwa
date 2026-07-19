@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   ActivitySchema,
   type Activity,
+  type Attribute,
   type Completion,
   type Difficulty,
   type TierLevel,
@@ -14,6 +15,10 @@ import {
   type WeeklyReview,
   calculateStats,
   addDays,
+  createLevelSystem,
+  getLevel,
+  getMilestoneVoucherCost,
+  getTotalXpForLevel,
   getTierReward,
   getTierUpgradeXp,
   getCompletionTierGoal,
@@ -21,6 +26,7 @@ import {
   isDurationGoal,
   isTieredGoal,
   startOfWeek,
+  LevelSystemSchema,
 } from './domain'
 
 export class LifeRpgDatabase extends Dexie {
@@ -53,7 +59,7 @@ const defaultRewards = [
 ] as const
 
 export async function initializeDatabase(database = db) {
-  await database.transaction('rw', database.rewards, database.settings, async () => {
+  await database.transaction('rw', database.rewards, database.settings, database.ledgerEvents, async () => {
     if ((await database.rewards.count()) === 0) {
       const createdAt = new Date().toISOString()
       await database.rewards.bulkAdd(
@@ -66,8 +72,14 @@ export async function initializeDatabase(database = db) {
         value: { notifications: false, vibration: true, sound: false },
       })
     }
-    if (!(await database.settings.get('meta'))) {
-      await database.settings.add({ key: 'meta', value: {} })
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
+    if (!meta) {
+      const stats = calculateStats(await database.ledgerEvents.toArray())
+      await database.settings.add({ key: 'meta', value: { levelSystem: createLevelSystem(stats.totalXp) } })
+    } else if (!meta.value.levelSystem) {
+      const stats = calculateStats(await database.ledgerEvents.toArray())
+      await database.settings.put({ ...meta, value: { ...meta.value, levelSystem: createLevelSystem(stats.totalXp) } })
     }
   })
 }
@@ -362,6 +374,110 @@ export async function redeemReward(rewardId: string, database = db) {
 
 export async function updatePreferences(value: Preferences, database = db) {
   await database.settings.put({ key: 'preferences', value })
+}
+
+export async function syncLevelMilestones(database = db, now = new Date()) {
+  return database.transaction('rw', database.settings, database.ledgerEvents, async () => {
+    const events = await database.ledgerEvents.toArray()
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
+    const currentLevel = getLevel(calculateStats(events).totalXp).level
+    if (!meta?.value.levelSystem) {
+      const levelSystem = createLevelSystem(calculateStats(events).totalXp, now.toISOString())
+      await database.settings.put({ key: 'meta', value: { ...(meta?.value ?? {}), levelSystem } })
+      return []
+    }
+
+    const cutoff = new Date(now.getTime() - 10_000).toISOString()
+    const stableEvents = events.filter((event) => event.createdAt <= cutoff)
+    const stableLevel = Math.min(currentLevel, getLevel(calculateStats(stableEvents).totalXp).level)
+    const system = meta.value.levelSystem
+    if (stableLevel <= system.highestLevelReached) return []
+
+    const sortedEvents = [...stableEvents].sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    const crossings = new Map<number, LedgerEvent>()
+    let runningXp = 0
+    for (const event of sortedEvents) {
+      runningXp += event.xpDelta
+      if (event.xpDelta <= 0 || event.createdAt < system.activatedAt) continue
+      for (let level = system.highestLevelReached + 1; level <= stableLevel; level += 1) {
+        if (!crossings.has(level) && runningXp >= getTotalXpForLevel(level)) crossings.set(level, event)
+      }
+    }
+    const fallback = [...sortedEvents].reverse().find((event) => event.kind === 'reward' && event.xpDelta > 0)
+    if (!fallback) return []
+    const created = Array.from({ length: stableLevel - system.highestLevelReached }, (_, index) => {
+      const level = system.highestLevelReached + index + 1
+      const source = crossings.get(level) ?? fallback
+      return {
+        level,
+        reachedAt: source.createdAt,
+        sourceEventId: source.id,
+        voucherMaxCost: getMilestoneVoucherCost(level),
+      }
+    })
+    const levelSystem = LevelSystemSchema.parse({
+      ...system,
+      highestLevelReached: stableLevel,
+      milestones: [...system.milestones, ...created],
+    })
+    await database.settings.put({ ...meta, value: { ...meta.value, levelSystem } })
+    return created
+  })
+}
+
+export async function acknowledgeLevelMilestone(level: number, focusAttribute: Attribute, database = db) {
+  return database.transaction('rw', database.settings, async () => {
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
+    const system = meta?.value.levelSystem
+    if (!meta || !system) throw new Error('等级系统尚未初始化')
+    const milestone = system.milestones.find((item) => item.level === level)
+    if (!milestone) throw new Error('找不到这次升级记录')
+    const acknowledgedAt = milestone.acknowledgedAt ?? new Date().toISOString()
+    const levelSystem = LevelSystemSchema.parse({
+      ...system,
+      focusAttribute,
+      milestones: system.milestones.map((item) => item.level === level ? { ...item, acknowledgedAt, focusAttribute } : item),
+    })
+    await database.settings.put({ ...meta, value: { ...meta.value, levelSystem } })
+    return levelSystem
+  })
+}
+
+export async function claimMilestoneReward(level: number, rewardId: string, database = db) {
+  return database.transaction('rw', database.settings, database.rewards, database.ledgerEvents, async () => {
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
+    const system = meta?.value.levelSystem
+    if (!meta || !system) throw new Error('等级系统尚未初始化')
+    const milestone = system.milestones.find((item) => item.level === level)
+    if (!milestone?.voucherMaxCost) throw new Error('这个等级没有阶段礼券')
+    if (milestone.claimedRewardId) throw new Error('这张阶段礼券已经领取')
+    const reward = await database.rewards.get(rewardId)
+    if (!reward?.enabled) throw new Error('奖励不存在或已停用')
+    if (reward.cost > milestone.voucherMaxCost) throw new Error(`这张礼券最多可领取 ${milestone.voucherMaxCost} 金币档奖励`)
+    const createdAt = new Date().toISOString()
+    const event = LedgerEventSchema.parse({
+      id: `milestone:level:${level}`,
+      kind: 'milestone',
+      sourceId: `level:${level}`,
+      occurredOn: localDate(),
+      title: `阶段礼券：${reward.title}`,
+      xpDelta: 0,
+      coinDelta: 0,
+      createdAt,
+    })
+    const levelSystem = LevelSystemSchema.parse({
+      ...system,
+      milestones: system.milestones.map((item) => item.level === level
+        ? { ...item, claimedRewardId: reward.id, claimedAt: createdAt }
+        : item),
+    })
+    await database.ledgerEvents.add(event)
+    await database.settings.put({ ...meta, value: { ...meta.value, levelSystem } })
+    return { event, reward, levelSystem }
+  })
 }
 
 export async function saveWeeklyReview(review: WeeklyReview, database = db) {

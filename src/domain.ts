@@ -228,7 +228,7 @@ export type Completion = z.infer<typeof CompletionSchema>
 
 export const LedgerEventSchema = z.object({
   id: z.string().min(1),
-  kind: z.enum(['reward', 'correction', 'redemption']),
+  kind: z.enum(['reward', 'correction', 'redemption', 'milestone']),
   sourceId: z.string().min(1),
   occurredOn: dateString,
   title: z.string().min(1).max(80),
@@ -284,9 +284,58 @@ export const PreferencesSchema = z.object({
   sound: z.boolean(),
 })
 
+export const LevelMilestoneSchema = z
+  .object({
+    level: z.number().int().min(2),
+    reachedAt: timestamp,
+    sourceEventId: z.string().min(1),
+    acknowledgedAt: timestamp.optional(),
+    focusAttribute: z.enum(attributes).optional(),
+    voucherMaxCost: z.number().int().positive().optional(),
+    claimedRewardId: z.string().min(1).optional(),
+    claimedAt: timestamp.optional(),
+  })
+  .superRefine((milestone, context) => {
+    if ((milestone.acknowledgedAt === undefined) !== (milestone.focusAttribute === undefined)) {
+      context.addIssue({ code: 'custom', path: ['focusAttribute'], message: '查看升级报告时必须选择下一等级方向' })
+    }
+    if ((milestone.claimedRewardId === undefined) !== (milestone.claimedAt === undefined)) {
+      context.addIssue({ code: 'custom', path: ['claimedRewardId'], message: '阶段礼券领取信息不完整' })
+    }
+    if (milestone.claimedRewardId && !milestone.voucherMaxCost) {
+      context.addIssue({ code: 'custom', path: ['voucherMaxCost'], message: '没有礼券额度的等级不能领取奖励' })
+    }
+  })
+
+export type LevelMilestone = z.infer<typeof LevelMilestoneSchema>
+
+export const LevelSystemSchema = z
+  .object({
+    activatedAt: timestamp,
+    baselineLevel: z.number().int().positive(),
+    highestLevelReached: z.number().int().positive(),
+    focusAttribute: z.enum(attributes).optional(),
+    milestones: z.array(LevelMilestoneSchema),
+  })
+  .superRefine((system, context) => {
+    if (system.highestLevelReached < system.baselineLevel) {
+      context.addIssue({ code: 'custom', path: ['highestLevelReached'], message: '历史最高等级不能低于启用基线' })
+    }
+    const levels = system.milestones.map((milestone) => milestone.level)
+    if (new Set(levels).size !== levels.length) {
+      context.addIssue({ code: 'custom', path: ['milestones'], message: '等级里程碑不能重复' })
+    }
+    if (levels.some((level) => level <= system.baselineLevel || level > system.highestLevelReached)) {
+      context.addIssue({ code: 'custom', path: ['milestones'], message: '等级里程碑超出启用基线或历史最高等级' })
+    }
+  })
+
+export type LevelSystem = z.infer<typeof LevelSystemSchema>
+
 export const MetaSchema = z.object({
   lastBackupAt: timestamp.optional(),
   migrationImportedAt: timestamp.optional(),
+  levelSystem: LevelSystemSchema.optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [
@@ -314,11 +363,87 @@ export function getLevel(totalXp: number) {
   return { level, current, needed, progress: needed === 0 ? 0 : current / needed }
 }
 
+export function getTotalXpForLevel(level: number) {
+  const safeLevel = Math.max(1, Math.floor(level))
+  return 50 * safeLevel * (safeLevel - 1)
+}
+
 export function getCharacterStage(level: number) {
   if (level <= 2) return 1
   if (level <= 5) return 2
   if (level <= 9) return 3
   return 4
+}
+
+export function getCharacterStageName(level: number) {
+  const names = ['启程者', '行动者', '践行者', '塑造者'] as const
+  return names[getCharacterStage(level) - 1]
+}
+
+export function getMilestoneVoucherCost(level: number) {
+  if (level === 3) return 30
+  if (level === 6) return 80
+  if (level === 10 || (level > 10 && level % 5 === 0)) return 200
+  return undefined
+}
+
+export function getNextVoucherLevel(level: number) {
+  if (level < 3) return 3
+  if (level < 6) return 6
+  if (level < 10) return 10
+  return Math.ceil((level + 1) / 5) * 5
+}
+
+export function createLevelSystem(totalXp: number, activatedAt = new Date().toISOString()): LevelSystem {
+  const level = getLevel(totalXp).level
+  return { activatedAt, baselineLevel: level, highestLevelReached: level, milestones: [] }
+}
+
+export interface LevelReport {
+  activeDays: number
+  completionCount: number
+  attributeXp: Record<Attribute, number>
+  strongestAttribute?: Attribute
+  topActions: Array<{ title: string; xp: number }>
+}
+
+export function getLevelReport(events: LedgerEvent[], milestone: LevelMilestone, periodStart: string): LevelReport {
+  const corrections = new Set(
+    events
+      .filter((event) => event.kind === 'correction' && event.createdAt <= milestone.reachedAt)
+      .map((event) => event.sourceId),
+  )
+  const rewards = events.filter(
+    (event) =>
+      event.kind === 'reward' &&
+      event.createdAt > periodStart &&
+      event.createdAt <= milestone.reachedAt &&
+      !corrections.has(event.id),
+  )
+  const attributeXp = Object.fromEntries(attributes.map((attribute) => [attribute, 0])) as Record<Attribute, number>
+  const completions = new Map<string, { title: string; xp: number; occurredOn: string }>()
+  for (const event of rewards) {
+    if (event.attribute) attributeXp[event.attribute] += event.xpDelta
+    const current = completions.get(event.sourceId)
+    completions.set(event.sourceId, {
+      title: current?.title ?? event.title,
+      xp: (current?.xp ?? 0) + event.xpDelta,
+      occurredOn: current?.occurredOn ?? event.occurredOn,
+    })
+  }
+  const strongestAttribute = [...attributes]
+    .sort((left, right) => attributeXp[right] - attributeXp[left])
+    .find((attribute) => attributeXp[attribute] > 0)
+  return {
+    activeDays: new Set([...completions.values()].map((completion) => completion.occurredOn)).size,
+    completionCount: completions.size,
+    attributeXp,
+    strongestAttribute,
+    topActions: [...completions.values()]
+      .sort((left, right) => right.xp - left.xp)
+      .slice(0, 3)
+      .map(({ title, xp }) => ({ title, xp })),
+  }
 }
 
 export function calculateStats(events: LedgerEvent[]): CharacterStats {
