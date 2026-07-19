@@ -80,6 +80,23 @@ describe('IndexedDB 事务', () => {
     expect(await database.ledgerEvents.count()).toBe(0)
   })
 
+  it('时长习惯达到目标才发一份固定奖励并保存实际分钟', async () => {
+    const activity = await createActivity(
+      { ...dailyHabit, goal: { kind: 'duration', count: 30, unit: '分钟' }, difficulty: '简单' },
+      database,
+    )
+    await expect(
+      completeActivity(activity.id, '2026-01-05', { durationMinutes: 20 }, database),
+    ).rejects.toThrow('还未达到 30 分钟目标')
+    expect(await database.ledgerEvents.count()).toBe(0)
+
+    const result = await completeActivity(activity.id, '2026-01-05', { durationMinutes: 45 }, database)
+    expect(result.awarded).toBe(true)
+    if (!result.awarded) throw new Error('测试前置完成失败')
+    expect(result.completion.durationMinutes).toBe(45)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 5, coins: 2 })
+  })
+
   it('余额不足拒绝兑换，余额足够时追加负金币流水', async () => {
     const reward = (await database.rewards.toArray())[0]
     await expect(redeemReward(reward.id, database)).rejects.toThrow('金币余额不足')

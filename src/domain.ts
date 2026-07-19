@@ -32,7 +32,11 @@ export const ActivitySchema = z
     type: z.enum(['habit', 'task']),
     attribute: z.enum(attributes),
     difficulty: z.enum(difficulties),
-    goal: z.object({ count: z.number().positive().max(999), unit: z.string().trim().min(1).max(12) }),
+    goal: z.object({
+      kind: z.enum(['count', 'duration']).optional(),
+      count: z.number().positive().max(1440),
+      unit: z.string().trim().min(1).max(12),
+    }),
     schedule: ScheduleSchema,
     plannedOn: dateString.optional(),
     isKey: z.boolean(),
@@ -46,6 +50,9 @@ export const ActivitySchema = z
     if (activity.type === 'task' && activity.schedule.kind !== 'once') {
       context.addIssue({ code: 'custom', path: ['schedule'], message: '一次性任务必须使用单次计划' })
     }
+    if ((activity.goal.kind === 'duration' || activity.goal.unit === '分钟') && (!Number.isInteger(activity.goal.count) || activity.goal.count > 1440)) {
+      context.addIssue({ code: 'custom', path: ['goal', 'count'], message: '时长目标必须是 1 至 1440 分钟的整数' })
+    }
   })
 
 export type Activity = z.infer<typeof ActivitySchema>
@@ -56,6 +63,7 @@ export const CompletionSchema = z.object({
   occurredOn: dateString,
   status: z.enum(['active', 'undone']),
   note: z.string().max(140).optional(),
+  durationMinutes: z.number().int().min(1).max(1440).optional(),
   createdAt: timestamp,
   undoneAt: timestamp.optional(),
 })
@@ -95,6 +103,8 @@ export const ReviewItemSchema = z.object({
   friction: z.number().int().min(1).max(5),
   decision: z.enum(reviewDecisions),
   note: z.string().max(280).optional(),
+  actualDurationMinutes: z.number().int().nonnegative().optional(),
+  plannedDurationMinutes: z.number().int().positive().optional(),
 })
 
 export const WeeklyReviewSchema = z.object({
@@ -183,4 +193,8 @@ export function addDays(date: string, amount: number) {
 
 export function identityMessage(attribute: Attribute) {
   return `你正在强化${attribute}`
+}
+
+export function isDurationGoal(activity: Activity) {
+  return activity.goal.kind === 'duration' || activity.goal.unit === '分钟'
 }

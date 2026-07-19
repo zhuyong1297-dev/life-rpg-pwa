@@ -55,6 +55,25 @@ test('Boss 没有实际成果时不能完成', async ({ page }) => {
   await expect(page.getByText('+50 XP', { exact: true })).toBeVisible()
 })
 
+test('时长习惯记录实际分钟，达到目标后只发固定奖励', async ({ page }) => {
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('示例阅读')
+  await page.getByRole('button', { name: '按时长' }).click()
+  await page.getByLabel('目标时长（分钟）').fill('30')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(page.getByText('每天 · 目标 30 分钟')).toBeVisible()
+  await page.getByRole('button', { name: '完成 示例阅读' }).click()
+
+  const confirm = page.getByRole('button', { name: '确认完成' })
+  await page.getByLabel('实际时长（分钟）').fill('20')
+  await expect(confirm).toBeDisabled()
+  await page.getByLabel('实际时长（分钟）').fill('45')
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+  await expect(page.getByText('本次持续 45 分钟')).toBeVisible()
+  await expect(page.getByText('+5 XP', { exact: true })).toBeVisible()
+})
+
 test('窄屏和桌面均没有横向溢出，人物资源有效', async ({ page }) => {
   const layout = await page.evaluate(async () => {
     const portrait = document.querySelector<HTMLElement>('.traveler-portrait')

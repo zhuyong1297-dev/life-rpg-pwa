@@ -35,6 +35,7 @@ import {
   setActivityKey,
   undoCompletion,
   updatePreferences,
+  type CompletionDetails,
   type NewActivity,
 } from './db'
 import {
@@ -45,6 +46,7 @@ import {
   getCharacterStage,
   getLevel,
   identityMessage,
+  isDurationGoal,
   localDate,
   rewardTable,
   reviewDecisions,
@@ -78,6 +80,7 @@ interface AwardFeedback {
   attribute: Attribute
   xp: number
   coins: number
+  durationMinutes?: number
   level: ReturnType<typeof getLevel>
 }
 
@@ -142,9 +145,9 @@ function App() {
   const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
   const tasks = enabledActivities.filter((activity) => activity.type === 'task' && !activity.isKey && isDue(activity))
 
-  async function finishActivity(activity: Activity, note?: string) {
+  async function finishActivity(activity: Activity, details?: CompletionDetails) {
     try {
-      const result = await completeActivity(activity.id, today, note)
+      const result = await completeActivity(activity.id, today, details)
       setNoteActivity(null)
       if (!result.awarded) return
       const nextStats = calculateStats([...snapshot.ledgerEvents, result.event])
@@ -155,6 +158,7 @@ function App() {
         attribute: activity.attribute,
         xp: reward.xp,
         coins: reward.coins,
+        durationMinutes: result.completion.durationMinutes,
         level: getLevel(nextStats.totalXp),
       })
       await refresh()
@@ -163,6 +167,7 @@ function App() {
         xp: reward.xp,
         coins: reward.coins,
         attribute: activity.attribute,
+        durationMinutes: result.completion.durationMinutes,
       })
     } catch (error) {
       setNotice(errorMessage(error))
@@ -170,7 +175,7 @@ function App() {
   }
 
   function requestCompletion(activity: Activity) {
-    if (activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
+    if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
     else void finishActivity(activity)
   }
 
@@ -284,7 +289,7 @@ function App() {
         <CompletionModal
           activity={noteActivity}
           onClose={() => setNoteActivity(null)}
-          onComplete={(note) => void finishActivity(noteActivity, note)}
+          onComplete={(details) => void finishActivity(noteActivity, details)}
         />
       )}
       {feedback && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
@@ -531,19 +536,18 @@ function ReviewPage({
   }, [activities, existing])
 
   const progress = activities.map((activity) => {
-    const completed = new Set(
-      completions
-        .filter(
-          (completion) =>
-            completion.activityId === activity.id &&
-            completion.status === 'active' &&
-            completion.occurredOn >= weekStart &&
-            completion.occurredOn <= weekEnd,
-        )
-        .map((completion) => completion.occurredOn),
-    ).size
+    const matchingCompletions = completions.filter(
+      (completion) =>
+        completion.activityId === activity.id &&
+        completion.status === 'active' &&
+        completion.occurredOn >= weekStart &&
+        completion.occurredOn <= weekEnd,
+    )
+    const completed = new Set(matchingCompletions.map((completion) => completion.occurredOn)).size
     const planned = activity.schedule.kind === 'daily' ? 7 : activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
-    return { activity, completed, planned, adherence: Math.min(completed / planned, 1) }
+    const actualDurationMinutes = matchingCompletions.reduce((total, completion) => total + (completion.durationMinutes ?? 0), 0)
+    const plannedDurationMinutes = isDurationGoal(activity) ? planned * activity.goal.count : undefined
+    return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes }
   })
 
   function submit(event: FormEvent) {
@@ -552,7 +556,7 @@ function ReviewPage({
     onSave({
       id: `review:${weekStart}`,
       weekStart,
-      items: progress.map(({ activity, completed, planned, adherence }) => ({
+      items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes }) => ({
         activityId: activity.id,
         completed,
         planned,
@@ -561,6 +565,8 @@ function ReviewPage({
         friction: drafts[activity.id]?.friction ?? 3,
         decision: drafts[activity.id]?.decision ?? '保留',
         note: drafts[activity.id]?.note.trim() || undefined,
+        actualDurationMinutes: plannedDurationMinutes ? actualDurationMinutes : undefined,
+        plannedDurationMinutes,
       })),
       createdAt: new Date().toISOString(),
     })
@@ -576,7 +582,7 @@ function ReviewPage({
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
       ) : (
         <form onSubmit={submit} className="review-form">
-          {progress.map(({ activity, completed, planned, adherence }) => {
+          {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes }) => {
             const draft = drafts[activity.id] ?? { impact: 3, friction: 3, decision: '保留' as const, note: '' }
             const update = (next: Partial<ReviewDraft>) => setDrafts((current) => ({ ...current, [activity.id]: { ...draft, ...next } }))
             return (
@@ -586,6 +592,9 @@ function ReviewPage({
                   <b>{Math.round(adherence * 100)}%</b>
                 </div>
                 <ProgressBar value={adherence} label="坚持率" compact />
+                {plannedDurationMinutes && (
+                  <p className="duration-summary">本周时长：{actualDurationMinutes} / {plannedDurationMinutes} 分钟</p>
+                )}
                 <div className="review-fields">
                   <label>现实帮助
                     <select value={draft.impact} onChange={(event) => update({ impact: Number(event.target.value) })}>
@@ -743,6 +752,7 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
   const [difficulty, setDifficulty] = useState<Difficulty>('简单')
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
   const [weeklyTimes, setWeeklyTimes] = useState(3)
+  const [goalMode, setGoalMode] = useState<'count' | 'duration'>('count')
   const [goalCount, setGoalCount] = useState(1)
   const [goalUnit, setGoalUnit] = useState('次')
   const [plannedOn, setPlannedOn] = useState(localDate())
@@ -755,7 +765,11 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
       type,
       attribute,
       difficulty,
-      goal: { count: goalCount, unit: goalUnit },
+      goal: {
+        kind: type === 'habit' ? goalMode : 'count',
+        count: type === 'task' ? 1 : goalCount,
+        unit: type === 'task' ? '次' : goalMode === 'duration' ? '分钟' : goalUnit,
+      },
       schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
       plannedOn: type === 'task' ? plannedOn : undefined,
       isKey,
@@ -782,7 +796,18 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
               <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周</option></select></label>
               {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={7} value={weeklyTimes} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
             </div>
-            <div className="field-grid"><label>目标<input type="number" min={0.01} max={999} step="any" value={goalCount} onChange={(event) => setGoalCount(Number(event.target.value))} /></label><label>单位<input required maxLength={12} value={goalUnit} onChange={(event) => setGoalUnit(event.target.value)} /></label></div>
+            <div className="goal-type-block">
+              <span>目标类型</span>
+              <div className="segmented-control" aria-label="目标类型">
+                <button type="button" className={goalMode === 'count' ? 'selected' : ''} onClick={() => { setGoalMode('count'); setGoalCount(1) }}>按次数</button>
+                <button type="button" className={goalMode === 'duration' ? 'selected' : ''} onClick={() => { setGoalMode('duration'); setGoalCount(30) }}>按时长</button>
+              </div>
+            </div>
+            {goalMode === 'duration' ? (
+              <label className="full-field">目标时长（分钟）<input type="number" min={1} max={1440} step={1} required value={goalCount} onChange={(event) => setGoalCount(Number(event.target.value))} /></label>
+            ) : (
+              <div className="field-grid"><label>目标次数<input type="number" min={1} max={999} step={1} value={goalCount} onChange={(event) => setGoalCount(Number(event.target.value))} /></label><label>单位<input required maxLength={12} value={goalUnit} onChange={(event) => setGoalUnit(event.target.value)} /></label></div>
+            )}
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
@@ -792,16 +817,26 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
   )
 }
 
-function CompletionModal({ activity, onClose, onComplete }: { activity: Activity; onClose: () => void; onComplete: (note?: string) => void }) {
+function CompletionModal({ activity, onClose, onComplete }: { activity: Activity; onClose: () => void; onComplete: (details: CompletionDetails) => void }) {
   const [note, setNote] = useState('')
+  const [duration, setDuration] = useState('')
   const required = activity.difficulty === 'Boss'
+  const durationGoal = isDurationGoal(activity)
+  const durationValue = Number(duration)
+  const durationValid = !durationGoal || (Number.isInteger(durationValue) && durationValue >= activity.goal.count && durationValue <= 1440)
   return (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal compact-modal" onSubmit={(event) => { event.preventDefault(); onComplete(note.trim() || undefined) }} aria-labelledby="completion-title">
+      <form className="modal compact-modal" onSubmit={(event) => { event.preventDefault(); onComplete({ note: note.trim() || undefined, durationMinutes: durationGoal ? durationValue : undefined }) }} aria-labelledby="completion-title">
         <div className="modal-header"><div><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span><h2 id="completion-title">{activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
-        <label className="full-field">实际成果{required ? '（必填）' : '（选填）'}<textarea required={required} minLength={required ? 1 : undefined} maxLength={140} value={note} onChange={(event) => setNote(event.target.value)} autoFocus /></label>
+        {durationGoal && (
+          <label className="full-field">实际时长（分钟）
+            <input type="number" min={activity.goal.count} max={1440} step={1} required value={duration} onChange={(event) => setDuration(event.target.value)} autoFocus />
+            <span className="field-hint">本次目标：至少 {activity.goal.count} 分钟</span>
+          </label>
+        )}
+        <label className="full-field">实际成果{required ? '（必填）' : '（选填）'}<textarea required={required} minLength={required ? 1 : undefined} maxLength={140} value={note} onChange={(event) => setNote(event.target.value)} autoFocus={!durationGoal} /></label>
         <div className="character-count">{note.length} / 140</div>
-        <button className="primary-action" type="submit" disabled={required && note.trim().length === 0}><Check aria-hidden="true" />确认完成</button>
+        <button className="primary-action" type="submit" disabled={(required && note.trim().length === 0) || !durationValid}><Check aria-hidden="true" />确认完成</button>
       </form>
     </div>
   )
@@ -816,6 +851,7 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
         <span>行动完成</span>
         <strong>{feedback.title}</strong>
         <div className="reward-gains"><b>+{feedback.xp} XP</b><b>+{feedback.coins} 金币</b><b>{feedback.attribute}</b></div>
+        {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
         <p>{identityMessage(feedback.attribute)}</p>
         <ProgressBar value={feedback.level.progress} label={`Lv.${feedback.level.level} · ${feedback.level.current}/${feedback.level.needed} XP`} compact />
       </div>
@@ -850,8 +886,8 @@ function SettingToggle({ icon, label, checked, onChange }: { icon: React.ReactNo
 }
 
 function scheduleLabel(activity: Activity) {
-  if (activity.schedule.kind === 'daily') return `每天 ${activity.goal.count}${activity.goal.unit}`
-  if (activity.schedule.kind === 'weekly') return `每周 ${activity.schedule.times} 次`
+  if (activity.schedule.kind === 'daily') return isDurationGoal(activity) ? `每天 · 目标 ${activity.goal.count} 分钟` : `每天 ${activity.goal.count}${activity.goal.unit}`
+  if (activity.schedule.kind === 'weekly') return isDurationGoal(activity) ? `每周 ${activity.schedule.times} 次 · 每次 ${activity.goal.count} 分钟` : `每周 ${activity.schedule.times} 次`
   return activity.plannedOn ? formatShortDate(activity.plannedOn) : '单次'
 }
 

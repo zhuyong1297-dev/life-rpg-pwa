@@ -118,6 +118,7 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .review-title strong { overflow-wrap: anywhere; }
 .review-title span { color: var(--muted); font-size: 12px; }
 .review-title b { color: var(--green); font-size: 22px; }
+.duration-summary { margin: 10px 0 0; color: var(--blue); font-size: 12px; font-weight: 700; }
 .review-fields, .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .review-fields { margin: 16px 0 12px; }
 label { color: var(--muted); font-size: 13px; }
@@ -148,11 +149,14 @@ label textarea { min-height: 80px; resize: vertical; }
 .modal-header h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
 .modal-header .difficulty + h2 { margin-top: 6px; }
 .modal > .segmented-control { margin-bottom: 14px; }
+.goal-type-block { margin-top: 14px; }
+.goal-type-block > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
 .modal .primary-action { width: 100%; margin-top: 18px; }
 .checkbox-field { min-height: 46px; margin-top: 12px; display: flex; align-items: center; gap: 8px; color: var(--ink); }
 .checkbox-field input { width: 19px; height: 19px; margin: 0; accent-color: var(--green); }
 .checkbox-field svg { color: var(--amber); }
 .character-count { color: var(--muted); font-size: 12px; text-align: right; }
+.field-hint { display: block; margin-top: 5px; color: var(--blue); font-size: 12px; }
 
 .feedback-overlay { position: fixed; z-index: 60; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 142px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 12px; padding: 13px; color: white; background: #173c31; border: 1px solid #2f755f; border-radius: 8px; box-shadow: 0 18px 44px rgba(10, 28, 22, 0.35); }
 .feedback-overlay > .traveler-portrait { width: 74px; height: 74px; border: 2px solid #76b99f; border-radius: 6px; }
@@ -160,6 +164,7 @@ label textarea { min-height: 80px; resize: vertical; }
 .feedback-copy > span { color: #a8d6c5; font-size: 11px; text-transform: uppercase; }
 .feedback-copy > strong { overflow-wrap: anywhere; }
 .feedback-copy p { margin: 0; color: #cbe6dc; font-size: 12px; }
+.feedback-copy .feedback-duration { color: #f8cb7e; font-weight: 700; }
 .feedback-copy .progress-wrap > span { color: #cbe6dc; }
 .feedback-copy .progress-track { background: #36594f; }
 .feedback-copy .progress-track span { background: #f2b95e; }

@@ -2,7 +2,7 @@ import type { Attribute, Preferences } from './domain'
 
 export async function sendCompletionFeedback(
   preferences: Preferences,
-  detail: { title: string; xp: number; coins: number; attribute: Attribute },
+  detail: { title: string; xp: number; coins: number; attribute: Attribute; durationMinutes?: number },
 ) {
   if (preferences.vibration && 'vibrate' in navigator) navigator.vibrate([35, 30, 55])
   if (preferences.sound) playSoftTone()
@@ -10,7 +10,7 @@ export async function sendCompletionFeedback(
   try {
     const registration = await navigator.serviceWorker.ready
     await registration.showNotification('行动已完成', {
-      body: `+${detail.xp} XP · +${detail.coins} 金币 · ${detail.attribute}`,
+      body: `+${detail.xp} XP · +${detail.coins} 金币 · ${detail.attribute}${detail.durationMinutes ? ` · ${detail.durationMinutes} 分钟` : ''}`,
       icon: `${import.meta.env.BASE_URL}app-icon.png`,
       badge: `${import.meta.env.BASE_URL}app-icon.png`,
       tag: `completion-${Date.now()}`,

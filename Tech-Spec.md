@@ -19,8 +19,8 @@
 
 - `Activity.type` 为 `habit | task`。
 - `Activity.attribute` 为六项属性之一，`difficulty` 为四档难度之一。
-- `Activity.schedule` 支持每天和每周 N 次；任务可有计划日期。
-- `Completion.status` 为 `active | undone`，保存可选成果备注。
+- `Activity.schedule` 支持每天和每周 N 次；`goal.kind` 区分次数与时长目标；任务可有计划日期。
+- `Completion.status` 为 `active | undone`，保存可选成果备注和时长型习惯的实际分钟。
 - `LedgerEvent.kind` 为 `reward | correction | redemption`，保存 XP、金币和可选属性。
 - 每个 reward event 使用确定性幂等键；correction 引用被撤销的 reward event。
 
@@ -29,9 +29,10 @@
 ### 完成
 
 1. 校验活动、备注和当前有效完成。
-2. 在 Dexie `rw` 事务中写入 completion。
-3. 在同一事务写入 reward ledger event。
-4. 事务提交后才触发界面反馈、振动和通知。
+2. 时长型习惯校验实际分钟达到目标；分钟数不改变难度奖励。
+3. 在 Dexie `rw` 事务中写入 completion。
+4. 在同一事务写入 reward ledger event。
+5. 事务提交后才触发界面反馈、振动和通知。
 
 ### 撤销
 

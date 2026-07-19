@@ -14,6 +14,7 @@ import {
   calculateStats,
   addDays,
   localDate,
+  isDurationGoal,
   startOfWeek,
 } from './domain'
 
@@ -104,18 +105,37 @@ export async function setActivityEnabled(activityId: string, enabled: boolean, d
   })
 }
 
-function validateCompletionNote(difficulty: Difficulty, note?: string) {
-  const cleaned = note?.trim()
-  if (difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
-  if (cleaned && cleaned.length > 140) throw new Error('实际成果最多 140 字')
-  return cleaned || undefined
+export interface CompletionDetails {
+  note?: string
+  durationMinutes?: number
 }
 
-export async function completeActivity(activityId: string, occurredOn = localDate(), note?: string, database = db) {
+function validateCompletion(activity: Activity, details: CompletionDetails) {
+  const cleaned = details.note?.trim()
+  const difficulty: Difficulty = activity.difficulty
+  if (difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
+  if (cleaned && cleaned.length > 140) throw new Error('实际成果最多 140 字')
+  if (isDurationGoal(activity)) {
+    if (!Number.isInteger(details.durationMinutes) || !details.durationMinutes || details.durationMinutes > 1440) {
+      throw new Error('请填写 1 至 1440 分钟的实际时长')
+    }
+    if (details.durationMinutes < activity.goal.count) {
+      throw new Error(`实际时长还未达到 ${activity.goal.count} 分钟目标`)
+    }
+  }
+  return { note: cleaned || undefined, durationMinutes: isDurationGoal(activity) ? details.durationMinutes : undefined }
+}
+
+export async function completeActivity(
+  activityId: string,
+  occurredOn = localDate(),
+  noteOrDetails?: string | CompletionDetails,
+  database = db,
+) {
   return database.transaction('rw', database.activities, database.completions, database.ledgerEvents, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity || !activity.enabled) throw new Error('这项行动不存在或已暂停')
-    const cleanedNote = validateCompletionNote(activity.difficulty, note)
+    const details = validateCompletion(activity, typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {}))
     const active = await database.completions
       .where('activityId')
       .equals(activityId)
@@ -142,7 +162,8 @@ export async function completeActivity(activityId: string, occurredOn = localDat
       activityId,
       occurredOn,
       status: 'active',
-      note: cleanedNote,
+      note: details.note,
+      durationMinutes: details.durationMinutes,
       createdAt,
     }
     const reward = rewardTable[activity.difficulty]
