@@ -39,3 +39,5 @@
 - GitHub 凭据由本机 GitHub CLI 管理，本仓库不保存凭据。
 - `2026-07-19`：采用“正式版 + 手机预览版”双通道。`main` 部署 `/life-rpg-pwa/`，`ui-redesign` 部署 `/life-rpg-pwa/preview/`；预览版使用独立数据库 `earth-online-preview-v2`、manifest 和 Service Worker scope，确认后才将同一提交快进到 `main`。
 - `2026-07-19`：V2.5.0 备份升级为 schema 5，等级状态仍保存在既有 `settings` 表中，IndexedDB 保持六张表，并兼容恢复 schema 1 至 4。
+- `2026-07-19`：GitHub Pages 环境的自定义部署分支白名单必须同时包含 `main` 和 `ui-redesign`；只让工作流监听预览分支仍会在 deploy job 被环境保护拒绝。
+- `2026-07-19`：V2.5.0 预览 tree `3a1938f` 由 Actions `29690893475` 部署；线上 Pixel 7 已验证版本、声音试听、奖励路线、五栏导航、独立预览数据库与 Service Worker、无横向溢出和离线刷新，正式根路径仍为 V2.4.0。
