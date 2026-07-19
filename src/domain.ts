@@ -86,6 +86,8 @@ export const ActivitySchema = z
     plannedOn: dateString.optional(),
     isKey: z.boolean(),
     enabled: z.boolean(),
+    revision: z.number().int().positive().optional(),
+    archivedAt: timestamp.optional(),
     createdAt: timestamp,
   })
   .superRefine((activity, context) => {
@@ -97,6 +99,9 @@ export const ActivitySchema = z
     }
     if (activity.type === 'task' && activity.goal.kind === 'tiered') {
       context.addIssue({ code: 'custom', path: ['goal'], message: '三层目标只能用于习惯' })
+    }
+    if (activity.archivedAt && (activity.enabled || activity.isKey)) {
+      context.addIssue({ code: 'custom', path: ['archivedAt'], message: '已归档活动不能启用或设为关键行为' })
     }
     if (activity.goal.kind !== 'tiered' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') && (!Number.isInteger(activity.goal.count) || activity.goal.count > 1440)) {
       context.addIssue({ code: 'custom', path: ['goal', 'count'], message: '时长目标必须是 1 至 1440 分钟的整数' })
@@ -118,6 +123,10 @@ export const CompletionSchema = z
     tierUnit: z.string().trim().min(1).max(12).optional(),
     tierThresholds: z.tuple([z.number().int().positive(), z.number().int().positive(), z.number().int().positive()]).optional(),
     achievedValue: z.number().int().positive().optional(),
+    activityRevision: z.number().int().positive().optional(),
+    titleSnapshot: z.string().trim().min(1).max(60).optional(),
+    attributeSnapshot: z.enum(attributes).optional(),
+    difficultySnapshot: z.enum(difficulties).optional(),
     createdAt: timestamp,
     undoneAt: timestamp.optional(),
   })
@@ -132,6 +141,10 @@ export const CompletionSchema = z
       if (!goal.success || completion.achievedValue !== completion.tierThresholds[completion.tier - 1]) {
         context.addIssue({ code: 'custom', path: ['achievedValue'], message: '三层完成快照与所选层次不一致' })
       }
+    }
+    const activitySnapshot = [completion.activityRevision, completion.titleSnapshot, completion.attributeSnapshot, completion.difficultySnapshot]
+    if (activitySnapshot.some((value) => value !== undefined) && activitySnapshot.some((value) => value === undefined)) {
+      context.addIssue({ code: 'custom', path: ['activityRevision'], message: '完成时的活动配置快照不完整' })
     }
   })
 

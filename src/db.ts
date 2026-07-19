@@ -74,7 +74,7 @@ export async function initializeDatabase(database = db) {
 export type NewActivity = Omit<Activity, 'id' | 'createdAt'>
 
 export async function createActivity(input: NewActivity, database = db) {
-  const activity = ActivitySchema.parse({ ...input, id: crypto.randomUUID(), createdAt: new Date().toISOString() })
+  const activity = ActivitySchema.parse({ ...input, id: crypto.randomUUID(), revision: 1, createdAt: new Date().toISOString() })
   await database.transaction('rw', database.activities, async () => {
     if (activity.enabled && activity.isKey) {
       const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
@@ -89,6 +89,7 @@ export async function setActivityKey(activityId: string, isKey: boolean, databas
   await database.transaction('rw', database.activities, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity) throw new Error('找不到这项行动')
+    if (activity.archivedAt) throw new Error('已归档活动不能设为关键行为')
     if (isKey && activity.enabled && !activity.isKey) {
       const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
@@ -101,6 +102,7 @@ export async function setActivityEnabled(activityId: string, enabled: boolean, d
   await database.transaction('rw', database.activities, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity) throw new Error('找不到这项行动')
+    if (activity.archivedAt) throw new Error('请先恢复已归档活动')
     if (enabled && activity.isKey && !activity.enabled) {
       const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
@@ -110,10 +112,64 @@ export async function setActivityEnabled(activityId: string, enabled: boolean, d
 }
 
 export async function updateActivityGoal(activityId: string, goal: Activity['goal'], database = db) {
-  await database.transaction('rw', database.activities, async () => {
+  const activity = await database.activities.get(activityId)
+  if (!activity || activity.type !== 'habit') throw new Error('找不到这项习惯')
+  await updateHabit(activityId, {
+    title: activity.title,
+    attribute: activity.attribute,
+    difficulty: activity.difficulty,
+    schedule: activity.schedule,
+    goal,
+    isKey: activity.isKey,
+  }, database)
+}
+
+export type HabitUpdate = Pick<Activity, 'title' | 'attribute' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
+
+export async function updateHabit(activityId: string, input: HabitUpdate, database = db) {
+  return database.transaction('rw', database.activities, database.completions, async () => {
     const activity = await database.activities.get(activityId)
-    if (!activity || activity.type !== 'habit') throw new Error('找不到这项习惯')
-    await database.activities.put(ActivitySchema.parse({ ...activity, goal }))
+    if (!activity || activity.type !== 'habit' || activity.archivedAt) throw new Error('找不到可编辑的习惯')
+    if (input.isKey && activity.enabled && !activity.isKey) {
+      const keyCount = await database.activities.filter((item) => item.isKey && item.enabled && !item.archivedAt).count()
+      if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
+    }
+    const legacyCompletions = await database.completions
+      .where('activityId')
+      .equals(activityId)
+      .and((completion) => completion.activityRevision === undefined)
+      .toArray()
+    if (legacyCompletions.length > 0) {
+      await database.completions.bulkPut(legacyCompletions.map((completion) => ({
+        ...completion,
+        activityRevision: activity.revision ?? 1,
+        titleSnapshot: activity.title,
+        attributeSnapshot: activity.attribute,
+        difficultySnapshot: activity.difficulty,
+      })))
+    }
+    const updated = ActivitySchema.parse({ ...activity, ...input, revision: (activity.revision ?? 1) + 1 })
+    await database.activities.put(updated)
+    return updated
+  })
+}
+
+export async function archiveHabit(activityId: string, database = db) {
+  return database.transaction('rw', database.activities, async () => {
+    const activity = await database.activities.get(activityId)
+    if (!activity || activity.type !== 'habit' || activity.archivedAt) return false
+    await database.activities.put(ActivitySchema.parse({ ...activity, enabled: false, isKey: false, archivedAt: new Date().toISOString() }))
+    return true
+  })
+}
+
+export async function restoreHabit(activityId: string, database = db) {
+  return database.transaction('rw', database.activities, async () => {
+    const activity = await database.activities.get(activityId)
+    if (!activity || activity.type !== 'habit' || !activity.archivedAt) return false
+    const { archivedAt: _archivedAt, ...rest } = activity
+    await database.activities.put(ActivitySchema.parse({ ...rest, enabled: true, isKey: false }))
+    return true
   })
 }
 
@@ -153,41 +209,45 @@ export async function completeActivity(
   return database.transaction('rw', database.activities, database.completions, database.ledgerEvents, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity || !activity.enabled) throw new Error('这项行动不存在或已暂停')
-    const details = validateCompletion(activity, typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {}))
+    const requestedDetails = typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {})
     const active = await database.completions
       .where('activityId')
       .equals(activityId)
       .and((completion) => completion.status === 'active' && (activity.type === 'task' || completion.occurredOn === occurredOn))
       .first()
     if (active) {
-      if (!isTieredGoal(activity) || !active.tier || !details.tier || details.tier <= active.tier) {
+      if (!active.tier || !active.tierThresholds || !active.tierMetric || !active.tierUnit || !requestedDetails.tier || requestedDetails.tier <= active.tier) {
         return { awarded: false as const, upgraded: false as const, completion: active, activity }
       }
       const createdAt = new Date().toISOString()
-      const thresholds = active.tierThresholds ?? activity.goal.thresholds
+      const thresholds = active.tierThresholds
+      const difficulty = active.difficultySnapshot ?? activity.difficulty
+      const attribute = active.attributeSnapshot ?? activity.attribute
+      const title = active.titleSnapshot ?? activity.title
       const event = LedgerEventSchema.parse({
-        id: `reward:${active.id}:tier:${details.tier}`,
+        id: `reward:${active.id}:tier:${requestedDetails.tier}`,
         kind: 'reward',
         sourceId: active.id,
         occurredOn,
-        title: `层次升级：${activity.title}（${details.tier === 2 ? '标准' : '突破'}）`,
-        attribute: activity.attribute,
-        xpDelta: getTierUpgradeXp(activity.difficulty, active.tier, details.tier),
+        title: `层次升级：${title}（${requestedDetails.tier === 2 ? '标准' : '突破'}）`,
+        attribute,
+        xpDelta: getTierUpgradeXp(difficulty, active.tier, requestedDetails.tier),
         coinDelta: 0,
         createdAt,
       })
       const completion: Completion = {
         ...active,
-        tier: details.tier,
-        tierMetric: active.tierMetric ?? activity.goal.metric,
-        tierUnit: active.tierUnit ?? activity.goal.unit,
+        tier: requestedDetails.tier,
+        tierMetric: active.tierMetric,
+        tierUnit: active.tierUnit,
         tierThresholds: thresholds,
-        achievedValue: thresholds[details.tier - 1],
+        achievedValue: thresholds[requestedDetails.tier - 1],
       }
       await database.completions.put(completion)
       await database.ledgerEvents.add(event)
       return { awarded: true as const, upgraded: true as const, completion, event, activity }
     }
+    const details = validateCompletion(activity, requestedDetails)
     if (activity.schedule.kind === 'weekly') {
       const weekStart = startOfWeek(new Date(`${occurredOn}T12:00:00`))
       const weekEnd = addDays(weekStart, 6)
@@ -196,7 +256,10 @@ export async function completeActivity(
         .equals(activityId)
         .and(
           (completion) =>
-            completion.status === 'active' && completion.occurredOn >= weekStart && completion.occurredOn <= weekEnd,
+            completion.status === 'active' &&
+            completion.occurredOn >= weekStart &&
+            completion.occurredOn <= weekEnd &&
+            (completion.activityRevision ?? 1) === (activity.revision ?? 1),
         )
         .count()
       if (weeklyCount >= activity.schedule.times) return { awarded: false as const, activity }
@@ -215,6 +278,10 @@ export async function completeActivity(
       tierUnit: isTieredGoal(activity) ? activity.goal.unit : undefined,
       tierThresholds: isTieredGoal(activity) ? activity.goal.thresholds : undefined,
       achievedValue: isTieredGoal(activity) && details.tier ? activity.goal.thresholds[details.tier - 1] : undefined,
+      activityRevision: activity.revision ?? 1,
+      titleSnapshot: activity.title,
+      attributeSnapshot: activity.attribute,
+      difficultySnapshot: activity.difficulty,
       createdAt,
     }
     const reward = isTieredGoal(activity) && details.tier
@@ -238,9 +305,18 @@ export async function completeActivity(
 }
 
 export async function undoCompletion(completionId: string, database = db) {
+  return undoCompletionOn(completionId, undefined, database)
+}
+
+export async function cancelTodayCompletion(completionId: string, occurredOn = localDate(), database = db) {
+  return undoCompletionOn(completionId, occurredOn, database)
+}
+
+function undoCompletionOn(completionId: string, requiredOn: string | undefined, database: LifeRpgDatabase) {
   return database.transaction('rw', database.completions, database.ledgerEvents, async () => {
     const completion = await database.completions.get(completionId)
     if (!completion || completion.status !== 'active') return false
+    if (requiredOn && completion.occurredOn !== requiredOn) throw new Error('只能取消今天的完成')
     const rewards = await database.ledgerEvents
       .where('sourceId')
       .equals(completion.id)

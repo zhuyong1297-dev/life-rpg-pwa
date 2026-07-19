@@ -43,6 +43,20 @@ describe('领域规则', () => {
     })).toThrow('快照与所选层次不一致')
   })
 
+  it('归档活动与完成版本快照必须保持完整', () => {
+    const baseActivity = {
+      id: 'habit', title: '示例习惯', type: 'habit', attribute: '专注', difficulty: '普通',
+      goal: { count: 1, unit: '次' }, schedule: { kind: 'daily' }, revision: 2,
+      isKey: false, enabled: false, archivedAt: '2026-01-05T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    expect(ActivitySchema.parse(baseActivity)).toBeTruthy()
+    expect(() => ActivitySchema.parse({ ...baseActivity, enabled: true })).toThrow('已归档活动不能启用')
+    expect(() => CompletionSchema.parse({
+      id: 'completion', activityId: 'habit', occurredOn: '2026-01-05', status: 'active', activityRevision: 2,
+      titleSnapshot: '示例习惯', createdAt: '2026-01-05T00:00:00.000Z',
+    })).toThrow('完成时的活动配置快照不完整')
+  })
+
   it('按当前等级乘以 100 计算升级经验', () => {
     expect(getLevel(99)).toMatchObject({ level: 1, current: 99, needed: 100 })
     expect(getLevel(100)).toMatchObject({ level: 2, current: 0, needed: 200 })

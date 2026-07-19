@@ -2,13 +2,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
+  archiveHabit,
+  cancelTodayCompletion,
   completeActivity,
   createActivity,
   getSnapshot,
   initializeDatabase,
   redeemReward,
+  restoreHabit,
   undoCompletion,
   updateActivityGoal,
+  updateHabit,
   type NewActivity,
 } from '../db'
 import { calculateStats } from '../domain'
@@ -139,6 +143,88 @@ describe('IndexedDB 事务', () => {
     expect((await database.activities.get(activity.id))?.goal).toMatchObject({ kind: 'tiered', thresholds: [10, 30, 60] })
   })
 
+  it('完整编辑习惯只影响下一次完成，旧完成仍按快照升级', async () => {
+    const activity = await createActivity(tieredHabit, database)
+    const first = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    if (!first.awarded) throw new Error('测试前置完成失败')
+    const originalLedger = await database.ledgerEvents.toArray()
+    const {
+      activityRevision: _activityRevision,
+      titleSnapshot: _titleSnapshot,
+      attributeSnapshot: _attributeSnapshot,
+      difficultySnapshot: _difficultySnapshot,
+      ...legacyCompletion
+    } = first.completion
+    await database.completions.put(legacyCompletion)
+
+    const updated = await updateHabit(activity.id, {
+      title: '修改后的习惯',
+      attribute: '体魄',
+      difficulty: 'Boss',
+      schedule: { kind: 'weekly', times: 2 },
+      goal: { count: 1, unit: '次' },
+      isKey: false,
+    }, database)
+    expect(updated.revision).toBe(2)
+    expect(await database.ledgerEvents.toArray()).toEqual(originalLedger)
+    expect(await database.completions.get(first.completion.id)).toMatchObject({
+      activityRevision: 1,
+      titleSnapshot: '示例习惯',
+      attributeSnapshot: '专注',
+      difficultySnapshot: '普通',
+    })
+
+    const upgraded = await completeActivity(activity.id, '2026-01-05', { tier: 2 }, database)
+    expect(upgraded).toMatchObject({ awarded: true, upgraded: true })
+    expect((await database.ledgerEvents.get(`reward:${first.completion.id}:tier:2`))).toMatchObject({
+      title: '层次升级：示例习惯（标准）',
+      attribute: '专注',
+      xpDelta: 2,
+    })
+    await expect(completeActivity(activity.id, '2026-01-06', undefined, database)).rejects.toThrow('必须填写实际成果')
+  })
+
+  it('每周奖励额度在编辑后按新版本重新计算', async () => {
+    const activity = await createActivity({ ...dailyHabit, schedule: { kind: 'weekly', times: 1 } }, database)
+    await completeActivity(activity.id, '2026-01-05', undefined, database)
+    await updateHabit(activity.id, {
+      title: activity.title,
+      attribute: activity.attribute,
+      difficulty: activity.difficulty,
+      schedule: { kind: 'weekly', times: 1 },
+      goal: activity.goal,
+      isKey: activity.isKey,
+    }, database)
+    expect((await completeActivity(activity.id, '2026-01-06', undefined, database)).awarded).toBe(true)
+  })
+
+  it('归档保留历史并可恢复，已归档习惯不能继续完成', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    await completeActivity(activity.id, '2026-01-05', undefined, database)
+    expect(await archiveHabit(activity.id, database)).toBe(true)
+    expect(await database.activities.get(activity.id)).toMatchObject({ enabled: false, isKey: false })
+    expect((await database.activities.get(activity.id))?.archivedAt).toBeTruthy()
+    expect(await database.completions.count()).toBe(1)
+    expect(await database.ledgerEvents.count()).toBe(1)
+    await expect(completeActivity(activity.id, '2026-01-06', undefined, database)).rejects.toThrow('不存在或已暂停')
+    expect(await restoreHabit(activity.id, database)).toBe(true)
+    expect(await database.activities.get(activity.id)).toMatchObject({ enabled: true, isKey: false })
+    expect((await database.activities.get(activity.id))?.archivedAt).toBeUndefined()
+  })
+
+  it('只能持久取消今天的完成，重复取消幂等且之后可重做', async () => {
+    const activity = await createActivity(tieredHabit, database)
+    const first = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    if (!first.awarded) throw new Error('测试前置完成失败')
+    await completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)
+    await expect(cancelTodayCompletion(first.completion.id, '2026-01-06', database)).rejects.toThrow('只能取消今天')
+    expect(await cancelTodayCompletion(first.completion.id, '2026-01-05', database)).toBe(true)
+    expect(await cancelTodayCompletion(first.completion.id, '2026-01-05', database)).toBe(false)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 0, coins: 0 })
+    expect((await completeActivity(activity.id, '2026-01-05', { tier: 2 }, database)).awarded).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 8, coins: 5 })
+  })
+
   it('余额不足拒绝兑换，余额足够时追加负金币流水', async () => {
     const reward = (await database.rewards.toArray())[0]
     await expect(redeemReward(reward.id, database)).rejects.toThrow('金币余额不足')
@@ -163,6 +249,13 @@ describe('IndexedDB 事务', () => {
     await createActivity(dailyHabit, database)
     const current = await createBackup(database)
     await restoreBackup({ ...current, schemaVersion: 1, appVersion: '2.0.0' }, database)
+    expect(await database.activities.count()).toBe(1)
+  })
+
+  it('可以恢复 V2.1.0 的 schema 2 备份', async () => {
+    await createActivity(dailyHabit, database)
+    const current = await createBackup(database)
+    await restoreBackup({ ...current, schemaVersion: 2, appVersion: '2.1.0' }, database)
     expect(await database.activities.count()).toBe(1)
   })
 })

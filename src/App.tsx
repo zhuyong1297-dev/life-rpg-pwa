@@ -10,12 +10,13 @@ import {
   Gift,
   Home,
   Pause,
+  Pencil,
   Plus,
   RotateCcw,
   Settings as SettingsIcon,
   ShieldCheck,
-  SlidersHorizontal,
   Star,
+  Trash2,
   Upload,
   UserRound,
   Vibrate,
@@ -25,6 +26,8 @@ import {
 } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
+  archiveHabit,
+  cancelTodayCompletion,
   completeActivity,
   createActivity,
   db,
@@ -35,9 +38,11 @@ import {
   setActivityEnabled,
   setActivityKey,
   undoCompletion,
-  updateActivityGoal,
+  updateHabit,
+  restoreHabit,
   updatePreferences,
   type CompletionDetails,
+  type HabitUpdate,
   type NewActivity,
 } from './db'
 import {
@@ -115,6 +120,8 @@ function App() {
   const [noteActivity, setNoteActivity] = useState<Activity | null>(null)
   const [tierActivity, setTierActivity] = useState<Activity | null>(null)
   const [goalActivity, setGoalActivity] = useState<Activity | null>(null)
+  const [completionActivity, setCompletionActivity] = useState<Activity | null>(null)
+  const [archiveActivity, setArchiveActivity] = useState<Activity | null>(null)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
 
   const refresh = useCallback(async () => {
@@ -244,6 +251,7 @@ function App() {
             tasks={tasks}
             activeCompletion={activeCompletion}
             onComplete={requestCompletion}
+            onCompleted={setCompletionActivity}
             onCreate={() => setCreateOpen(true)}
           />
         )}
@@ -284,6 +292,16 @@ function App() {
             preferences={preferences}
             activities={snapshot.activities}
             onEditGoal={setGoalActivity}
+            onArchive={setArchiveActivity}
+            onRestore={async (activityId) => {
+              try {
+                await restoreHabit(activityId)
+                await refresh()
+                setNotice('习惯已恢复')
+              } catch (error) {
+                setNotice(errorMessage(error))
+              }
+            }}
             onPreferences={async (value) => {
               await updatePreferences(value)
               await refresh()
@@ -327,15 +345,54 @@ function App() {
         />
       )}
       {goalActivity && (
-        <GoalSettingsModal
+        <EditHabitModal
           activity={goalActivity}
           onClose={() => setGoalActivity(null)}
-          onSave={async (goal) => {
+          onSave={async (input) => {
             try {
-              await updateActivityGoal(goalActivity.id, goal)
+              await updateHabit(goalActivity.id, input)
               setGoalActivity(null)
               await refresh()
-              setNotice('习惯目标已更新，历史记录保持不变')
+              setNotice('习惯已更新，历史完成和账本保持不变')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
+        />
+      )}
+      {completionActivity && activeCompletion(completionActivity) && (
+        <CompletionActionsModal
+          activity={completionActivity}
+          completion={activeCompletion(completionActivity)!}
+          onClose={() => setCompletionActivity(null)}
+          onUpgrade={(tier) => {
+            setCompletionActivity(null)
+            void finishActivity(completionActivity, { tier })
+          }}
+          onCancel={async () => {
+            const completion = activeCompletion(completionActivity)
+            if (!completion) return
+            try {
+              await cancelTodayCompletion(completion.id, today)
+              setCompletionActivity(null)
+              await refresh()
+              setNotice('今天的完成已取消，奖励已用修正流水抵消')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
+        />
+      )}
+      {archiveActivity && (
+        <ArchiveHabitModal
+          activity={archiveActivity}
+          onClose={() => setArchiveActivity(null)}
+          onConfirm={async () => {
+            try {
+              await archiveHabit(archiveActivity.id)
+              setArchiveActivity(null)
+              await refresh()
+              setNotice('习惯已归档，历史记录仍然保留')
             } catch (error) {
               setNotice(errorMessage(error))
             }
@@ -388,6 +445,7 @@ function TodayPage({
   tasks,
   activeCompletion,
   onComplete,
+  onCompleted,
   onCreate,
 }: {
   today: string
@@ -398,6 +456,7 @@ function TodayPage({
   tasks: Activity[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
   onCreate: () => void
 }) {
   const stage = getCharacterStage(level.level)
@@ -424,6 +483,7 @@ function TodayPage({
         activities={keyActivities}
         activeCompletion={activeCompletion}
         onComplete={onComplete}
+        onCompleted={onCompleted}
         empty="还没有关键行为"
       />
       <ActivitySection
@@ -431,6 +491,7 @@ function TodayPage({
         activities={otherHabits}
         activeCompletion={activeCompletion}
         onComplete={onComplete}
+        onCompleted={onCompleted}
         empty="今天没有其他习惯"
       />
       <ActivitySection
@@ -438,6 +499,7 @@ function TodayPage({
         activities={tasks}
         activeCompletion={activeCompletion}
         onComplete={onComplete}
+        onCompleted={onCompleted}
         empty="今天没有一次性任务"
       />
 
@@ -455,6 +517,7 @@ function ActivitySection({
   activities,
   activeCompletion,
   onComplete,
+  onCompleted,
   empty,
 }: {
   title: string
@@ -462,6 +525,7 @@ function ActivitySection({
   activities: Activity[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
   empty: string
 }) {
   return (
@@ -475,8 +539,7 @@ function ActivitySection({
         {activities.map((activity) => {
           const completion = activeCompletion(activity)
           const complete = Boolean(completion)
-          const canUpgrade = isTieredGoal(activity) && Boolean(completion?.tier && completion.tier < 3)
-          const disabled = complete && !canUpgrade
+          const canUpgrade = Boolean(completion?.tier && completion.tier < 3 && completion.tierThresholds)
           const reward = rewardTable[activity.difficulty]
           return (
             <article className={complete ? 'activity-row complete' : 'activity-row'} key={activity.id}>
@@ -491,10 +554,9 @@ function ActivitySection({
               <button
                 className="complete-button"
                 type="button"
-                title={canUpgrade ? '升级层次' : complete ? '已完成' : `完成 ${activity.title}`}
-                aria-label={canUpgrade ? `升级 ${activity.title}` : complete ? `${activity.title} 已完成` : `完成 ${activity.title}`}
-                disabled={disabled}
-                onClick={() => onComplete(activity)}
+                title={complete ? '查看完成记录' : `完成 ${activity.title}`}
+                aria-label={complete ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}
+                onClick={() => complete ? onCompleted(activity) : onComplete(activity)}
               >
                 {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
               </button>
@@ -701,6 +763,8 @@ function SettingsPage({
   onRefresh,
   onNotice,
   onEditGoal,
+  onArchive,
+  onRestore,
 }: {
   preferences: Preferences
   activities: Activity[]
@@ -708,7 +772,12 @@ function SettingsPage({
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
   onEditGoal: (activity: Activity) => void
+  onArchive: (activity: Activity) => void
+  onRestore: (activityId: string) => Promise<void>
 }) {
+  const activeActivities = activities.filter((activity) => !activity.archivedAt)
+  const archivedActivities = activities.filter((activity) => Boolean(activity.archivedAt))
+
   async function toggleNotifications() {
     if (!preferences.notifications) {
       const permission = await requestNotificationPermission()
@@ -772,14 +841,14 @@ function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><h2>活动管理</h2></div>
-        {activities.length === 0 && <p className="empty-state">还没有活动</p>}
-        {activities.map((activity) => (
+        {activeActivities.length === 0 && <p className="empty-state">还没有活动</p>}
+        {activeActivities.map((activity) => (
           <div className="manage-row" key={activity.id}>
             <div><strong>{activity.title}</strong><span>{activity.attribute} · {activity.difficulty}</span></div>
             <div className="manage-actions">
               {activity.type === 'habit' && (
-                <button className="icon-button" type="button" title="设置习惯目标" onClick={() => onEditGoal(activity)}>
-                  <SlidersHorizontal aria-hidden="true" />
+                <button className="icon-button" type="button" title="编辑习惯" onClick={() => onEditGoal(activity)}>
+                  <Pencil aria-hidden="true" />
                 </button>
               )}
               <button
@@ -799,9 +868,29 @@ function SettingsPage({
                   try { await setActivityEnabled(activity.id, !activity.enabled); await onRefresh() } catch (error) { onNotice(errorMessage(error)) }
                 }}
               >{activity.enabled ? <Pause aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}</button>
+              {activity.type === 'habit' && (
+                <button className="icon-button danger-icon" type="button" title="归档习惯" onClick={() => onArchive(activity)}>
+                  <Trash2 aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
         ))}
+        {archivedActivities.length > 0 && (
+          <details className="archive-section">
+            <summary>已归档（{archivedActivities.length}）</summary>
+            <div className="archive-list">
+              {archivedActivities.map((activity) => (
+                <div className="manage-row archived-row" key={activity.id}>
+                  <div><strong>{activity.title}</strong><span>{activity.attribute} · {activity.difficulty}</span></div>
+                  <button className="restore-button" type="button" onClick={() => void onRestore(activity.id)}>
+                    <RotateCcw aria-hidden="true" />恢复
+                  </button>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </section>
 
       <section className="content-section settings-section">
@@ -814,7 +903,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.1.0</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.2.0</footer>
     </>
   )
 }
@@ -988,10 +1077,16 @@ function TierPickerModal({
   )
 }
 
-function GoalSettingsModal({ activity, onClose, onSave }: { activity: Activity; onClose: () => void; onSave: (goal: Activity['goal']) => void }) {
+function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onClose: () => void; onSave: (input: HabitUpdate) => void }) {
   const tiered = isTieredGoal(activity)
   const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const initialMetric: TierMetric = tiered ? activity.goal.metric : isDurationGoal(activity) ? 'duration' : 'count'
+  const [title, setTitle] = useState(activity.title)
+  const [attribute, setAttribute] = useState<Attribute>(activity.attribute)
+  const [difficulty, setDifficulty] = useState<Difficulty>(activity.difficulty)
+  const [frequency, setFrequency] = useState<'daily' | 'weekly'>(activity.schedule.kind === 'weekly' ? 'weekly' : 'daily')
+  const [weeklyTimes, setWeeklyTimes] = useState(activity.schedule.kind === 'weekly' ? activity.schedule.times : 3)
+  const [isKey, setIsKey] = useState(activity.isKey)
   const [mode, setMode] = useState<'legacy' | 'single' | 'tiered'>(tiered ? 'tiered' : legacy ? 'legacy' : 'single')
   const [metric, setMetric] = useState<TierMetric>(initialMetric)
   const [unit, setUnit] = useState(tiered ? activity.goal.unit : initialMetric === 'count' && activity.goal.kind !== 'tiered' ? activity.goal.unit : '次')
@@ -1005,20 +1100,40 @@ function GoalSettingsModal({ activity, onClose, onSave }: { activity: Activity; 
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (mode === 'legacy') return onSave(activity.goal)
-    if (mode === 'single') return onSave({ kind: 'count', count: 1, unit: '次' })
+    const goal: Activity['goal'] = mode === 'legacy'
+      ? activity.goal
+      : mode === 'single'
+        ? { kind: 'count', count: 1, unit: '次' }
+        : {
+            kind: 'tiered',
+            metric,
+            unit: metric === 'duration' ? '分钟' : unit,
+            thresholds: thresholds.map(Number) as [number, number, number],
+          }
     onSave({
-      kind: 'tiered',
-      metric,
-      unit: metric === 'duration' ? '分钟' : unit,
-      thresholds: thresholds.map(Number) as [number, number, number],
+      title: title.trim(),
+      attribute,
+      difficulty,
+      schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
+      goal,
+      isKey,
     })
   }
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <form className="modal" onSubmit={submit} aria-labelledby="goal-settings-title">
-        <div className="modal-header"><h2 id="goal-settings-title">{activity.title}</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+      <form className="modal" onSubmit={submit} aria-labelledby="edit-habit-title">
+        <div className="modal-header"><h2 id="edit-habit-title">编辑习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <label className="full-field">习惯名称<input required maxLength={40} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <div className="field-grid">
+          <label>属性<select value={attribute} onChange={(event) => setAttribute(event.target.value as Attribute)}>{attributes.map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>
+        </div>
+        <div className="field-grid">
+          <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>
+          {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={7} required value={weeklyTimes} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
+        </div>
+        <span className="form-section-label">目标设置</span>
         <div className="segmented-control" aria-label="目标设置">
           {legacy && <button type="button" className={mode === 'legacy' ? 'selected' : ''} onClick={() => setMode('legacy')}>保留原目标</button>}
           <button type="button" className={mode === 'single' ? 'selected' : ''} onClick={() => setMode('single')}>单次完成</button>
@@ -1028,8 +1143,93 @@ function GoalSettingsModal({ activity, onClose, onSave }: { activity: Activity; 
         {mode === 'tiered' && (
           <TierGoalFields metric={metric} thresholds={thresholds} unit={unit} onMetric={setMetric} onThresholds={setThresholds} onUnit={setUnit} />
         )}
-        <button className="primary-action" type="submit"><Check aria-hidden="true" />保存目标</button>
+        <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />设为关键行为</label>
+        <button className="primary-action" type="submit"><Check aria-hidden="true" />保存修改</button>
       </form>
+    </div>
+  )
+}
+
+function CompletionActionsModal({
+  activity,
+  completion,
+  onClose,
+  onUpgrade,
+  onCancel,
+}: {
+  activity: Activity
+  completion: Completion
+  onClose: () => void
+  onUpgrade: (tier: TierLevel) => void
+  onCancel: () => Promise<void>
+}) {
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const difficulty = completion.difficultySnapshot ?? activity.difficulty
+  const thresholds = completion.tierThresholds
+  const currentTier = completion.tier
+  const metric = completion.tierMetric
+  const unit = completion.tierUnit
+  const canUpgrade = Boolean(currentTier && currentTier < 3 && thresholds && metric && unit)
+  const canCancel = completion.occurredOn === localDate()
+  const currentReward = currentTier ? getTierReward(difficulty, currentTier) : rewardTable[difficulty]
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal" aria-labelledby="completion-actions-title">
+        <div className="modal-header">
+          <div><span className={`difficulty difficulty-${difficulty}`}>{difficulty}</span><h2 id="completion-actions-title">完成记录</h2></div>
+          <button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button>
+        </div>
+        <div className="completion-summary">
+          <CheckCircle2 aria-hidden="true" />
+          <div><strong>{completion.titleSnapshot ?? activity.title}</strong><span>{currentTier ? `${tierLabels[currentTier]}层 · ` : ''}+{currentReward.xp} XP / +{currentReward.coins} 金币</span></div>
+        </div>
+        {canUpgrade && (
+          <div className="completion-upgrades">
+            <span className="form-section-label">升级到更高层</span>
+            <div className="tier-choice-list">
+              {tierLevels.filter((tier) => tier > currentTier!).map((tier) => {
+                const reward = getTierReward(difficulty, tier)
+                return (
+                  <button key={tier} type="button" className={`tier-choice tier-choice-${tier}`} onClick={() => onUpgrade(tier)} aria-label={`升级到 ${tierLabels[tier]}层`}>
+                    <span><b>{tierLabels[tier]}层</b><small>{formatGoalValue(thresholds![tier - 1], metric!, unit!)}</small></span>
+                    <strong>再 +{reward.xp - currentReward.xp} XP</strong>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        {!canCancel ? (
+          <p className="historical-completion-note">这条完成不是今天的记录，不能取消。</p>
+        ) : !confirmingCancel ? (
+          <button className="danger-action" type="button" onClick={() => setConfirmingCancel(true)}><RotateCcw aria-hidden="true" />取消今天的完成</button>
+        ) : (
+          <div className="cancel-confirmation" role="alert">
+            <strong>确认取消今天的完成？</strong>
+            <p>系统会追加修正流水抵消奖励；历史记录不会被删除。</p>
+            <div className="confirmation-actions">
+              <button type="button" onClick={() => setConfirmingCancel(false)}>返回</button>
+              <button className="danger-action" type="button" onClick={() => void onCancel()}>确认取消</button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function ArchiveHabitModal({ activity, onClose, onConfirm }: { activity: Activity; onClose: () => void; onConfirm: () => Promise<void> }) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal" aria-labelledby="archive-habit-title">
+        <div className="modal-header"><h2 id="archive-habit-title">归档习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <p className="modal-description">“{activity.title}”将从今天和默认管理列表隐藏，历史完成、奖励流水和复盘记录会保留，之后可以恢复。</p>
+        <div className="confirmation-actions">
+          <button type="button" onClick={onClose}>返回</button>
+          <button className="danger-action" type="button" onClick={() => void onConfirm()}><Trash2 aria-hidden="true" />确认归档</button>
+        </div>
+      </section>
     </div>
   )
 }

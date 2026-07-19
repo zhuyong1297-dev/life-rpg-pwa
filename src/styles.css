@@ -140,6 +140,14 @@ label textarea { min-height: 80px; resize: vertical; }
 .manage-row strong, .manage-row span { overflow-wrap: anywhere; }
 .manage-row span { color: var(--muted); font-size: 12px; }
 .manage-actions { display: flex; flex: 0 0 auto; }
+.danger-icon { color: var(--coral); }
+.archive-section { margin-top: 12px; border-top: 1px solid var(--line); }
+.archive-section summary { min-height: 46px; display: flex; align-items: center; color: var(--muted); font-size: 13px; cursor: pointer; }
+.archive-list { border-top: 1px solid var(--line); }
+.archived-row { padding-left: 10px; color: var(--muted); }
+.restore-button, .confirmation-actions > button { min-height: 40px; padding: 8px 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.restore-button { flex: 0 0 auto; color: var(--green); }
+.restore-button svg { width: 17px; height: 17px; }
 .data-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 0 14px; }
 .file-button { color: var(--ink); font-size: 13px; }
 .file-button input { display: none; }
@@ -154,6 +162,7 @@ label textarea { min-height: 80px; resize: vertical; }
 .modal > .segmented-control { margin-bottom: 14px; }
 .goal-type-block { margin-top: 14px; }
 .goal-type-block > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+.form-section-label { display: block; margin: 16px 0 6px; color: var(--muted); font-size: 13px; }
 .modal .primary-action { width: 100%; margin-top: 18px; }
 .checkbox-field { min-height: 46px; margin-top: 12px; display: flex; align-items: center; gap: 8px; color: var(--ink); }
 .checkbox-field input { width: 19px; height: 19px; margin: 0; accent-color: var(--green); }
@@ -170,6 +179,19 @@ label textarea { min-height: 80px; resize: vertical; }
 .tier-choice b { font-size: 16px; }
 .tier-choice small { color: var(--muted); overflow-wrap: anywhere; }
 .tier-choice strong { flex: 0 0 auto; color: var(--green); font-size: 13px; }
+.completion-summary { min-height: 64px; padding: 12px; display: flex; align-items: center; gap: 12px; background: var(--green-soft); border-radius: 6px; }
+.completion-summary > svg { color: var(--green); }
+.completion-summary > div { min-width: 0; display: grid; gap: 4px; }
+.completion-summary strong { overflow-wrap: anywhere; }
+.completion-summary span { color: var(--muted); font-size: 12px; }
+.completion-upgrades { margin-top: 16px; }
+.danger-action { min-height: 44px; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #d99a94; border-radius: 6px; background: #fff4f2; color: var(--coral); font-weight: 700; cursor: pointer; }
+.modal > .danger-action { width: 100%; margin-top: 18px; }
+.cancel-confirmation { margin-top: 18px; padding: 14px; background: #fff4f2; border: 1px solid #ecc1bd; border-radius: 6px; }
+.cancel-confirmation p, .modal-description { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.historical-completion-note { margin: 18px 0 0; padding: 12px; color: var(--muted); background: var(--surface-soft); border-radius: 6px; font-size: 13px; }
+.confirmation-actions { margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px; }
+.confirmation-actions .danger-action { border-color: var(--coral); background: var(--coral); color: white; }
 
 .feedback-overlay { position: fixed; z-index: 60; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 142px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 12px; padding: 13px; color: white; background: #173c31; border: 1px solid #2f755f; border-radius: 8px; box-shadow: 0 18px 44px rgba(10, 28, 22, 0.35); }
 .feedback-overlay > .traveler-portrait { width: 74px; height: 74px; border: 2px solid #76b99f; border-radius: 6px; }
@@ -206,6 +228,8 @@ label textarea { min-height: 80px; resize: vertical; }
   .data-actions { grid-template-columns: 1fr; }
   .tier-threshold-grid { grid-template-columns: 1fr; }
   .tier-choice { align-items: flex-start; }
+  .manage-row { align-items: flex-start; padding: 9px 0; }
+  .manage-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 84px; }
   .feedback-overlay { grid-template-columns: 58px minmax(0, 1fr); align-items: start; }
   .feedback-overlay > .traveler-portrait { width: 58px; height: 58px; }
   .feedback-overlay .undo-button { grid-column: 1 / -1; justify-content: center; width: 100%; }

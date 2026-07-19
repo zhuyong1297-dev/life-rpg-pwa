@@ -1,4 +1,4 @@
-# 地球 Online V2.1.0 技术规格
+# 地球 Online V2.2.0 技术规格
 
 ## 1. 系统结构
 
@@ -20,8 +20,9 @@
 - `Activity.type` 为 `habit | task`。
 - `Activity.attribute` 为六项属性之一，`difficulty` 为四档难度之一。
 - `Activity.schedule` 支持每天和每周 N 次；`goal.kind` 支持旧次数、旧时长和 `tiered` 三层目标；任务可有计划日期。
+- `Activity.revision` 在每次完整编辑时递增；`archivedAt` 表示可恢复归档，归档活动必须同时关闭启用和关键状态。
 - `tiered` 目标保存 `duration | count` 度量、共享单位和三个严格递增阈值。
-- `Completion.status` 为 `active | undone`，保存可选成果备注、旧时长实际分钟，以及三层、度量、单位和阈值快照。
+- `Completion.status` 为 `active | undone`，保存活动版本、名称、属性、难度快照，以及可选成果备注、旧时长实际分钟、三层、度量、单位和阈值快照。
 - `LedgerEvent.kind` 为 `reward | correction | redemption`，保存 XP、金币和可选属性。
 - 每个 reward event 使用确定性幂等键；correction 引用被撤销的 reward event。
 
@@ -35,11 +36,18 @@
 4. 同日升级更新 completion 的最高层次并追加 XP 差额事件，金币差额固定为零。
 5. 事务提交后才触发界面反馈、振动和通知。
 
+### 编辑与归档
+
+1. 完整编辑只更新活动定义并递增 `revision`，不修改完成或账本。
+2. 当前完成的层次升级使用 completion 快照；每周奖励额度只统计当前活动版本的完成。
+3. 归档只写入 `archivedAt` 并关闭启用和关键状态；恢复清除 `archivedAt`，默认启用且不自动设为关键行为。
+
 ### 撤销
 
 1. 找到有效 completion 和全部关联 reward event。
 2. 在同一事务把 completion 标记为 `undone`，并为首次奖励和升级差额分别追加反向 correction。
 3. 不删除任何完成或账本记录。
+4. 反馈层撤销不限制日期；完成记录中的持久取消只接受本地今天，且界面要求二次确认。
 
 ### 兑换
 
@@ -48,7 +56,7 @@
 
 ## 5. 导入导出
 
-- JSON schema 2 备份包含 `appVersion`、`exportedAt` 和六张表的完整内容，并兼容读取 V2.0.0 schema 1。
+- JSON schema 3 备份包含 `appVersion`、`exportedAt` 和六张表的完整内容，并兼容读取 V2.0.0 schema 1 与 V2.1.0 schema 2。
 - Zod 先在事务外校验结构和业务约束。
 - 校验通过后在一个 `rw` 事务中清空并批量写入全部表；任何异常自动回滚。
 - Markdown 从当前账本派生，只用于人类阅读。
@@ -63,7 +71,7 @@
 ## 7. 测试分层
 
 - Vitest：奖励、等级、目标、关键行为上限、余额、撤销和幂等。
-- fake-indexeddb：事务原子性、双击防重、撤销后重做、导入回滚。
+- fake-indexeddb：事务原子性、双击防重、撤销后重做、完整编辑快照、归档恢复、当天取消和导入回滚。
 - Playwright：完成证据、反馈速度、导航、响应式、备份恢复、离线启动和 PWA 资源。
 - 发布前扫描源码、`dist` 和 Git 历史中的个人数据与凭据模式。
 
