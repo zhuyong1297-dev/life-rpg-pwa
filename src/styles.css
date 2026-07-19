@@ -86,6 +86,7 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .difficulty-普通 { color: var(--green); background: var(--green-soft); }
 .difficulty-困难 { color: var(--amber); background: var(--amber-soft); }
 .difficulty-Boss { color: var(--coral); background: #fde4e1; }
+.tier-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; color: var(--blue); background: #e5eef8; font-size: 11px; font-weight: 700; }
 .complete-button { width: 46px; height: 46px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #aab9b1; border-radius: 50%; background: var(--surface); color: var(--green); cursor: pointer; }
 .complete-button:not(:disabled):active { transform: scale(0.94); }
 .activity-row.complete .complete-button { color: white; border-color: var(--green); background: var(--green); opacity: 1; }
@@ -119,6 +120,8 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .review-title span { color: var(--muted); font-size: 12px; }
 .review-title b { color: var(--green); font-size: 22px; }
 .duration-summary { margin: 10px 0 0; color: var(--blue); font-size: 12px; font-weight: 700; }
+.tier-review-summary { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--blue); font-size: 12px; }
+.tier-review-summary strong { flex-basis: 100%; }
 .review-fields, .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .review-fields { margin: 16px 0 12px; }
 label { color: var(--muted); font-size: 13px; }
@@ -157,6 +160,16 @@ label textarea { min-height: 80px; resize: vertical; }
 .checkbox-field svg { color: var(--amber); }
 .character-count { color: var(--muted); font-size: 12px; text-align: right; }
 .field-hint { display: block; margin-top: 5px; color: var(--blue); font-size: 12px; }
+.tier-goal-fields { margin-top: 14px; }
+.tier-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.legacy-goal { padding: 12px; color: var(--blue); background: #edf4fb; border-radius: 6px; }
+.tier-choice-list { display: grid; gap: 10px; }
+.tier-choice { width: 100%; min-height: 68px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); text-align: left; cursor: pointer; }
+.tier-choice:hover { border-color: var(--green); background: var(--surface-soft); }
+.tier-choice span { min-width: 0; display: grid; gap: 4px; }
+.tier-choice b { font-size: 16px; }
+.tier-choice small { color: var(--muted); overflow-wrap: anywhere; }
+.tier-choice strong { flex: 0 0 auto; color: var(--green); font-size: 13px; }
 
 .feedback-overlay { position: fixed; z-index: 60; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 142px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 12px; padding: 13px; color: white; background: #173c31; border: 1px solid #2f755f; border-radius: 8px; box-shadow: 0 18px 44px rgba(10, 28, 22, 0.35); }
 .feedback-overlay > .traveler-portrait { width: 74px; height: 74px; border: 2px solid #76b99f; border-radius: 6px; }
@@ -191,6 +204,8 @@ label textarea { min-height: 80px; resize: vertical; }
   .character-progress > strong { font-size: 20px; }
   .attribute-grid { grid-template-columns: 1fr; gap: 0; }
   .data-actions { grid-template-columns: 1fr; }
+  .tier-threshold-grid { grid-template-columns: 1fr; }
+  .tier-choice { align-items: flex-start; }
   .feedback-overlay { grid-template-columns: 58px minmax(0, 1fr); align-items: start; }
   .feedback-overlay > .traveler-portrait { width: 58px; height: 58px; }
   .feedback-overlay .undo-button { grid-column: 1 / -1; justify-content: center; width: 100%; }

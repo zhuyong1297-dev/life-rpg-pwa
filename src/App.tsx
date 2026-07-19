@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Settings as SettingsIcon,
   ShieldCheck,
+  SlidersHorizontal,
   Star,
   Upload,
   UserRound,
@@ -34,6 +35,7 @@ import {
   setActivityEnabled,
   setActivityKey,
   undoCompletion,
+  updateActivityGoal,
   updatePreferences,
   type CompletionDetails,
   type NewActivity,
@@ -45,17 +47,25 @@ import {
   difficulties,
   getCharacterStage,
   getLevel,
+  getTierReward,
   identityMessage,
   isDurationGoal,
+  isTieredGoal,
   localDate,
   rewardTable,
   reviewDecisions,
   startOfWeek,
+  formatGoalValue,
+  tierLabels,
+  tierLevels,
   type Activity,
   type Attribute,
+  type Completion,
   type Difficulty,
   type Preferences,
   type ReviewDecision,
+  type TierLevel,
+  type TierMetric,
   type WeeklyReview,
 } from './domain'
 import { requestNotificationPermission, sendCompletionFeedback } from './feedback'
@@ -81,6 +91,9 @@ interface AwardFeedback {
   xp: number
   coins: number
   durationMinutes?: number
+  tier?: TierLevel
+  achievedLabel?: string
+  upgraded?: boolean
   level: ReturnType<typeof getLevel>
 }
 
@@ -100,6 +113,8 @@ function App() {
   const [notice, setNotice] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [noteActivity, setNoteActivity] = useState<Activity | null>(null)
+  const [tierActivity, setTierActivity] = useState<Activity | null>(null)
+  const [goalActivity, setGoalActivity] = useState<Activity | null>(null)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
 
   const refresh = useCallback(async () => {
@@ -151,23 +166,29 @@ function App() {
       setNoteActivity(null)
       if (!result.awarded) return
       const nextStats = calculateStats([...snapshot.ledgerEvents, result.event])
-      const reward = rewardTable[activity.difficulty]
       setFeedback({
         completionId: result.completion.id,
         title: activity.title,
         attribute: activity.attribute,
-        xp: reward.xp,
-        coins: reward.coins,
+        xp: result.event.xpDelta,
+        coins: result.event.coinDelta,
         durationMinutes: result.completion.durationMinutes,
+        tier: result.completion.tier,
+        achievedLabel: result.completion.achievedValue && result.completion.tierMetric && result.completion.tierUnit
+          ? formatGoalValue(result.completion.achievedValue, result.completion.tierMetric, result.completion.tierUnit)
+          : undefined,
+        upgraded: result.upgraded,
         level: getLevel(nextStats.totalXp),
       })
       await refresh()
       void sendCompletionFeedback(preferences, {
         title: activity.title,
-        xp: reward.xp,
-        coins: reward.coins,
+        xp: result.event.xpDelta,
+        coins: result.event.coinDelta,
         attribute: activity.attribute,
         durationMinutes: result.completion.durationMinutes,
+        tier: result.completion.tier,
+        upgraded: result.upgraded,
       })
     } catch (error) {
       setNotice(errorMessage(error))
@@ -175,7 +196,8 @@ function App() {
   }
 
   function requestCompletion(activity: Activity) {
-    if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
+    if (isTieredGoal(activity)) setTierActivity(activity)
+    else if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
     else void finishActivity(activity)
   }
 
@@ -261,6 +283,7 @@ function App() {
           <SettingsPage
             preferences={preferences}
             activities={snapshot.activities}
+            onEditGoal={setGoalActivity}
             onPreferences={async (value) => {
               await updatePreferences(value)
               await refresh()
@@ -290,6 +313,33 @@ function App() {
           activity={noteActivity}
           onClose={() => setNoteActivity(null)}
           onComplete={(details) => void finishActivity(noteActivity, details)}
+        />
+      )}
+      {tierActivity && (
+        <TierPickerModal
+          activity={tierActivity}
+          completion={activeCompletion(tierActivity)}
+          onClose={() => setTierActivity(null)}
+          onComplete={(tier) => {
+            setTierActivity(null)
+            void finishActivity(tierActivity, { tier })
+          }}
+        />
+      )}
+      {goalActivity && (
+        <GoalSettingsModal
+          activity={goalActivity}
+          onClose={() => setGoalActivity(null)}
+          onSave={async (goal) => {
+            try {
+              await updateActivityGoal(goalActivity.id, goal)
+              setGoalActivity(null)
+              await refresh()
+              setNotice('习惯目标已更新，历史记录保持不变')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
         />
       )}
       {feedback && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
@@ -346,7 +396,7 @@ function TodayPage({
   keyActivities: Activity[]
   otherHabits: Activity[]
   tasks: Activity[]
-  activeCompletion: (activity: Activity) => unknown
+  activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
   onCreate: () => void
 }) {
@@ -410,7 +460,7 @@ function ActivitySection({
   title: string
   icon?: React.ReactNode
   activities: Activity[]
-  activeCompletion: (activity: Activity) => unknown
+  activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
   empty: string
 }) {
@@ -423,7 +473,10 @@ function ActivitySection({
       <div className="activity-list">
         {activities.length === 0 && <p className="empty-state">{empty}</p>}
         {activities.map((activity) => {
-          const complete = Boolean(activeCompletion(activity))
+          const completion = activeCompletion(activity)
+          const complete = Boolean(completion)
+          const canUpgrade = isTieredGoal(activity) && Boolean(completion?.tier && completion.tier < 3)
+          const disabled = complete && !canUpgrade
           const reward = rewardTable[activity.difficulty]
           return (
             <article className={complete ? 'activity-row complete' : 'activity-row'} key={activity.id}>
@@ -431,18 +484,19 @@ function ActivitySection({
                 <div className="activity-title-line">
                   <strong>{activity.title}</strong>
                   <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>
+                  {completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
                 </div>
-                <span>{activity.attribute} · {scheduleLabel(activity)} · +{reward.xp} XP / +{reward.coins} 金币</span>
+                <span>{activity.attribute} · {scheduleLabel(activity)} · {isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP / +{reward.coins} 金币</span>
               </div>
               <button
                 className="complete-button"
                 type="button"
-                title={complete ? '已完成' : `完成 ${activity.title}`}
-                aria-label={complete ? `${activity.title} 已完成` : `完成 ${activity.title}`}
-                disabled={complete}
+                title={canUpgrade ? '升级层次' : complete ? '已完成' : `完成 ${activity.title}`}
+                aria-label={canUpgrade ? `升级 ${activity.title}` : complete ? `${activity.title} 已完成` : `完成 ${activity.title}`}
+                disabled={disabled}
                 onClick={() => onComplete(activity)}
               >
-                {complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+                {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
               </button>
             </article>
           )
@@ -547,7 +601,11 @@ function ReviewPage({
     const planned = activity.schedule.kind === 'daily' ? 7 : activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
     const actualDurationMinutes = matchingCompletions.reduce((total, completion) => total + (completion.durationMinutes ?? 0), 0)
     const plannedDurationMinutes = isDurationGoal(activity) ? planned * activity.goal.count : undefined
-    return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes }
+    const tierCounts = tierLevels.map((tier) => matchingCompletions.filter((completion) => completion.tier === tier).length) as [number, number, number]
+    const achievedTotal = matchingCompletions.reduce((total, completion) => total + (completion.achievedValue ?? 0), 0)
+    const achievedUnit = matchingCompletions.find((completion) => completion.tierUnit)?.tierUnit
+      ?? (isTieredGoal(activity) ? activity.goal.unit : undefined)
+    return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes, tierCounts, achievedTotal, achievedUnit }
   })
 
   function submit(event: FormEvent) {
@@ -556,7 +614,7 @@ function ReviewPage({
     onSave({
       id: `review:${weekStart}`,
       weekStart,
-      items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes }) => ({
+      items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievedTotal, achievedUnit }) => ({
         activityId: activity.id,
         completed,
         planned,
@@ -567,6 +625,9 @@ function ReviewPage({
         note: drafts[activity.id]?.note.trim() || undefined,
         actualDurationMinutes: plannedDurationMinutes ? actualDurationMinutes : undefined,
         plannedDurationMinutes,
+        tierCounts: isTieredGoal(activity) ? tierCounts : undefined,
+        achievedTotal: isTieredGoal(activity) ? achievedTotal : undefined,
+        achievedUnit: isTieredGoal(activity) ? achievedUnit : undefined,
       })),
       createdAt: new Date().toISOString(),
     })
@@ -582,7 +643,7 @@ function ReviewPage({
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
       ) : (
         <form onSubmit={submit} className="review-form">
-          {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes }) => {
+          {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievedTotal, achievedUnit }) => {
             const draft = drafts[activity.id] ?? { impact: 3, friction: 3, decision: '保留' as const, note: '' }
             const update = (next: Partial<ReviewDraft>) => setDrafts((current) => ({ ...current, [activity.id]: { ...draft, ...next } }))
             return (
@@ -594,6 +655,12 @@ function ReviewPage({
                 <ProgressBar value={adherence} label="坚持率" compact />
                 {plannedDurationMinutes && (
                   <p className="duration-summary">本周时长：{actualDurationMinutes} / {plannedDurationMinutes} 分钟</p>
+                )}
+                {isTieredGoal(activity) && (
+                  <div className="tier-review-summary">
+                    <span>基础 {tierCounts[0]}</span><span>标准 {tierCounts[1]}</span><span>突破 {tierCounts[2]}</span>
+                    <strong>累计至少 {formatGoalValue(achievedTotal, activity.goal.metric, achievedUnit ?? activity.goal.unit)}</strong>
+                  </div>
                 )}
                 <div className="review-fields">
                   <label>现实帮助
@@ -633,12 +700,14 @@ function SettingsPage({
   onPreferences,
   onRefresh,
   onNotice,
+  onEditGoal,
 }: {
   preferences: Preferences
   activities: Activity[]
   onPreferences: (value: Preferences) => Promise<void>
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
+  onEditGoal: (activity: Activity) => void
 }) {
   async function toggleNotifications() {
     if (!preferences.notifications) {
@@ -708,6 +777,11 @@ function SettingsPage({
           <div className="manage-row" key={activity.id}>
             <div><strong>{activity.title}</strong><span>{activity.attribute} · {activity.difficulty}</span></div>
             <div className="manage-actions">
+              {activity.type === 'habit' && (
+                <button className="icon-button" type="button" title="设置习惯目标" onClick={() => onEditGoal(activity)}>
+                  <SlidersHorizontal aria-hidden="true" />
+                </button>
+              )}
               <button
                 className={activity.isKey ? 'icon-button selected' : 'icon-button'}
                 type="button"
@@ -740,7 +814,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.0.0</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.1.0</footer>
     </>
   )
 }
@@ -752,24 +826,29 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
   const [difficulty, setDifficulty] = useState<Difficulty>('简单')
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
   const [weeklyTimes, setWeeklyTimes] = useState(3)
-  const [goalMode, setGoalMode] = useState<'count' | 'duration'>('count')
-  const [goalCount, setGoalCount] = useState(1)
+  const [goalMode, setGoalMode] = useState<'single' | 'tiered'>('single')
+  const [tierMetric, setTierMetric] = useState<TierMetric>('duration')
+  const [thresholds, setThresholds] = useState<[string, string, string]>(['5', '20', '45'])
   const [goalUnit, setGoalUnit] = useState('次')
   const [plannedOn, setPlannedOn] = useState(localDate())
   const [isKey, setIsKey] = useState(false)
 
   function submit(event: FormEvent) {
     event.preventDefault()
+    const goal: Activity['goal'] = type === 'habit' && goalMode === 'tiered'
+      ? {
+          kind: 'tiered',
+          metric: tierMetric,
+          unit: tierMetric === 'duration' ? '分钟' : goalUnit,
+          thresholds: thresholds.map(Number) as [number, number, number],
+        }
+      : { kind: 'count', count: 1, unit: '次' }
     onCreate({
       title,
       type,
       attribute,
       difficulty,
-      goal: {
-        kind: type === 'habit' ? goalMode : 'count',
-        count: type === 'task' ? 1 : goalCount,
-        unit: type === 'task' ? '次' : goalMode === 'duration' ? '分钟' : goalUnit,
-      },
+      goal,
       schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
       plannedOn: type === 'task' ? plannedOn : undefined,
       isKey,
@@ -799,19 +878,157 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
             <div className="goal-type-block">
               <span>目标类型</span>
               <div className="segmented-control" aria-label="目标类型">
-                <button type="button" className={goalMode === 'count' ? 'selected' : ''} onClick={() => { setGoalMode('count'); setGoalCount(1) }}>按次数</button>
-                <button type="button" className={goalMode === 'duration' ? 'selected' : ''} onClick={() => { setGoalMode('duration'); setGoalCount(30) }}>按时长</button>
+                <button type="button" className={goalMode === 'single' ? 'selected' : ''} onClick={() => setGoalMode('single')}>单次完成</button>
+                <button type="button" className={goalMode === 'tiered' ? 'selected' : ''} onClick={() => setGoalMode('tiered')}>三层目标</button>
               </div>
             </div>
-            {goalMode === 'duration' ? (
-              <label className="full-field">目标时长（分钟）<input type="number" min={1} max={1440} step={1} required value={goalCount} onChange={(event) => setGoalCount(Number(event.target.value))} /></label>
-            ) : (
-              <div className="field-grid"><label>目标次数<input type="number" min={1} max={999} step={1} value={goalCount} onChange={(event) => setGoalCount(Number(event.target.value))} /></label><label>单位<input required maxLength={12} value={goalUnit} onChange={(event) => setGoalUnit(event.target.value)} /></label></div>
+            {goalMode === 'tiered' && (
+              <TierGoalFields
+                metric={tierMetric}
+                thresholds={thresholds}
+                unit={goalUnit}
+                onMetric={setTierMetric}
+                onThresholds={setThresholds}
+                onUnit={setGoalUnit}
+              />
             )}
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
         <button className="primary-action" type="submit"><Plus aria-hidden="true" />创建</button>
+      </form>
+    </div>
+  )
+}
+
+function TierGoalFields({
+  metric,
+  thresholds,
+  unit,
+  onMetric,
+  onThresholds,
+  onUnit,
+}: {
+  metric: TierMetric
+  thresholds: [string, string, string]
+  unit: string
+  onMetric: (metric: TierMetric) => void
+  onThresholds: (thresholds: [string, string, string]) => void
+  onUnit: (unit: string) => void
+}) {
+  const maximum = metric === 'duration' ? 1440 : 999
+  return (
+    <div className="tier-goal-fields">
+      <div className="goal-type-block">
+        <span>度量方式</span>
+        <div className="segmented-control" aria-label="度量方式">
+          <button type="button" className={metric === 'duration' ? 'selected' : ''} onClick={() => { onMetric('duration'); onThresholds(['5', '20', '45']) }}>按时间</button>
+          <button type="button" className={metric === 'count' ? 'selected' : ''} onClick={() => { onMetric('count'); onThresholds(['1', '3', '5']) }}>按次数</button>
+        </div>
+      </div>
+      {metric === 'count' && <label className="full-field">次数单位<input required maxLength={12} value={unit} onChange={(event) => onUnit(event.target.value)} /></label>}
+      <div className="tier-threshold-grid">
+        {tierLevels.map((tier, index) => (
+          <label key={tier}>{tierLabels[tier]}层（{metric === 'duration' ? '分钟' : unit || '单位'}）
+            <input
+              type="number"
+              min={1}
+              max={maximum}
+              step={1}
+              required
+              value={thresholds[index]}
+              onChange={(event) => {
+                const next = [...thresholds] as [string, string, string]
+                next[index] = event.target.value
+                onThresholds(next)
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <span className="field-hint">基础、标准、突破必须依次增加</span>
+    </div>
+  )
+}
+
+function TierPickerModal({
+  activity,
+  completion,
+  onClose,
+  onComplete,
+}: {
+  activity: Activity
+  completion?: Completion
+  onClose: () => void
+  onComplete: (tier: TierLevel) => void
+}) {
+  if (!isTieredGoal(activity)) return null
+  const currentTier = completion?.tier
+  const thresholds = completion?.tierThresholds ?? activity.goal.thresholds
+  const metric = completion?.tierMetric ?? activity.goal.metric
+  const unit = completion?.tierUnit ?? activity.goal.unit
+  const currentXp = currentTier ? getTierReward(activity.difficulty, currentTier).xp : 0
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal" aria-labelledby="tier-title">
+        <div className="modal-header"><div><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span><h2 id="tier-title">{currentTier ? '升级层次' : activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="tier-choice-list">
+          {tierLevels.filter((tier) => !currentTier || tier > currentTier).map((tier) => {
+            const reward = getTierReward(activity.difficulty, tier)
+            return (
+              <button key={tier} type="button" className={`tier-choice tier-choice-${tier}`} onClick={() => onComplete(tier)} aria-label={`${currentTier ? '升级到' : '选择'} ${tierLabels[tier]}层`}>
+                <span><b>{tierLabels[tier]}层</b><small>{formatGoalValue(thresholds[tier - 1], metric, unit)}</small></span>
+                <strong>{currentTier ? `再 +${reward.xp - currentXp} XP` : `+${reward.xp} XP · +${reward.coins} 金币`}</strong>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function GoalSettingsModal({ activity, onClose, onSave }: { activity: Activity; onClose: () => void; onSave: (goal: Activity['goal']) => void }) {
+  const tiered = isTieredGoal(activity)
+  const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
+  const initialMetric: TierMetric = tiered ? activity.goal.metric : isDurationGoal(activity) ? 'duration' : 'count'
+  const [mode, setMode] = useState<'legacy' | 'single' | 'tiered'>(tiered ? 'tiered' : legacy ? 'legacy' : 'single')
+  const [metric, setMetric] = useState<TierMetric>(initialMetric)
+  const [unit, setUnit] = useState(tiered ? activity.goal.unit : initialMetric === 'count' && activity.goal.kind !== 'tiered' ? activity.goal.unit : '次')
+  const [thresholds, setThresholds] = useState<[string, string, string]>(
+    tiered
+      ? activity.goal.thresholds.map(String) as [string, string, string]
+      : legacy && activity.goal.kind !== 'tiered'
+        ? ['', String(activity.goal.count), '']
+        : ['1', '3', '5'],
+  )
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (mode === 'legacy') return onSave(activity.goal)
+    if (mode === 'single') return onSave({ kind: 'count', count: 1, unit: '次' })
+    onSave({
+      kind: 'tiered',
+      metric,
+      unit: metric === 'duration' ? '分钟' : unit,
+      thresholds: thresholds.map(Number) as [number, number, number],
+    })
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form className="modal" onSubmit={submit} aria-labelledby="goal-settings-title">
+        <div className="modal-header"><h2 id="goal-settings-title">{activity.title}</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="segmented-control" aria-label="目标设置">
+          {legacy && <button type="button" className={mode === 'legacy' ? 'selected' : ''} onClick={() => setMode('legacy')}>保留原目标</button>}
+          <button type="button" className={mode === 'single' ? 'selected' : ''} onClick={() => setMode('single')}>单次完成</button>
+          <button type="button" className={mode === 'tiered' ? 'selected' : ''} onClick={() => setMode('tiered')}>三层目标</button>
+        </div>
+        {mode === 'legacy' && activity.goal.kind !== 'tiered' && <p className="legacy-goal">当前目标：{activity.goal.count}{activity.goal.unit}</p>}
+        {mode === 'tiered' && (
+          <TierGoalFields metric={metric} thresholds={thresholds} unit={unit} onMetric={setMetric} onThresholds={setThresholds} onUnit={setUnit} />
+        )}
+        <button className="primary-action" type="submit"><Check aria-hidden="true" />保存目标</button>
       </form>
     </div>
   )
@@ -848,10 +1065,11 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
     <aside className="feedback-overlay" role="status" aria-live="assertive">
       <TravelerPortrait stage={stage} label="像素旅者成长反馈" />
       <div className="feedback-copy">
-        <span>行动完成</span>
+        <span>{feedback.upgraded ? '层次升级' : '行动完成'}</span>
         <strong>{feedback.title}</strong>
-        <div className="reward-gains"><b>+{feedback.xp} XP</b><b>+{feedback.coins} 金币</b><b>{feedback.attribute}</b></div>
+        <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{feedback.attribute}</b></div>
         {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
+        {feedback.tier && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
         <p>{identityMessage(feedback.attribute)}</p>
         <ProgressBar value={feedback.level.progress} label={`Lv.${feedback.level.level} · ${feedback.level.current}/${feedback.level.needed} XP`} compact />
       </div>
@@ -886,8 +1104,14 @@ function SettingToggle({ icon, label, checked, onChange }: { icon: React.ReactNo
 }
 
 function scheduleLabel(activity: Activity) {
-  if (activity.schedule.kind === 'daily') return isDurationGoal(activity) ? `每天 · 目标 ${activity.goal.count} 分钟` : `每天 ${activity.goal.count}${activity.goal.unit}`
-  if (activity.schedule.kind === 'weekly') return isDurationGoal(activity) ? `每周 ${activity.schedule.times} 次 · 每次 ${activity.goal.count} 分钟` : `每周 ${activity.schedule.times} 次`
+  const goal = activity.goal
+  if (goal.kind === 'tiered') {
+    const tiers = tierLevels.map((tier) => `${tierLabels[tier]} ${formatGoalValue(goal.thresholds[tier - 1], goal.metric, goal.unit)}`).join(' · ')
+    return activity.schedule.kind === 'weekly' ? `每周 ${activity.schedule.times} 次 · ${tiers}` : `每天 · ${tiers}`
+  }
+  const duration = goal.kind === 'duration' || goal.unit === '分钟'
+  if (activity.schedule.kind === 'daily') return duration ? `每天 · 目标 ${goal.count} 分钟` : `每天 ${goal.count}${goal.unit}`
+  if (activity.schedule.kind === 'weekly') return duration ? `每周 ${activity.schedule.times} 次 · 每次 ${goal.count} 分钟` : `每周 ${activity.schedule.times} 次`
   return activity.plannedOn ? formatShortDate(activity.plannedOn) : '单次'
 }
 

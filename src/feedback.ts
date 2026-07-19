@@ -1,16 +1,17 @@
-import type { Attribute, Preferences } from './domain'
+import { tierLabels, type Attribute, type Preferences, type TierLevel } from './domain'
 
 export async function sendCompletionFeedback(
   preferences: Preferences,
-  detail: { title: string; xp: number; coins: number; attribute: Attribute; durationMinutes?: number },
+  detail: { title: string; xp: number; coins: number; attribute: Attribute; durationMinutes?: number; tier?: TierLevel; upgraded?: boolean },
 ) {
   if (preferences.vibration && 'vibrate' in navigator) navigator.vibrate([35, 30, 55])
   if (preferences.sound) playSoftTone()
   if (!preferences.notifications || !('Notification' in window) || Notification.permission !== 'granted') return 'unavailable'
   try {
     const registration = await navigator.serviceWorker.ready
-    await registration.showNotification('行动已完成', {
-      body: `+${detail.xp} XP · +${detail.coins} 金币 · ${detail.attribute}${detail.durationMinutes ? ` · ${detail.durationMinutes} 分钟` : ''}`,
+    const rewards = [`+${detail.xp} XP`, detail.coins > 0 ? `+${detail.coins} 金币` : '', detail.attribute].filter(Boolean).join(' · ')
+    await registration.showNotification(detail.upgraded ? '习惯层次已升级' : '行动已完成', {
+      body: `${rewards}${detail.tier ? ` · ${tierLabels[detail.tier]}层` : ''}${detail.durationMinutes ? ` · ${detail.durationMinutes} 分钟` : ''}`,
       icon: `${import.meta.env.BASE_URL}app-icon.png`,
       badge: `${import.meta.env.BASE_URL}app-icon.png`,
       tag: `completion-${Date.now()}`,

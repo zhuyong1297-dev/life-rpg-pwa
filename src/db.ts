@@ -4,6 +4,7 @@ import {
   type Activity,
   type Completion,
   type Difficulty,
+  type TierLevel,
   LedgerEventSchema,
   type LedgerEvent,
   type Preferences,
@@ -13,8 +14,11 @@ import {
   type WeeklyReview,
   calculateStats,
   addDays,
+  getTierReward,
+  getTierUpgradeXp,
   localDate,
   isDurationGoal,
+  isTieredGoal,
   startOfWeek,
 } from './domain'
 
@@ -105,16 +109,26 @@ export async function setActivityEnabled(activityId: string, enabled: boolean, d
   })
 }
 
+export async function updateActivityGoal(activityId: string, goal: Activity['goal'], database = db) {
+  await database.transaction('rw', database.activities, async () => {
+    const activity = await database.activities.get(activityId)
+    if (!activity || activity.type !== 'habit') throw new Error('找不到这项习惯')
+    await database.activities.put(ActivitySchema.parse({ ...activity, goal }))
+  })
+}
+
 export interface CompletionDetails {
   note?: string
   durationMinutes?: number
+  tier?: TierLevel
 }
 
 function validateCompletion(activity: Activity, details: CompletionDetails) {
   const cleaned = details.note?.trim()
   const difficulty: Difficulty = activity.difficulty
-  if (difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
+  if (!isTieredGoal(activity) && difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
   if (cleaned && cleaned.length > 140) throw new Error('实际成果最多 140 字')
+  if (isTieredGoal(activity) && !details.tier) throw new Error('请选择本次完成的层次')
   if (isDurationGoal(activity)) {
     if (!Number.isInteger(details.durationMinutes) || !details.durationMinutes || details.durationMinutes > 1440) {
       throw new Error('请填写 1 至 1440 分钟的实际时长')
@@ -123,7 +137,11 @@ function validateCompletion(activity: Activity, details: CompletionDetails) {
       throw new Error(`实际时长还未达到 ${activity.goal.count} 分钟目标`)
     }
   }
-  return { note: cleaned || undefined, durationMinutes: isDurationGoal(activity) ? details.durationMinutes : undefined }
+  return {
+    note: cleaned || undefined,
+    durationMinutes: isDurationGoal(activity) ? details.durationMinutes : undefined,
+    tier: isTieredGoal(activity) ? details.tier : undefined,
+  }
 }
 
 export async function completeActivity(
@@ -141,7 +159,35 @@ export async function completeActivity(
       .equals(activityId)
       .and((completion) => completion.status === 'active' && (activity.type === 'task' || completion.occurredOn === occurredOn))
       .first()
-    if (active) return { awarded: false as const, completion: active, activity }
+    if (active) {
+      if (!isTieredGoal(activity) || !active.tier || !details.tier || details.tier <= active.tier) {
+        return { awarded: false as const, upgraded: false as const, completion: active, activity }
+      }
+      const createdAt = new Date().toISOString()
+      const thresholds = active.tierThresholds ?? activity.goal.thresholds
+      const event = LedgerEventSchema.parse({
+        id: `reward:${active.id}:tier:${details.tier}`,
+        kind: 'reward',
+        sourceId: active.id,
+        occurredOn,
+        title: `层次升级：${activity.title}（${details.tier === 2 ? '标准' : '突破'}）`,
+        attribute: activity.attribute,
+        xpDelta: getTierUpgradeXp(activity.difficulty, active.tier, details.tier),
+        coinDelta: 0,
+        createdAt,
+      })
+      const completion: Completion = {
+        ...active,
+        tier: details.tier,
+        tierMetric: active.tierMetric ?? activity.goal.metric,
+        tierUnit: active.tierUnit ?? activity.goal.unit,
+        tierThresholds: thresholds,
+        achievedValue: thresholds[details.tier - 1],
+      }
+      await database.completions.put(completion)
+      await database.ledgerEvents.add(event)
+      return { awarded: true as const, upgraded: true as const, completion, event, activity }
+    }
     if (activity.schedule.kind === 'weekly') {
       const weekStart = startOfWeek(new Date(`${occurredOn}T12:00:00`))
       const weekEnd = addDays(weekStart, 6)
@@ -164,9 +210,16 @@ export async function completeActivity(
       status: 'active',
       note: details.note,
       durationMinutes: details.durationMinutes,
+      tier: details.tier,
+      tierMetric: isTieredGoal(activity) ? activity.goal.metric : undefined,
+      tierUnit: isTieredGoal(activity) ? activity.goal.unit : undefined,
+      tierThresholds: isTieredGoal(activity) ? activity.goal.thresholds : undefined,
+      achievedValue: isTieredGoal(activity) && details.tier ? activity.goal.thresholds[details.tier - 1] : undefined,
       createdAt,
     }
-    const reward = rewardTable[activity.difficulty]
+    const reward = isTieredGoal(activity) && details.tier
+      ? getTierReward(activity.difficulty, details.tier)
+      : rewardTable[activity.difficulty]
     const event = LedgerEventSchema.parse({
       id: `reward:${completion.id}`,
       kind: 'reward',
@@ -180,7 +233,7 @@ export async function completeActivity(
     })
     await database.completions.add(completion)
     await database.ledgerEvents.add(event)
-    return { awarded: true as const, completion, event, activity }
+    return { awarded: true as const, upgraded: false as const, completion, event, activity }
   })
 }
 
@@ -188,23 +241,27 @@ export async function undoCompletion(completionId: string, database = db) {
   return database.transaction('rw', database.completions, database.ledgerEvents, async () => {
     const completion = await database.completions.get(completionId)
     if (!completion || completion.status !== 'active') return false
-    const reward = await database.ledgerEvents.get(`reward:${completion.id}`)
-    if (!reward) throw new Error('完成记录缺少对应奖励流水')
-    const correctionId = `correction:${completion.id}`
-    if (await database.ledgerEvents.get(correctionId)) return false
+    const rewards = await database.ledgerEvents
+      .where('sourceId')
+      .equals(completion.id)
+      .and((event) => event.kind === 'reward')
+      .toArray()
+    if (rewards.length === 0) throw new Error('完成记录缺少对应奖励流水')
     const createdAt = new Date().toISOString()
     await database.completions.update(completion.id, { status: 'undone', undoneAt: createdAt })
-    await database.ledgerEvents.add({
-      id: correctionId,
-      kind: 'correction',
-      sourceId: reward.id,
-      occurredOn: completion.occurredOn,
-      title: `撤销：${reward.title}`,
-      attribute: reward.attribute,
-      xpDelta: -reward.xpDelta,
-      coinDelta: -reward.coinDelta,
-      createdAt,
-    })
+    await database.ledgerEvents.bulkAdd(
+      rewards.map((reward) => ({
+        id: `correction:${reward.id}`,
+        kind: 'correction' as const,
+        sourceId: reward.id,
+        occurredOn: completion.occurredOn,
+        title: `撤销：${reward.title}`,
+        attribute: reward.attribute,
+        xpDelta: -reward.xpDelta,
+        coinDelta: -reward.coinDelta,
+        createdAt,
+      })),
+    )
     return true
   })
 }

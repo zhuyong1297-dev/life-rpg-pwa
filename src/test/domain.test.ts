@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attributes, calculateStats, getCharacterStage, getLevel, rewardTable, type LedgerEvent } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, getCharacterStage, getLevel, getTierReward, getTierUpgradeXp, rewardTable, type LedgerEvent } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -9,6 +9,38 @@ describe('领域规则', () => {
       困难: { xp: 20, coins: 10 },
       Boss: { xp: 50, coins: 25 },
     })
+  })
+
+  it('三层习惯只分配原难度的固定奖励预算', () => {
+    expect([
+      [getTierReward('简单', 1), getTierReward('简单', 2), getTierReward('简单', 3)],
+      [getTierReward('普通', 1), getTierReward('普通', 2), getTierReward('普通', 3)],
+      [getTierReward('困难', 1), getTierReward('困难', 2), getTierReward('困难', 3)],
+      [getTierReward('Boss', 1), getTierReward('Boss', 2), getTierReward('Boss', 3)],
+    ]).toEqual([
+      [{ xp: 3, coins: 2 }, { xp: 4, coins: 2 }, { xp: 5, coins: 2 }],
+      [{ xp: 6, coins: 5 }, { xp: 8, coins: 5 }, { xp: 10, coins: 5 }],
+      [{ xp: 12, coins: 10 }, { xp: 16, coins: 10 }, { xp: 20, coins: 10 }],
+      [{ xp: 30, coins: 25 }, { xp: 40, coins: 25 }, { xp: 50, coins: 25 }],
+    ])
+    expect(getTierUpgradeXp('普通', 1, 3)).toBe(4)
+  })
+
+  it('三层时间或次数阈值必须严格递增', () => {
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] })).toBeTruthy()
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'count', unit: '页', thresholds: [5, 15, 30] })).toBeTruthy()
+    expect(() => TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [20, 20, 45] })).toThrow('严格递增')
+    expect(() => TieredGoalSchema.parse({ kind: 'tiered', metric: 'count', unit: '页', thresholds: [1, 3, 1000] })).toThrow('不能超过 999')
+    expect(() => ActivitySchema.parse({
+      id: 'task', title: '示例任务', type: 'task', attribute: '专注', difficulty: '简单',
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 2, 3] },
+      schedule: { kind: 'once' }, plannedOn: '2026-01-05', isKey: false, enabled: true, createdAt: '2026-01-01T00:00:00.000Z',
+    })).toThrow('只能用于习惯')
+    expect(() => CompletionSchema.parse({
+      id: 'completion', activityId: 'habit', occurredOn: '2026-01-05', status: 'active', tier: 2,
+      tierMetric: 'count', tierUnit: '组', tierThresholds: [1, 3, 5], achievedValue: 5,
+      createdAt: '2026-01-05T00:00:00.000Z',
+    })).toThrow('快照与所选层次不一致')
   })
 
   it('按当前等级乘以 100 计算升级经验', () => {

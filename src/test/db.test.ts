@@ -8,6 +8,7 @@ import {
   initializeDatabase,
   redeemReward,
   undoCompletion,
+  updateActivityGoal,
   type NewActivity,
 } from '../db'
 import { calculateStats } from '../domain'
@@ -23,6 +24,11 @@ const dailyHabit: NewActivity = {
   schedule: { kind: 'daily' },
   isKey: true,
   enabled: true,
+}
+
+const tieredHabit: NewActivity = {
+  ...dailyHabit,
+  goal: { kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] },
 }
 
 beforeEach(async () => {
@@ -97,6 +103,42 @@ describe('IndexedDB 事务', () => {
     expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 5, coins: 2 })
   })
 
+  it('三层习惯同日升级只补 XP 差额且金币只发一次', async () => {
+    const activity = await createActivity(tieredHabit, database)
+    const base = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    expect(base.awarded).toBe(true)
+    const standard = await completeActivity(activity.id, '2026-01-05', { tier: 2 }, database)
+    expect(standard).toMatchObject({ awarded: true, upgraded: true })
+    const upgrades = await Promise.all([
+      completeActivity(activity.id, '2026-01-05', { tier: 3 }, database),
+      completeActivity(activity.id, '2026-01-05', { tier: 3 }, database),
+    ])
+    expect(upgrades.filter((result) => result.awarded)).toHaveLength(1)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
+    expect(await database.completions.count()).toBe(1)
+    expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, achievedValue: 45, tierUnit: '分钟' })
+  })
+
+  it('撤销三层完成会抵消首次和全部升级奖励', async () => {
+    const activity = await createActivity(tieredHabit, database)
+    const first = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    if (!first.awarded) throw new Error('测试前置完成失败')
+    await completeActivity(activity.id, '2026-01-05', { tier: 2 }, database)
+    await completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)
+    expect(await undoCompletion(first.completion.id, database)).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 0, coins: 0 })
+    const redone = await completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)
+    expect(redone.awarded).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
+  })
+
+  it('旧时长习惯只在手动设置后转换为三层目标', async () => {
+    const activity = await createActivity({ ...dailyHabit, goal: { kind: 'duration', count: 30, unit: '分钟' } }, database)
+    expect(activity.goal).toMatchObject({ kind: 'duration', count: 30 })
+    await updateActivityGoal(activity.id, { kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [10, 30, 60] }, database)
+    expect((await database.activities.get(activity.id))?.goal).toMatchObject({ kind: 'tiered', thresholds: [10, 30, 60] })
+  })
+
   it('余额不足拒绝兑换，余额足够时追加负金币流水', async () => {
     const reward = (await database.rewards.toArray())[0]
     await expect(redeemReward(reward.id, database)).rejects.toThrow('金币余额不足')
@@ -115,5 +157,12 @@ describe('IndexedDB 事务', () => {
     const damaged = { ...backup, summary: { ...backup.summary, coins: 999 } }
     await expect(restoreBackup(damaged, database)).rejects.toThrow('备份汇总与账本不一致')
     expect(await getSnapshot(database)).toEqual(before)
+  })
+
+  it('可以恢复 V2.0.0 的 schema 1 备份', async () => {
+    await createActivity(dailyHabit, database)
+    const current = await createBackup(database)
+    await restoreBackup({ ...current, schemaVersion: 1, appVersion: '2.0.0' }, database)
+    expect(await database.activities.count()).toBe(1)
   })
 })
