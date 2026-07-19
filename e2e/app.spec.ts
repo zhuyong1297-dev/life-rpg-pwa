@@ -196,6 +196,116 @@ test('习惯归档保留历史并可从折叠区恢复', async ({ page }) => {
   await expect(page.locator('.manage-row').filter({ hasText: '归档示例' }).getByTitle('编辑习惯')).toBeVisible()
 })
 
+test('Android 完成声音可试听、复用并在升级时播放三音', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'android')
+  await page.addInitScript(() => {
+    Object.defineProperty(window, '__audioStarts', { configurable: true, writable: true, value: 0 })
+    class FakeAudioContext {
+      state = 'running'
+      currentTime = 0
+      destination = {}
+      async resume() { this.state = 'running' }
+      createOscillator() {
+        return {
+          type: 'sine',
+          frequency: { setValueAtTime() {} },
+          connect(target: unknown) { return target },
+          start() { (window as typeof window & { __audioStarts: number }).__audioStarts += 1 },
+          stop() {},
+        }
+      }
+      createGain() {
+        return {
+          gain: { setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {} },
+          connect() { return this },
+        }
+      }
+    }
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: FakeAudioContext })
+  })
+  await page.reload()
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('switch', { name: '完成声音' }).click()
+  await expect(page.getByRole('switch', { name: '完成声音' })).toBeChecked()
+  await expect(page.getByText('完成声音已开启，刚才播放的是试听音')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(2)
+
+  await page.getByRole('button', { name: '今天' }).click()
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('简单完成音')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 简单完成音' }).click()
+  await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('分层完成音')
+  await page.getByRole('button', { name: '三层目标' }).click()
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 分层完成音' }).click()
+  await page.getByRole('button', { name: '选择 基础层' }).click()
+  await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('困难完成音')
+  await page.locator('.form-details summary').click()
+  await page.getByLabel('难度').selectOption('困难')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 困难完成音' }).click()
+  await page.getByRole('button', { name: '确认完成' }).click()
+  await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+
+  for (const title of ['升级音一', '升级音二']) {
+    await page.getByRole('button', { name: '创建行动' }).click()
+    await page.getByLabel('名称').fill(title)
+    await page.locator('.form-details summary').click()
+    await page.getByLabel('难度').selectOption('Boss')
+    await page.getByRole('button', { name: '创建', exact: true }).click()
+    await page.getByRole('button', { name: `完成 ${title}` }).click()
+    await page.getByLabel('实际成果（必填）').fill(`完成${title}`)
+    await page.getByRole('button', { name: '确认完成' }).click()
+    await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+  }
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(13)
+})
+
+test('移动端中央创建按钮与完成按钮始终不相交', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'desktop')
+  for (let index = 1; index <= 7; index += 1) {
+    await page.getByRole('button', { name: '创建行动' }).click()
+    await page.getByLabel('名称').fill(`滚动任务 ${index}`)
+    await page.getByRole('button', { name: '创建', exact: true }).click()
+  }
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const lastComplete = page.getByRole('button', { name: '完成 滚动任务 7' })
+  await expect(lastComplete).toBeVisible()
+  const layout = await page.evaluate(() => {
+    const create = document.querySelector<HTMLElement>('.nav-create')!.getBoundingClientRect()
+    const navigation = document.querySelector<HTMLElement>('.navigation')!.getBoundingClientRect()
+    const visibleCompleteButtons = [...document.querySelectorAll<HTMLElement>('.complete-button')]
+      .map((button) => button.getBoundingClientRect())
+      .filter((rect) => rect.bottom > 0 && rect.top < window.innerHeight)
+    const overlaps = (left: DOMRect, right: DOMRect) => left.left < right.right && left.right > right.left && left.top < right.bottom && left.bottom > right.top
+    return {
+      floatingCreates: document.querySelectorAll('.floating-create').length,
+      createInsideNavigation: create.left >= navigation.left && create.right <= navigation.right && create.top >= navigation.top && create.bottom <= navigation.bottom,
+      createOverlap: visibleCompleteButtons.some((button) => overlaps(create, button)),
+      lastBottom: visibleCompleteButtons.at(-1)?.bottom ?? window.innerHeight,
+      navigationTop: navigation.top,
+    }
+  })
+  expect(layout).toMatchObject({ floatingCreates: 0, createInsideNavigation: true, createOverlap: false })
+  expect(layout.lastBottom).toBeLessThanOrEqual(layout.navigationTop)
+
+  await lastComplete.click()
+  await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+  const overlap = await page.evaluate(() => {
+    const feedback = document.querySelector<HTMLElement>('.feedback-overlay')!.getBoundingClientRect()
+    const complete = document.querySelector<HTMLElement>('button[aria-label="查看 滚动任务 7 完成记录"]')!.getBoundingClientRect()
+    return feedback.left < complete.right && feedback.right > complete.left && feedback.top < complete.bottom && feedback.bottom > complete.top
+  })
+  expect(overlap).toBe(false)
+})
+
 test('窄屏和桌面均没有横向溢出，人物资源有效', async ({ page }) => {
   const layout = await page.evaluate(async () => {
     const portrait = document.querySelector<HTMLElement>('.traveler-portrait')

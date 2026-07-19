@@ -130,6 +130,9 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
 
   await page.getByRole('button', { name: '角色' }).click()
   await expectNoHorizontalOverflow(page)
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.3 · 行动者' })).toContainText('30 金币档阶段礼券')
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.6 · 践行者' })).toContainText('80 金币档阶段礼券')
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.10 · 塑造者' })).toContainText('200 金币档阶段礼券')
   const heroLayout = await page.evaluate(() => {
     const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
     const overlaps = (left?: DOMRect, right?: DOMRect) => Boolean(

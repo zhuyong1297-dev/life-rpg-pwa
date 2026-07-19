@@ -1,13 +1,13 @@
 import { z } from 'zod'
-import { ActivitySchema, CompletionSchema, LedgerEventSchema, RewardSchema, SettingSchema, WeeklyReviewSchema, calculateStats } from './domain'
+import { ActivitySchema, CompletionSchema, LedgerEventSchema, RewardSchema, SettingSchema, WeeklyReviewSchema, calculateStats, createLevelSystem } from './domain'
 import { db, getSnapshot, type LifeRpgDatabase } from './db'
 
 const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().int() })
 
 export const BackupSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0')]),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
@@ -23,6 +23,7 @@ export const BackupSchema = z
       2: ['2.1.0'],
       3: ['2.2.0'],
       4: ['2.3.0', '2.4.0'],
+      5: ['2.5.0'],
     }
     if (!compatibleAppVersions[backup.schemaVersion].includes(backup.appVersion)) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
@@ -52,8 +53,8 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
   const snapshot = await getSnapshot(database)
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
-    schemaVersion: 4,
-    appVersion: '2.4.0',
+    schemaVersion: 5,
+    appVersion: '2.5.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,
@@ -62,6 +63,12 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
 
 export async function restoreBackup(input: unknown, database: LifeRpgDatabase = db) {
   const backup = BackupSchema.parse(input)
+  const meta = backup.settings.find((setting) => setting.key === 'meta')
+  const settings = meta?.key === 'meta'
+    ? backup.settings.map((setting) => setting.key === 'meta' && !setting.value.levelSystem
+      ? { ...setting, value: { ...setting.value, levelSystem: createLevelSystem(backup.summary.totalXp) } }
+      : setting)
+    : [...backup.settings, { key: 'meta' as const, value: { levelSystem: createLevelSystem(backup.summary.totalXp) } }]
   await database.transaction(
     'rw',
     [
@@ -86,7 +93,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
       await database.ledgerEvents.bulkAdd(backup.ledgerEvents)
       await database.rewards.bulkAdd(backup.rewards)
       await database.weeklyReviews.bulkAdd(backup.weeklyReviews)
-      await database.settings.bulkAdd(backup.settings)
+      await database.settings.bulkAdd(settings)
     },
   )
   return backup

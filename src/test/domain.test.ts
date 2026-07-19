@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getLevel, getTierAchievement, getTierReward, getTierUpgradeXp, rewardTable, type LedgerEvent } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getCharacterStageName, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -108,6 +108,42 @@ describe('领域规则', () => {
     expect(getCharacterStage(2)).toBe(1)
     expect(getCharacterStage(3)).toBe(2)
     expect(getCharacterStage(10)).toBe(4)
+    expect(getCharacterStageName(1)).toBe('启程者')
+    expect(getCharacterStageName(3)).toBe('行动者')
+    expect(getCharacterStageName(6)).toBe('践行者')
+    expect(getCharacterStageName(10)).toBe('塑造者')
+    expect(getTotalXpForLevel(3)).toBe(300)
+    expect(getTotalXpForLevel(6)).toBe(1500)
+    expect(getTotalXpForLevel(10)).toBe(4500)
+    expect(getTotalXpForLevel(15)).toBe(10_500)
+    expect(getMilestoneVoucherCost(3)).toBe(30)
+    expect(getMilestoneVoucherCost(6)).toBe(80)
+    expect(getMilestoneVoucherCost(10)).toBe(200)
+    expect(getMilestoneVoucherCost(15)).toBe(200)
+    expect(getMilestoneVoucherCost(11)).toBeUndefined()
+    expect(getNextVoucherLevel(1)).toBe(3)
+    expect(getNextVoucherLevel(10)).toBe(15)
+  })
+
+  it('成长报告按完成来源合并层次升级并排除已修正奖励', () => {
+    const milestone: LevelMilestone = {
+      level: 2,
+      reachedAt: '2026-01-03T00:00:00.000Z',
+      sourceEventId: 'upgrade',
+    }
+    const events: LedgerEvent[] = [
+      { id: 'base', kind: 'reward', sourceId: 'c1', occurredOn: '2026-01-01', title: '阅读', attribute: '智识', xpDelta: 6, coinDelta: 5, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'upgrade', kind: 'reward', sourceId: 'c1', occurredOn: '2026-01-01', title: '层次升级：阅读', attribute: '智识', xpDelta: 4, coinDelta: 0, createdAt: '2026-01-01T01:00:00.000Z' },
+      { id: 'exercise', kind: 'reward', sourceId: 'c2', occurredOn: '2026-01-02', title: '训练', attribute: '体魄', xpDelta: 20, coinDelta: 10, createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: 'correction:exercise', kind: 'correction', sourceId: 'exercise', occurredOn: '2026-01-02', title: '撤销：训练', attribute: '体魄', xpDelta: -20, coinDelta: -10, createdAt: '2026-01-02T01:00:00.000Z' },
+    ]
+    expect(getLevelReport(events, milestone, '2025-12-31T00:00:00.000Z')).toEqual({
+      activeDays: 1,
+      completionCount: 1,
+      attributeXp: { 体魄: 0, 智识: 10, 专注: 0, 创造: 0, 关系: 0, 心境: 0 },
+      strongestAttribute: '智识',
+      topActions: [{ title: '阅读', xp: 10 }],
+    })
   })
 
   it('完全从追加式流水派生角色数值', () => {

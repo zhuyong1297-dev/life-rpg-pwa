@@ -43,6 +43,8 @@ import {
   db,
   getSnapshot,
   initializeDatabase,
+  acknowledgeLevelMilestone,
+  claimMilestoneReward,
   redeemReward,
   saveWeeklyReview,
   setActivityEnabled,
@@ -50,6 +52,7 @@ import {
   undoCompletion,
   updateHabit,
   restoreHabit,
+  syncLevelMilestones,
   updatePreferences,
   type CompletionDetails,
   type HabitUpdate,
@@ -61,8 +64,13 @@ import {
   calculateStats,
   difficulties,
   getCharacterStage,
+  getCharacterStageName,
   getCompletionTierGoal,
   getLevel,
+  getLevelReport,
+  getMilestoneVoucherCost,
+  getNextVoucherLevel,
+  getTotalXpForLevel,
   getTierAchievement,
   getTierReward,
   identityMessage,
@@ -82,6 +90,7 @@ import {
   type Difficulty,
   type CombinedMode,
   type LedgerEvent,
+  type LevelSystem,
   type Preferences,
   type ReviewDecision,
   type TierLevel,
@@ -90,7 +99,7 @@ import {
   type TimeInputUnit,
   type WeeklyReview,
 } from './domain'
-import { requestNotificationPermission, sendCompletionFeedback } from './feedback'
+import { playCompletionChime, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from './feedback'
 
 type Page = 'today' | 'character' | 'review' | 'settings'
 type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
@@ -116,6 +125,7 @@ interface AwardFeedback {
   tier?: TierLevel
   achievedLabel?: string
   upgraded?: boolean
+  leveledUp?: boolean
   level: ReturnType<typeof getLevel>
 }
 
@@ -252,6 +262,7 @@ function App() {
 
   useEffect(() => {
     initializeDatabase()
+      .then(() => syncLevelMilestones())
       .then(refresh)
       .then(() => setReady(true))
       .catch((error: unknown) => setNotice(errorMessage(error)))
@@ -259,7 +270,10 @@ function App() {
 
   useEffect(() => {
     if (!feedback) return
-    const timer = window.setTimeout(() => setFeedback(null), 10_000)
+    const timer = window.setTimeout(() => {
+      setFeedback(null)
+      void syncLevelMilestones().then(refresh)
+    }, 10_000)
     return () => window.clearTimeout(timer)
   }, [feedback])
 
@@ -268,8 +282,22 @@ function App() {
     return setting?.key === 'preferences' ? setting.value : defaultPreferences
   }, [snapshot.settings])
 
+  useEffect(() => {
+    if (!preferences.sound) return
+    const resumeAudio = () => {
+      if (document.visibilityState === 'visible') void prepareCompletionAudio()
+    }
+    document.addEventListener('visibilitychange', resumeAudio)
+    return () => document.removeEventListener('visibilitychange', resumeAudio)
+  }, [preferences.sound])
+
   const stats = useMemo(() => calculateStats(snapshot.ledgerEvents), [snapshot.ledgerEvents])
   const level = getLevel(stats.totalXp)
+  const metaSetting = snapshot.settings.find((item) => item.key === 'meta')
+  const levelSystem = metaSetting?.key === 'meta' ? metaSetting.value.levelSystem : undefined
+  const characterNeedsAttention = Boolean(levelSystem?.milestones.some(
+    (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
+  ))
   const today = localDate()
 
   const activeCompletion = useCallback(
@@ -290,12 +318,15 @@ function App() {
   const tasks = enabledActivities.filter((activity) => activity.type === 'task' && !activity.isKey && isDue(activity))
 
   async function finishActivity(activity: Activity, details?: CompletionDetails) {
+    const preparedAudio = preferences.sound ? prepareCompletionAudio() : undefined
     try {
       const result = await completeActivity(activity.id, today, details)
       setNoteActivity(null)
       if (!result.awarded) return
       const nextStats = calculateStats([...snapshot.ledgerEvents, result.event])
       const completedTierGoal = getCompletionTierGoal(result.completion, result.activity)
+      const nextLevel = getLevel(nextStats.totalXp)
+      const leveledUp = nextLevel.level > level.level
       setFeedback({
         completionId: result.completion.id,
         title: activity.title,
@@ -308,7 +339,8 @@ function App() {
           ? formatTierGoalValue(completedTierGoal, result.completion.tier)
           : undefined,
         upgraded: result.upgraded,
-        level: getLevel(nextStats.totalXp),
+        leveledUp,
+        level: nextLevel,
       })
       await refresh()
       void sendCompletionFeedback(preferences, {
@@ -319,7 +351,8 @@ function App() {
         durationMinutes: result.completion.durationMinutes,
         tier: result.completion.tier,
         upgraded: result.upgraded,
-      })
+        leveledUp,
+      }, preparedAudio)
     } catch (error) {
       setNotice(errorMessage(error))
     }
@@ -354,7 +387,15 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Navigation page={page} onChange={setPage} />
+      <Navigation
+        page={page}
+        onChange={(nextPage) => {
+          setPage(nextPage)
+          if (nextPage === 'character') void syncLevelMilestones().then(refresh)
+        }}
+        onCreate={() => setCreateOpen(true)}
+        characterNeedsAttention={characterNeedsAttention}
+      />
       <main className="main-content">
         {isPreview && (
           <div className="preview-banner" role="status">
@@ -373,7 +414,9 @@ function App() {
         {page === 'today' && (
           <TodayPage
             today={today}
+            totalXp={stats.totalXp}
             level={level}
+            levelSystem={levelSystem}
             coins={stats.coins}
             keyActivities={keyActivities}
             otherHabits={otherHabits}
@@ -389,7 +432,26 @@ function App() {
             stats={stats}
             level={level}
             ledgerEvents={snapshot.ledgerEvents}
+            levelSystem={levelSystem}
             rewards={snapshot.rewards.filter((reward) => reward.enabled)}
+            onAcknowledge={async (milestoneLevel, focusAttribute) => {
+              try {
+                await acknowledgeLevelMilestone(milestoneLevel, focusAttribute)
+                await refresh()
+                setNotice(`下一等级方向已设为${focusAttribute}`)
+              } catch (error) {
+                setNotice(errorMessage(error))
+              }
+            }}
+            onClaimVoucher={async (milestoneLevel, rewardId) => {
+              try {
+                await claimMilestoneReward(milestoneLevel, rewardId)
+                await refresh()
+                setNotice('阶段礼券已领取，不扣除金币')
+              } catch (error) {
+                setNotice(errorMessage(error))
+              }
+            }}
             onRedeem={async (rewardId) => {
               try {
                 await redeemReward(rewardId)
@@ -534,7 +596,17 @@ function App() {
   )
 }
 
-function Navigation({ page, onChange }: { page: Page; onChange: (page: Page) => void }) {
+function Navigation({
+  page,
+  onChange,
+  onCreate,
+  characterNeedsAttention,
+}: {
+  page: Page
+  onChange: (page: Page) => void
+  onCreate: () => void
+  characterNeedsAttention: boolean
+}) {
   const items: Array<{ id: Page; label: string; icon: typeof Home }> = [
     { id: 'today', label: '今天', icon: Home },
     { id: 'character', label: '角色', icon: UserRound },
@@ -547,9 +619,14 @@ function Navigation({ page, onChange }: { page: Page; onChange: (page: Page) => 
         <span className="brand-icon"><Zap aria-hidden="true" /></span>
         <span className="brand-copy"><strong>地球 Online</strong><small>现实成长日志</small></span>
       </div>
-      {items.map((item) => {
+      {items.map((item, index) => {
         const Icon = item.icon
-        return (
+        return [
+          index === 2 ? (
+            <button className="nav-create" type="button" onClick={onCreate} title="创建行动" aria-label="创建行动" key="create">
+              <Plus aria-hidden="true" />
+            </button>
+          ) : null,
           <button
             key={item.id}
             className={page === item.id ? 'nav-item active' : 'nav-item'}
@@ -557,10 +634,13 @@ function Navigation({ page, onChange }: { page: Page; onChange: (page: Page) => 
             onClick={() => onChange(item.id)}
             aria-current={page === item.id ? 'page' : undefined}
           >
-            <Icon aria-hidden="true" />
+            <span className="nav-icon-wrap">
+              <Icon aria-hidden="true" />
+              {item.id === 'character' && characterNeedsAttention && <span className="nav-attention" aria-label="有新的成长奖励" />}
+            </span>
             <span>{item.label}</span>
-          </button>
-        )
+          </button>,
+        ]
       })}
     </nav>
   )
@@ -568,7 +648,9 @@ function Navigation({ page, onChange }: { page: Page; onChange: (page: Page) => 
 
 function TodayPage({
   today,
+  totalXp,
   level,
+  levelSystem,
   coins,
   keyActivities,
   otherHabits,
@@ -579,7 +661,9 @@ function TodayPage({
   onCreate,
 }: {
   today: string
+  totalXp: number
   level: ReturnType<typeof getLevel>
+  levelSystem?: LevelSystem
   coins: number
   keyActivities: Activity[]
   otherHabits: Activity[]
@@ -603,7 +687,7 @@ function TodayPage({
             </div>
           </header>
           <div className="mobile-status">
-            <TodayStatusPanel stage={stage} level={level} coins={coins} completed={completedKeys} total={keyActivities.length} />
+            <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} />
           </div>
           <ActivitySection
             title="关键行动"
@@ -638,35 +722,42 @@ function TodayPage({
           />
         </section>
         <aside className="today-sidebar" aria-label="角色状态">
-          <TodayStatusPanel stage={stage} level={level} coins={coins} completed={completedKeys} total={keyActivities.length} />
+          <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} />
           <button className="primary-action sidebar-create" type="button" onClick={onCreate}><Plus aria-hidden="true" />创建行动</button>
           <p className="sidebar-note"><ShieldCheck aria-hidden="true" />成长记录仅保存在本机</p>
         </aside>
       </div>
-      <button className="floating-create" type="button" onClick={onCreate} title="创建行动" aria-label="创建行动"><Plus aria-hidden="true" /></button>
     </div>
   )
 }
 
 function TodayStatusPanel({
   stage,
+  totalXp,
   level,
+  levelSystem,
   coins,
   completed,
   total,
 }: {
   stage: number
+  totalXp: number
   level: ReturnType<typeof getLevel>
+  levelSystem?: LevelSystem
   coins: number
   completed: number
   total: number
 }) {
   const keyProgress = total > 0 ? completed / total : 0
+  const pendingVoucher = levelSystem?.milestones.find((milestone) => milestone.voucherMaxCost && !milestone.claimedAt)
+  const nextRewardLevel = pendingVoucher?.level ?? getNextVoucherLevel(level.level)
+  const nextRewardCost = pendingVoucher?.voucherMaxCost ?? getMilestoneVoucherCost(nextRewardLevel)
+  const rewardXpRemaining = Math.max(0, getTotalXpForLevel(nextRewardLevel) - totalXp)
   return (
     <section className="status-panel">
       <div className="status-identity">
         <span className="portrait-frame"><TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} /></span>
-        <div><span>旅者状态</span><strong>Lv.{level.level}</strong><small>成长阶段 {stage}</small></div>
+        <div><span>旅者状态</span><strong>Lv.{level.level}</strong><small>{getCharacterStageName(level.level)} · 阶段 {stage}</small></div>
       </div>
       <div className="status-stat-grid">
         <div><Coins aria-hidden="true" /><span>金币</span><strong>{coins}</strong></div>
@@ -679,6 +770,10 @@ function TodayStatusPanel({
       <div className="status-progress key-progress">
         <div><span>关键行动</span><b>{total === 0 ? '待设定' : `${Math.round(keyProgress * 100)}%`}</b></div>
         <ProgressBar value={keyProgress} label="" compact />
+      </div>
+      <div className="next-reward-summary">
+        <Gift aria-hidden="true" />
+        <div><span>{pendingVoucher ? '待领取奖励' : '下一奖励'}：Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</span><small>{pendingVoucher ? '已达到，可前往角色页领取' : `还需 ${rewardXpRemaining} XP`}{levelSystem?.focusAttribute ? ` · 当前方向：${levelSystem.focusAttribute}` : ''}</small></div>
       </div>
     </section>
   )
@@ -770,27 +865,103 @@ function CharacterPage({
   stats,
   level,
   ledgerEvents,
+  levelSystem,
   rewards,
   onRedeem,
+  onAcknowledge,
+  onClaimVoucher,
 }: {
   stats: ReturnType<typeof calculateStats>
   level: ReturnType<typeof getLevel>
   ledgerEvents: LedgerEvent[]
+  levelSystem?: LevelSystem
   rewards: Snapshot['rewards']
   onRedeem: (rewardId: string) => void
+  onAcknowledge: (level: number, focusAttribute: Attribute) => void
+  onClaimVoucher: (level: number, rewardId: string) => void
 }) {
   const stage = getCharacterStage(level.level)
+  const stageName = getCharacterStageName(level.level)
+  const milestones = levelSystem?.milestones ?? []
+  const pendingReport = milestones.find((milestone) => !milestone.acknowledgedAt)
+  const reportStart = pendingReport
+    ? milestones.filter((milestone) => milestone.level < pendingReport.level).at(-1)?.reachedAt ?? levelSystem?.activatedAt ?? pendingReport.reachedAt
+    : undefined
+  const pendingReportData = pendingReport && reportStart ? getLevelReport(ledgerEvents, pendingReport, reportStart) : undefined
+  const routeStart = Math.max((levelSystem?.baselineLevel ?? 1) + 1, (levelSystem?.highestLevelReached ?? level.level) - 4)
+  const routeEnd = Math.max((levelSystem?.highestLevelReached ?? level.level) + 2, getNextVoucherLevel(level.level), 10)
+  const routeLevels = Array.from({ length: routeEnd - routeStart + 1 }, (_, index) => routeStart + index)
   const recentEvents = [...ledgerEvents].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 5)
   return (
     <div className="character-page">
       <header className="page-header"><div><p className="eyebrow">冒险者档案</p><h1>角色</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
       <section className="character-hero">
-        <div className="character-portrait-wrap"><span className="stage-badge">阶段 {stage}</span><TravelerPortrait stage={stage} label={`成长阶段 ${stage} 的像素旅者`} /></div>
+        <div className="character-portrait-wrap"><span className="stage-badge">{stageName}</span><TravelerPortrait stage={stage} label={`${stageName}阶段的像素旅者`} /></div>
         <div className="character-progress">
           <div className="character-level-line"><div><span>当前等级</span><strong>Lv.{level.level}</strong></div><div className="coin-balance"><Coins aria-hidden="true" /><span>金币</span><strong>{stats.coins}</strong></div></div>
           <div className="hero-xp"><b>{stats.totalXp} XP</b><span>距离 Lv.{level.level + 1} 还需 {level.needed - level.current} XP</span></div>
           <ProgressBar value={level.progress} label={`${level.current} / ${level.needed} XP`} />
+          <p className="focus-line"><Crosshair aria-hidden="true" />成长方向：{levelSystem?.focusAttribute ?? '完成下一份成长报告后选择'}</p>
         </div>
+      </section>
+      {pendingReport && pendingReportData && (
+        <section className="content-section level-report" aria-labelledby="level-report-title">
+          <div className="section-heading"><div><span>Lv.{pendingReport.level} 永久里程碑</span><h2 id="level-report-title"><Award aria-hidden="true" />成长报告待确认</h2></div></div>
+          <div className="report-stat-grid">
+            <div><span>活跃天数</span><strong>{pendingReportData.activeDays}</strong></div>
+            <div><span>唯一完成</span><strong>{pendingReportData.completionCount}</strong></div>
+            <div><span>最强属性</span><strong>{pendingReportData.strongestAttribute ?? '待积累'}</strong></div>
+          </div>
+          <div className="report-columns">
+            <div><h3>属性成长</h3><div className="report-attribute-list">{attributes.map((attribute) => <span key={attribute}>{attribute}<b>+{pendingReportData.attributeXp[attribute]} XP</b></span>)}</div></div>
+            <div><h3>贡献最高的行动</h3>{pendingReportData.topActions.length > 0 ? <ol>{pendingReportData.topActions.map((action, index) => <li key={`${action.title}:${index}`}><span>{action.title}</span><b>+{action.xp} XP</b></li>)}</ol> : <p className="empty-state">本周期还没有可统计的行动。</p>}</div>
+          </div>
+          <fieldset className="focus-picker">
+            <legend>下一等级重点发展</legend>
+            <p>只作为身份提醒，不改变奖励倍率。</p>
+            <div>{attributes.map((attribute) => <button type="button" key={attribute} onClick={() => onAcknowledge(pendingReport.level, attribute)}><AttributeMark attribute={attribute} /></button>)}</div>
+          </fieldset>
+        </section>
+      )}
+      <section className="content-section milestone-route">
+        <div className="section-heading"><div><span>可预期的成长</span><h2><Gift aria-hidden="true" />等级奖励路线</h2></div></div>
+        <p className="section-intro">每级留下成长报告和称号；阶段礼券不扣金币，也不会提高刷分倍率。Lv.15 起每 5 级获得一张 200 金币档礼券。</p>
+        <div className="milestone-list">
+          {routeLevels.map((routeLevel) => {
+            const milestone = milestones.find((item) => item.level === routeLevel)
+            const voucherCost = getMilestoneVoucherCost(routeLevel)
+            const state = milestone?.claimedAt ? 'claimed' : milestone && !milestone.acknowledgedAt ? 'unread' : milestone?.voucherMaxCost ? 'claimable' : milestone ? 'reached' : 'locked'
+            const eligibleRewards = voucherCost ? rewards.filter((reward) => reward.cost <= voucherCost) : []
+            return (
+              <article className={`milestone-row milestone-${state}`} key={routeLevel}>
+                <span className="milestone-node" aria-hidden="true">{state === 'claimed' || state === 'reached' ? <Check aria-hidden="true" /> : routeLevel}</span>
+                <div className="milestone-main">
+                  <div><strong>Lv.{routeLevel} · {getCharacterStageName(routeLevel)}</strong><span>{getTotalXpForLevel(routeLevel)} 累计 XP</span></div>
+                  <p>{milestone ? (milestone.acknowledgedAt ? '成长报告已查看 · 永久里程碑' : '已达到 · 成长报告待查看') : `还需 ${Math.max(0, getTotalXpForLevel(routeLevel) - stats.totalXp)} XP`}</p>
+                  {voucherCost && <p className="voucher-label"><Gift aria-hidden="true" />{voucherCost} 金币档阶段礼券{milestone?.claimedAt ? ' · 已领取' : milestone ? ' · 可领取' : ''}</p>}
+                  {milestone?.voucherMaxCost && !milestone.claimedAt && (
+                    <div className="voucher-actions">
+                      {eligibleRewards.length > 0
+                        ? eligibleRewards.map((reward) => <button type="button" key={reward.id} onClick={() => onClaimVoucher(routeLevel, reward.id)}>{reward.title}<span>原价 {reward.cost}</span></button>)
+                        : <small>奖励商店中暂无符合额度的奖励。</small>}
+                    </div>
+                  )}
+                </div>
+                <span className="milestone-state">{state === 'claimed' ? '已领取' : state === 'claimable' ? '可领取' : state === 'unread' ? '待查看' : state === 'reached' ? '已完成' : '未达到'}</span>
+              </article>
+            )
+          })}
+        </div>
+        {milestones.some((milestone) => milestone.acknowledgedAt) && (
+          <details className="report-history">
+            <summary>查看历史成长报告</summary>
+            {[...milestones].reverse().filter((milestone) => milestone.acknowledgedAt).map((milestone) => {
+              const previous = milestones.find((item) => item.level === milestone.level - 1)
+              const report = getLevelReport(ledgerEvents, milestone, previous?.reachedAt ?? levelSystem?.activatedAt ?? milestone.reachedAt)
+              return <p key={milestone.level}>Lv.{milestone.level} · {milestone.focusAttribute}方向 · {report.activeDays} 个活跃日 · {report.completionCount} 项完成</p>
+            })}
+          </details>
+        )}
       </section>
       <section className="content-section">
         <div className="section-heading"><div><span>成长维度</span><h2>六项属性</h2></div></div>
@@ -812,9 +983,9 @@ function CharacterPage({
           {recentEvents.length === 0 && <p className="empty-state">完成行动后，成长记录会出现在这里。</p>}
           {recentEvents.map((event) => (
             <div className={`growth-row growth-${event.kind}`} key={event.id}>
-              <span className="growth-icon">{event.kind === 'redemption' ? <Gift aria-hidden="true" /> : event.kind === 'correction' ? <RotateCcw aria-hidden="true" /> : <ActivityIcon aria-hidden="true" />}</span>
+              <span className="growth-icon">{event.kind === 'redemption' || event.kind === 'milestone' ? <Gift aria-hidden="true" /> : event.kind === 'correction' ? <RotateCcw aria-hidden="true" /> : <ActivityIcon aria-hidden="true" />}</span>
               <div><strong>{event.title}</strong><span>{formatShortDate(event.occurredOn)}{event.attribute ? ` · ${event.attribute}` : ''}</span></div>
-              <b>{event.xpDelta !== 0 && `${event.xpDelta > 0 ? '+' : ''}${event.xpDelta} XP`}{event.xpDelta !== 0 && event.coinDelta !== 0 ? ' · ' : ''}{event.coinDelta !== 0 && `${event.coinDelta > 0 ? '+' : ''}${event.coinDelta} 金币`}</b>
+              <b>{event.kind === 'milestone' ? '永久记录' : <>{event.xpDelta !== 0 && `${event.xpDelta > 0 ? '+' : ''}${event.xpDelta} XP`}{event.xpDelta !== 0 && event.coinDelta !== 0 ? ' · ' : ''}{event.coinDelta !== 0 && `${event.coinDelta > 0 ? '+' : ''}${event.coinDelta} 金币`}</>}</b>
             </div>
           ))}
         </div>
@@ -1026,6 +1197,21 @@ function SettingsPage({
     await onPreferences({ ...preferences, notifications: !preferences.notifications })
   }
 
+  async function toggleSound() {
+    if (preferences.sound) {
+      await onPreferences({ ...preferences, sound: false })
+      return
+    }
+    const supported = await playCompletionChime('completion')
+    if (!supported) {
+      await onPreferences({ ...preferences, sound: false })
+      onNotice('当前设备无法启用完成声音，已保持关闭')
+      return
+    }
+    await onPreferences({ ...preferences, sound: true })
+    onNotice('完成声音已开启，刚才播放的是试听音')
+  }
+
   async function exportJson() {
     const meta = await db.settings.get('meta')
     await db.settings.put({ key: 'meta', value: { ...(meta?.key === 'meta' ? meta.value : {}), lastBackupAt: new Date().toISOString() } })
@@ -1072,7 +1258,7 @@ function SettingsPage({
           icon={<Volume2 aria-hidden="true" />}
           label="完成声音"
           checked={preferences.sound}
-          onChange={() => void onPreferences({ ...preferences, sound: !preferences.sound })}
+          onChange={() => void toggleSound()}
         />
       </section>
 
@@ -1140,7 +1326,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.4.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.5.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
@@ -1578,7 +1764,7 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
     <aside className={condensed ? 'feedback-overlay condensed' : 'feedback-overlay'} role="status" aria-live="assertive">
       <span className="feedback-portrait"><TravelerPortrait stage={stage} label="像素旅者成长反馈" /></span>
       <div className="feedback-copy">
-        <span>{feedback.upgraded ? '委托升级' : '委托完成'}</span>
+        <span>{feedback.leveledUp ? `角色升级 · Lv.${feedback.level.level}` : feedback.upgraded ? '委托升级' : '委托完成'}</span>
         <strong>{feedback.title}</strong>
         <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{feedback.attribute}</b></div>
         <div className="feedback-detail">
