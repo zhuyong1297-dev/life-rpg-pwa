@@ -293,4 +293,11 @@ describe('IndexedDB 事务', () => {
     await restoreBackup({ ...current, schemaVersion: 3, appVersion: '2.2.0' }, database)
     expect(await database.activities.count()).toBe(1)
   })
+
+  it('可以恢复 V2.3.0 的 schema 4 备份', async () => {
+    await createActivity(dailyHabit, database)
+    const current = await createBackup(database)
+    await restoreBackup({ ...current, appVersion: '2.3.0' }, database)
+    expect(await database.activities.count()).toBe(1)
+  })
 })

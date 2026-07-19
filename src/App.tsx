@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+  Activity as ActivityIcon,
+  Award,
   Bell,
   BellOff,
+  BookOpen,
+  Brain,
   Check,
   CheckCircle2,
   ClipboardCheck,
   Coins,
+  Crosshair,
   Download,
+  Dumbbell,
   Gift,
   Home,
+  Leaf,
+  ListTodo,
   Pause,
   Pencil,
   Plus,
@@ -17,8 +25,10 @@ import {
   ShieldCheck,
   Star,
   Trash2,
+  TrendingUp,
   Upload,
   UserRound,
+  UsersRound,
   Vibrate,
   Volume2,
   X,
@@ -71,6 +81,7 @@ import {
   type Completion,
   type Difficulty,
   type CombinedMode,
+  type LedgerEvent,
   type Preferences,
   type ReviewDecision,
   type TierLevel,
@@ -370,6 +381,7 @@ function App() {
           <CharacterPage
             stats={stats}
             level={level}
+            ledgerEvents={snapshot.ledgerEvents}
             rewards={snapshot.rewards.filter((reward) => reward.enabled)}
             onRedeem={async (rewardId) => {
               try {
@@ -525,8 +537,8 @@ function Navigation({ page, onChange }: { page: Page; onChange: (page: Page) => 
   return (
     <nav className="navigation" aria-label="主导航">
       <div className="brand-mark">
-        <Zap aria-hidden="true" />
-        <span>地球 Online</span>
+        <span className="brand-icon"><Zap aria-hidden="true" /></span>
+        <span className="brand-copy"><strong>地球 Online</strong><small>现实成长日志</small></span>
       </div>
       {items.map((item) => {
         const Icon = item.icon
@@ -571,60 +583,109 @@ function TodayPage({
   onCreate: () => void
 }) {
   const stage = getCharacterStage(level.level)
+  const completedKeys = keyActivities.filter((activity) => Boolean(activeCompletion(activity))).length
   return (
-    <>
-      <header className="page-header today-header">
-        <div>
-          <p className="date-label">{formatChineseDate(today)}</p>
-          <h1>今天</h1>
-        </div>
-        <div className="compact-status">
-          <TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} />
-          <div>
-            <strong>Lv.{level.level}</strong>
-            <span><Coins aria-hidden="true" /> {coins}</span>
+    <div className="today-page">
+      <div className="today-layout">
+        <section className="today-actions" aria-label="今日行动">
+          <header className="page-header today-header">
+            <div>
+              <p className="eyebrow">行动日志 · {formatChineseDate(today)}</p>
+              <h1>今天</h1>
+              <p className="page-lead">把注意力留给真正重要的行动。</p>
+            </div>
+          </header>
+          <div className="mobile-status">
+            <TodayStatusPanel stage={stage} level={level} coins={coins} completed={completedKeys} total={keyActivities.length} />
           </div>
-        </div>
-      </header>
-      <ProgressBar value={level.progress} label={`${level.current} / ${level.needed} XP`} />
-
-      <ActivitySection
-        title="关键行为"
-        icon={<Star aria-hidden="true" />}
-        activities={keyActivities}
-        activeCompletion={activeCompletion}
-        onComplete={onComplete}
-        onCompleted={onCompleted}
-        empty="还没有关键行为"
-      />
-      <ActivitySection
-        title="其他习惯"
-        activities={otherHabits}
-        activeCompletion={activeCompletion}
-        onComplete={onComplete}
-        onCompleted={onCompleted}
-        empty="今天没有其他习惯"
-      />
-      <ActivitySection
-        title="一次性任务"
-        activities={tasks}
-        activeCompletion={activeCompletion}
-        onComplete={onComplete}
-        onCompleted={onCompleted}
-        empty="今天没有一次性任务"
-      />
-
-      <button className="primary-action create-action" type="button" onClick={onCreate}>
-        <Plus aria-hidden="true" />
-        创建行动
-      </button>
-    </>
+          <ActivitySection
+            title="关键行动"
+            subtitle="主线委托"
+            icon={<Star aria-hidden="true" />}
+            variant="key"
+            activities={keyActivities}
+            activeCompletion={activeCompletion}
+            onComplete={onComplete}
+            onCompleted={onCompleted}
+            empty="还没有关键行动。从一个真正值得坚持的行为开始。"
+          />
+          <ActivitySection
+            title="其他习惯"
+            subtitle="日常委托"
+            variant="regular"
+            activities={otherHabits}
+            activeCompletion={activeCompletion}
+            onComplete={onComplete}
+            onCompleted={onCompleted}
+            empty=""
+          />
+          <ActivitySection
+            title="一次性任务"
+            subtitle="临时委托"
+            variant="regular"
+            activities={tasks}
+            activeCompletion={activeCompletion}
+            onComplete={onComplete}
+            onCompleted={onCompleted}
+            empty=""
+          />
+        </section>
+        <aside className="today-sidebar" aria-label="角色状态">
+          <TodayStatusPanel stage={stage} level={level} coins={coins} completed={completedKeys} total={keyActivities.length} />
+          <button className="primary-action sidebar-create" type="button" onClick={onCreate}><Plus aria-hidden="true" />创建行动</button>
+          <p className="sidebar-note"><ShieldCheck aria-hidden="true" />成长记录仅保存在本机</p>
+        </aside>
+      </div>
+      <button className="floating-create" type="button" onClick={onCreate} title="创建行动" aria-label="创建行动"><Plus aria-hidden="true" /></button>
+    </div>
   )
+}
+
+function TodayStatusPanel({
+  stage,
+  level,
+  coins,
+  completed,
+  total,
+}: {
+  stage: number
+  level: ReturnType<typeof getLevel>
+  coins: number
+  completed: number
+  total: number
+}) {
+  const keyProgress = total > 0 ? completed / total : 0
+  return (
+    <section className="status-panel">
+      <div className="status-identity">
+        <span className="portrait-frame"><TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} /></span>
+        <div><span>旅者状态</span><strong>Lv.{level.level}</strong><small>成长阶段 {stage}</small></div>
+      </div>
+      <div className="status-stat-grid">
+        <div><Coins aria-hidden="true" /><span>金币</span><strong>{coins}</strong></div>
+        <div><TargetMark /><span>主线</span><strong>{completed}/{total}</strong></div>
+      </div>
+      <div className="status-progress">
+        <div><span>等级进度</span><b>{level.current}/{level.needed} XP</b></div>
+        <ProgressBar value={level.progress} label="" compact />
+      </div>
+      <div className="status-progress key-progress">
+        <div><span>关键行动</span><b>{total === 0 ? '待设定' : `${Math.round(keyProgress * 100)}%`}</b></div>
+        <ProgressBar value={keyProgress} label="" compact />
+      </div>
+    </section>
+  )
+}
+
+function TargetMark() {
+  return <Crosshair aria-hidden="true" />
 }
 
 function ActivitySection({
   title,
+  subtitle,
   icon,
+  variant,
   activities,
   activeCompletion,
   onComplete,
@@ -632,35 +693,40 @@ function ActivitySection({
   empty,
 }: {
   title: string
+  subtitle: string
   icon?: React.ReactNode
+  variant: 'key' | 'regular'
   activities: Activity[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
   onCompleted: (activity: Activity) => void
   empty: string
 }) {
+  if (variant === 'regular' && activities.length === 0) return null
   return (
-    <section className="content-section">
+    <section className={`content-section activity-section activity-section-${variant}`}>
       <div className="section-heading">
-        <h2>{icon}{title}</h2>
+        <div><span>{subtitle}</span><h2>{icon}{title}</h2></div>
         <span>{activities.length}</span>
       </div>
-      <div className="activity-list">
-        {activities.length === 0 && <p className="empty-state">{empty}</p>}
+      <div className={variant === 'key' ? 'mission-list' : 'activity-list'}>
+        {activities.length === 0 && <div className="empty-mission"><TargetMark /><strong>设定第一项主线</strong><p>{empty}</p></div>}
         {activities.map((activity) => {
           const completion = activeCompletion(activity)
           const complete = Boolean(completion)
           const canUpgrade = Boolean(completion?.tier && completion.tier < 3 && (completion.tierGoalSnapshot || completion.tierThresholds))
           const reward = rewardTable[activity.difficulty]
           return (
-            <article className={complete ? 'activity-row complete' : 'activity-row'} key={activity.id}>
+            <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
               <div className="activity-copy">
+                {variant === 'key' && <div className="mission-meta"><AttributeMark attribute={activity.attribute} /><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span></div>}
                 <div className="activity-title-line">
                   <strong>{activity.title}</strong>
-                  <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>
+                  {variant === 'regular' && <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>}
                   {completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
                 </div>
-                <span>{activity.attribute} · {scheduleLabel(activity)} · {isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP / +{reward.coins} 金币</span>
+                <span className="activity-schedule">{variant === 'regular' && `${activity.attribute} · `}{scheduleLabel(activity)}</span>
+                {variant === 'key' && <div className="mission-reward"><Award aria-hidden="true" /><span>{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP</span><Coins aria-hidden="true" /><span>+{reward.coins}</span></div>}
               </div>
               <button
                 className="complete-button"
@@ -679,47 +745,75 @@ function ActivitySection({
   )
 }
 
+const attributeIcons: Record<Attribute, typeof Dumbbell> = {
+  体魄: Dumbbell,
+  智识: BookOpen,
+  专注: Crosshair,
+  创造: Brain,
+  关系: UsersRound,
+  心境: Leaf,
+}
+
+function AttributeMark({ attribute }: { attribute: Attribute }) {
+  const Icon = attributeIcons[attribute]
+  return <span className={`attribute-mark attribute-${attribute}`}><Icon aria-hidden="true" />{attribute}</span>
+}
+
 function CharacterPage({
   stats,
   level,
+  ledgerEvents,
   rewards,
   onRedeem,
 }: {
   stats: ReturnType<typeof calculateStats>
   level: ReturnType<typeof getLevel>
+  ledgerEvents: LedgerEvent[]
   rewards: Snapshot['rewards']
   onRedeem: (rewardId: string) => void
 }) {
   const stage = getCharacterStage(level.level)
+  const recentEvents = [...ledgerEvents].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 5)
   return (
-    <>
-      <header className="page-header">
-        <div><p className="eyebrow">角色档案</p><h1>旅者 Lv.{level.level}</h1></div>
-        <div className="coin-balance"><Coins aria-hidden="true" /><strong>{stats.coins}</strong></div>
-      </header>
-      <section className="character-band">
-        <TravelerPortrait stage={stage} label={`成长阶段 ${stage} 的像素旅者`} />
+    <div className="character-page">
+      <header className="page-header"><div><p className="eyebrow">冒险者档案</p><h1>角色</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
+      <section className="character-hero">
+        <div className="character-portrait-wrap"><span className="stage-badge">阶段 {stage}</span><TravelerPortrait stage={stage} label={`成长阶段 ${stage} 的像素旅者`} /></div>
         <div className="character-progress">
-          <strong>{stats.totalXp} XP</strong>
-          <ProgressBar value={level.progress} label={`距 Lv.${level.level + 1}：${level.needed - level.current} XP`} />
+          <div className="character-level-line"><div><span>当前等级</span><strong>Lv.{level.level}</strong></div><div className="coin-balance"><Coins aria-hidden="true" /><span>金币</span><strong>{stats.coins}</strong></div></div>
+          <div className="hero-xp"><b>{stats.totalXp} XP</b><span>距离 Lv.{level.level + 1} 还需 {level.needed - level.current} XP</span></div>
+          <ProgressBar value={level.progress} label={`${level.current} / ${level.needed} XP`} />
         </div>
       </section>
       <section className="content-section">
-        <div className="section-heading"><h2>六项属性</h2></div>
+        <div className="section-heading"><div><span>成长维度</span><h2>六项属性</h2></div></div>
         <div className="attribute-grid">
           {attributes.map((attribute) => {
             const attributeLevel = getLevel(stats.attributeXp[attribute])
             return (
               <div className="attribute-item" key={attribute}>
-                <div><strong>{attribute}</strong><span>Lv.{attributeLevel.level}</span></div>
+                <div><AttributeMark attribute={attribute} /><span>Lv.{attributeLevel.level}</span></div>
                 <ProgressBar value={attributeLevel.progress} label={`${stats.attributeXp[attribute]} XP`} compact />
               </div>
             )
           })}
         </div>
       </section>
+      <section className="content-section growth-section">
+        <div className="section-heading"><div><span>成长轨迹</span><h2><TrendingUp aria-hidden="true" />近期记录</h2></div></div>
+        <div className="growth-list">
+          {recentEvents.length === 0 && <p className="empty-state">完成行动后，成长记录会出现在这里。</p>}
+          {recentEvents.map((event) => (
+            <div className={`growth-row growth-${event.kind}`} key={event.id}>
+              <span className="growth-icon">{event.kind === 'redemption' ? <Gift aria-hidden="true" /> : event.kind === 'correction' ? <RotateCcw aria-hidden="true" /> : <ActivityIcon aria-hidden="true" />}</span>
+              <div><strong>{event.title}</strong><span>{formatShortDate(event.occurredOn)}{event.attribute ? ` · ${event.attribute}` : ''}</span></div>
+              <b>{event.xpDelta !== 0 && `${event.xpDelta > 0 ? '+' : ''}${event.xpDelta} XP`}{event.xpDelta !== 0 && event.coinDelta !== 0 ? ' · ' : ''}{event.coinDelta !== 0 && `${event.coinDelta > 0 ? '+' : ''}${event.coinDelta} 金币`}</b>
+            </div>
+          ))}
+        </div>
+      </section>
       <section className="content-section">
-        <div className="section-heading"><h2><Gift aria-hidden="true" />奖励商店</h2></div>
+        <div className="section-heading"><div><span>现实奖励</span><h2><Gift aria-hidden="true" />奖励商店</h2></div></div>
         <div className="reward-list">
           {rewards.map((reward) => (
             <article className="reward-row" key={reward.id}>
@@ -731,7 +825,7 @@ function CharacterPage({
           ))}
         </div>
       </section>
-    </>
+    </div>
   )
 }
 
@@ -791,6 +885,7 @@ function ReviewPage({
     )
     return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }
   })
+  const overallAdherence = progress.length > 0 ? progress.reduce((total, item) => total + item.adherence, 0) / progress.length : 0
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -819,15 +914,18 @@ function ReviewPage({
   }
 
   return (
-    <>
-      <header className="page-header">
-        <div><p className="eyebrow">{formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1></div>
-        <ClipboardCheck aria-hidden="true" className="header-icon" />
-      </header>
+    <div className="review-page">
+      <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div></header>
       {activities.length === 0 ? (
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
       ) : (
-        <form onSubmit={submit} className="review-form">
+        <>
+          <section className="review-overview">
+            <div><span>本周关键行动</span><strong>{activities.length}</strong></div>
+            <div><span>整体坚持率</span><strong>{Math.round(overallAdherence * 100)}%</strong></div>
+            <ProgressBar value={overallAdherence} label={`${formatShortDate(weekStart)} — ${formatShortDate(weekEnd)}`} compact />
+          </section>
+          <form onSubmit={submit} className="review-form">
           {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }) => {
             const draft = drafts[activity.id] ?? { impact: 3, friction: 3, decision: '保留' as const, note: '' }
             const update = (next: Partial<ReviewDraft>) => setDrafts((current) => ({ ...current, [activity.id]: { ...draft, ...next } }))
@@ -849,17 +947,10 @@ function ReviewPage({
                   </div>
                 )}
                 <div className="review-fields">
-                  <label>现实帮助
-                    <select value={draft.impact} onChange={(event) => update({ impact: Number(event.target.value) })}>
-                      {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}
-                    </select>
-                  </label>
-                  <label>执行阻力
-                    <select value={draft.friction} onChange={(event) => update({ friction: Number(event.target.value) })}>
-                      {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}
-                    </select>
-                  </label>
+                  <RatingControl label="现实帮助" value={draft.impact} onChange={(impact) => update({ impact })} />
+                  <RatingControl label="执行阻力" value={draft.friction} onChange={(friction) => update({ friction })} />
                 </div>
+                <span className="form-section-label">下周决策</span>
                 <div className="segmented-control" aria-label={`${activity.title} 下周决策`}>
                   {reviewDecisions.map((decision) => (
                     <button key={decision} type="button" className={draft.decision === decision ? 'selected' : ''} onClick={() => update({ decision })}>
@@ -874,9 +965,24 @@ function ReviewPage({
             )
           })}
           <button className="primary-action" type="submit"><Check aria-hidden="true" />保存本周复盘</button>
-        </form>
+          </form>
+        </>
       )}
-    </>
+    </div>
+  )
+}
+
+function RatingControl({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <fieldset className="rating-control">
+      <legend>{label}</legend>
+      <div>
+        {[1, 2, 3, 4, 5].map((option) => (
+          <button key={option} type="button" className={value === option ? 'selected' : ''} aria-label={`${label} ${option} 分`} aria-pressed={value === option} onClick={() => onChange(option)}>{option}</button>
+        ))}
+      </div>
+      <span>{label === '现实帮助' ? '没有帮助 — 非常有帮助' : '很容易 — 阻力很大'}</span>
+    </fieldset>
   )
 }
 
@@ -939,10 +1045,10 @@ function SettingsPage({
   }
 
   return (
-    <>
-      <header className="page-header"><div><p className="eyebrow">本机设置</p><h1>设置</h1></div><SettingsIcon aria-hidden="true" className="header-icon" /></header>
+    <div className="settings-page">
+      <header className="page-header"><div><p className="eyebrow">系统与存档</p><h1>设置</h1><p className="page-lead">管理反馈方式、行动和本机数据。</p></div><SettingsIcon aria-hidden="true" className="header-icon" /></header>
       <section className="content-section settings-section">
-        <div className="section-heading"><h2>即时反馈</h2></div>
+        <div className="section-heading"><div><span>体验偏好</span><h2>即时反馈</h2></div></div>
         <SettingToggle
           icon={preferences.notifications ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
           label="系统通知"
@@ -964,7 +1070,7 @@ function SettingsPage({
       </section>
 
       <section className="content-section settings-section">
-        <div className="section-heading"><h2>活动管理</h2></div>
+        <div className="section-heading"><div><span>行动编排</span><h2>活动管理</h2></div></div>
         {activeActivities.length === 0 && <p className="empty-state">还没有活动</p>}
         {activeActivities.map((activity) => (
           <div className="manage-row" key={activity.id}>
@@ -1018,7 +1124,7 @@ function SettingsPage({
       </section>
 
       <section className="content-section settings-section">
-        <div className="section-heading"><h2>本地数据</h2></div>
+        <div className="section-heading"><div><span>存档与恢复</span><h2>本地数据</h2></div></div>
         <div className="data-actions">
           <button type="button" onClick={() => void exportJson()}><Download aria-hidden="true" />导出 JSON</button>
           <button type="button" onClick={() => void exportMarkdown()}><Download aria-hidden="true" />导出账本</button>
@@ -1027,8 +1133,8 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.3.0</footer>
-    </>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.4.0</footer>
+    </div>
   )
 }
 
@@ -1065,16 +1171,12 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
   return (
     <div className="modal-backdrop" role="presentation">
       <form className="modal" onSubmit={submit} aria-labelledby="create-title">
-        <div className="modal-header"><h2 id="create-title">创建行动</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="modal-header"><div><span className="modal-kicker">登记新委托</span><h2 id="create-title">创建行动</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <div className="segmented-control">
           <button type="button" className={type === 'habit' ? 'selected' : ''} onClick={() => setType('habit')}>习惯</button>
           <button type="button" className={type === 'task' ? 'selected' : ''} onClick={() => setType('task')}>一次性任务</button>
         </div>
         <label className="full-field">名称<input required maxLength={60} value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label>
-        <div className="field-grid">
-          <label>属性<select value={attribute} onChange={(event) => setAttribute(event.target.value as Attribute)}>{attributes.map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>
-        </div>
         {type === 'habit' ? (
           <>
             <div className="field-grid">
@@ -1094,6 +1196,14 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
+        <details className="form-details">
+          <summary><span><strong>奖励与分类</strong><small>{attribute} · {difficulty}</small></span><ListTodo aria-hidden="true" /></summary>
+          <div className="field-grid">
+            <label>属性<select value={attribute} onChange={(event) => setAttribute(event.target.value as Attribute)}>{attributes.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>
+          </div>
+          <p className="form-detail-note">奖励由难度决定；目标次数和时长不会放大奖励。</p>
+        </details>
         <button className="primary-action" type="submit"><Plus aria-hidden="true" />创建</button>
       </form>
     </div>
@@ -1449,17 +1559,27 @@ function CompletionModal({ activity, onClose, onComplete }: { activity: Activity
 
 function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo: () => void }) {
   const stage = getCharacterStage(feedback.level.level)
+  const [condensed, setCondensed] = useState(false)
+
+  useEffect(() => {
+    setCondensed(false)
+    const timer = window.setTimeout(() => setCondensed(true), 1400)
+    return () => window.clearTimeout(timer)
+  }, [feedback.completionId])
+
   return (
-    <aside className="feedback-overlay" role="status" aria-live="assertive">
-      <TravelerPortrait stage={stage} label="像素旅者成长反馈" />
+    <aside className={condensed ? 'feedback-overlay condensed' : 'feedback-overlay'} role="status" aria-live="assertive">
+      <span className="feedback-portrait"><TravelerPortrait stage={stage} label="像素旅者成长反馈" /></span>
       <div className="feedback-copy">
-        <span>{feedback.upgraded ? '层次升级' : '行动完成'}</span>
+        <span>{feedback.upgraded ? '委托升级' : '委托完成'}</span>
         <strong>{feedback.title}</strong>
         <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{feedback.attribute}</b></div>
-        {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
-        {feedback.tier && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
-        <p>{identityMessage(feedback.attribute)}</p>
-        <ProgressBar value={feedback.level.progress} label={`Lv.${feedback.level.level} · ${feedback.level.current}/${feedback.level.needed} XP`} compact />
+        <div className="feedback-detail">
+          {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
+          {feedback.tier && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
+          <p>{identityMessage(feedback.attribute)}</p>
+          <ProgressBar value={feedback.level.progress} label={`Lv.${feedback.level.level} · ${feedback.level.current}/${feedback.level.needed} XP`} compact />
+        </div>
       </div>
       <button type="button" className="undo-button" onClick={onUndo}><RotateCcw aria-hidden="true" />撤销</button>
     </aside>
