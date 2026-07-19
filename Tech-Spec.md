@@ -1,4 +1,4 @@
-# 地球 Online V2.2.0 技术规格
+# 地球 Online V2.3.0 技术规格
 
 ## 1. 系统结构
 
@@ -20,9 +20,11 @@
 - `Activity.type` 为 `habit | task`。
 - `Activity.attribute` 为六项属性之一，`difficulty` 为四档难度之一。
 - `Activity.schedule` 支持每天和每周 N 次；`goal.kind` 支持旧次数、旧时长和 `tiered` 三层目标；任务可有计划日期。
+- 三层目标支持纯次数、旧分钟、规范化秒级时间和组合目标；组合阈值保存次数与 `durationSeconds`。
 - `Activity.revision` 在每次完整编辑时递增；`archivedAt` 表示可恢复归档，归档活动必须同时关闭启用和关键状态。
 - `tiered` 目标保存 `duration | count` 度量、共享单位和三个严格递增阈值。
-- `Completion.status` 为 `active | undone`，保存活动版本、名称、属性、难度快照，以及可选成果备注、旧时长实际分钟、三层、度量、单位和阈值快照。
+- `Completion.status` 为 `active | undone`，新三层完成使用 `tierGoalSnapshot` 保存完整目标；V2.1/V2.2 的旧度量、单位和阈值快照继续兼容读取。
+- 周复盘为三层目标保存层次分布，并可保存最低次数、最低时间秒数和次数单位。
 - `LedgerEvent.kind` 为 `reward | correction | redemption`，保存 XP、金币和可选属性。
 - 每个 reward event 使用确定性幂等键；correction 引用被撤销的 reward event。
 
@@ -31,7 +33,7 @@
 ### 完成
 
 1. 校验活动、完成证据和当前有效 completion。
-2. 新三层完成按 `60%/80%/100%` 计算累计 XP，并在首次完成时发完整金币；旧时长目标继续校验实际分钟。
+2. 三层完成按 `60%/80%/100%` 计算累计 XP，并在首次完成时发完整金币；目标秒数、次数和组合工作量不参与奖励计算。
 3. 首次完成在同一 Dexie `rw` 事务写入 completion 和 reward event。
 4. 同日升级更新 completion 的最高层次并追加 XP 差额事件，金币差额固定为零。
 5. 事务提交后才触发界面反馈、振动和通知。
@@ -56,7 +58,7 @@
 
 ## 5. 导入导出
 
-- JSON schema 3 备份包含 `appVersion`、`exportedAt` 和六张表的完整内容，并兼容读取 V2.0.0 schema 1 与 V2.1.0 schema 2。
+- JSON schema 4 备份包含 `appVersion`、`exportedAt` 和六张表的完整内容，并兼容读取 schema 1～3。
 - Zod 先在事务外校验结构和业务约束。
 - 校验通过后在一个 `rw` 事务中清空并批量写入全部表；任何异常自动回滚。
 - Markdown 从当前账本派生，只用于人类阅读。
@@ -71,7 +73,7 @@
 ## 7. 测试分层
 
 - Vitest：奖励、等级、目标、关键行为上限、余额、撤销和幂等。
-- fake-indexeddb：事务原子性、双击防重、撤销后重做、完整编辑快照、归档恢复、当天取消和导入回滚。
+- fake-indexeddb：事务原子性、双击防重、秒级与组合目标奖励、旧快照升级、归档恢复、当天取消和导入回滚。
 - Playwright：完成证据、反馈速度、导航、响应式、备份恢复、离线启动和 PWA 资源。
 - 发布前扫描源码、`dist` 和 Git 历史中的个人数据与凭据模式。
 

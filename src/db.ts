@@ -16,6 +16,7 @@ import {
   addDays,
   getTierReward,
   getTierUpgradeXp,
+  getCompletionTierGoal,
   localDate,
   isDurationGoal,
   isTieredGoal,
@@ -216,11 +217,11 @@ export async function completeActivity(
       .and((completion) => completion.status === 'active' && (activity.type === 'task' || completion.occurredOn === occurredOn))
       .first()
     if (active) {
-      if (!active.tier || !active.tierThresholds || !active.tierMetric || !active.tierUnit || !requestedDetails.tier || requestedDetails.tier <= active.tier) {
+      const tierGoal = getCompletionTierGoal(active, activity)
+      if (!active.tier || !tierGoal || !requestedDetails.tier || requestedDetails.tier <= active.tier) {
         return { awarded: false as const, upgraded: false as const, completion: active, activity }
       }
       const createdAt = new Date().toISOString()
-      const thresholds = active.tierThresholds
       const difficulty = active.difficultySnapshot ?? activity.difficulty
       const attribute = active.attributeSnapshot ?? activity.attribute
       const title = active.titleSnapshot ?? activity.title
@@ -238,10 +239,9 @@ export async function completeActivity(
       const completion: Completion = {
         ...active,
         tier: requestedDetails.tier,
-        tierMetric: active.tierMetric,
-        tierUnit: active.tierUnit,
-        tierThresholds: thresholds,
-        achievedValue: thresholds[requestedDetails.tier - 1],
+        ...(!active.tierGoalSnapshot && tierGoal.metric !== 'combined'
+          ? { achievedValue: tierGoal.thresholds[requestedDetails.tier - 1] }
+          : {}),
       }
       await database.completions.put(completion)
       await database.ledgerEvents.add(event)
@@ -274,10 +274,7 @@ export async function completeActivity(
       note: details.note,
       durationMinutes: details.durationMinutes,
       tier: details.tier,
-      tierMetric: isTieredGoal(activity) ? activity.goal.metric : undefined,
-      tierUnit: isTieredGoal(activity) ? activity.goal.unit : undefined,
-      tierThresholds: isTieredGoal(activity) ? activity.goal.thresholds : undefined,
-      achievedValue: isTieredGoal(activity) && details.tier ? activity.goal.thresholds[details.tier - 1] : undefined,
+      tierGoalSnapshot: isTieredGoal(activity) ? activity.goal : undefined,
       activityRevision: activity.revision ?? 1,
       titleSnapshot: activity.title,
       attributeSnapshot: activity.attribute,

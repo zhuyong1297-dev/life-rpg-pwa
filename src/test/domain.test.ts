@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, getCharacterStage, getLevel, getTierReward, getTierUpgradeXp, rewardTable, type LedgerEvent } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getLevel, getTierAchievement, getTierReward, getTierUpgradeXp, rewardTable, type LedgerEvent } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -28,6 +28,7 @@ describe('领域规则', () => {
 
   it('三层时间或次数阈值必须严格递增', () => {
     expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] })).toBeTruthy()
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '秒', thresholds: [30, 60, 90] })).toBeTruthy()
     expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'count', unit: '页', thresholds: [5, 15, 30] })).toBeTruthy()
     expect(() => TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [20, 20, 45] })).toThrow('严格递增')
     expect(() => TieredGoalSchema.parse({ kind: 'tiered', metric: 'count', unit: '页', thresholds: [1, 3, 1000] })).toThrow('不能超过 999')
@@ -41,6 +42,49 @@ describe('领域规则', () => {
       tierMetric: 'count', tierUnit: '组', tierThresholds: [1, 3, 5], achievedValue: 5,
       createdAt: '2026-01-05T00:00:00.000Z',
     })).toThrow('快照与所选层次不一致')
+  })
+
+  it('组合目标允许单一维度增加并拒绝下降或超出一天', () => {
+    const perOccurrence = TieredGoalSchema.parse({
+      kind: 'tiered', metric: 'combined', mode: 'per_occurrence', countUnit: '次', inputUnit: '秒',
+      thresholds: [
+        { count: 3, durationSeconds: 30 },
+        { count: 5, durationSeconds: 30 },
+        { count: 5, durationSeconds: 45 },
+      ],
+    })
+    expect(formatTierGoalValue(perOccurrence, 1)).toBe('3次 × 每次30秒')
+    expect(getTierAchievement(perOccurrence, 3)).toEqual({ count: 5, countUnit: '次', durationSeconds: 225 })
+    const total = TieredGoalSchema.parse({
+      kind: 'tiered', metric: 'combined', mode: 'total', countUnit: '组', inputUnit: '分钟',
+      thresholds: [
+        { count: 2, durationSeconds: 120 },
+        { count: 2, durationSeconds: 240 },
+        { count: 4, durationSeconds: 240 },
+      ],
+    })
+    expect(formatTierGoalValue(total, 2)).toBe('总计2组 · 累计4分钟')
+    expect(getTierAchievement(total, 3)).toEqual({ count: 4, countUnit: '组', durationSeconds: 240 })
+    expect(() => TieredGoalSchema.parse({ ...perOccurrence, thresholds: [
+      { count: 3, durationSeconds: 30 }, { count: 2, durationSeconds: 40 }, { count: 5, durationSeconds: 45 },
+    ] })).toThrow('不能下降')
+    expect(() => TieredGoalSchema.parse({ ...perOccurrence, thresholds: [
+      { count: 3, durationSeconds: 30 }, { count: 3, durationSeconds: 30 }, { count: 5, durationSeconds: 45 },
+    ] })).toThrow('至少一项必须增加')
+    expect(() => TieredGoalSchema.parse({ ...perOccurrence, thresholds: [
+      { count: 999, durationSeconds: 100 }, { count: 999, durationSeconds: 101 }, { count: 999, durationSeconds: 102 },
+    ] })).toThrow('不能超过 24 小时')
+  })
+
+  it('秒级时间使用智能格式且新完成保存完整目标快照', () => {
+    expect(formatDurationSeconds(30)).toBe('30秒')
+    expect(formatDurationSeconds(90)).toBe('1分钟30秒')
+    expect(formatDurationSeconds(3661)).toBe('1小时1分钟1秒')
+    expect(CompletionSchema.parse({
+      id: 'completion', activityId: 'habit', occurredOn: '2026-01-05', status: 'active', tier: 1,
+      tierGoalSnapshot: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '秒', thresholds: [30, 60, 90] },
+      createdAt: '2026-01-05T00:00:00.000Z',
+    })).toBeTruthy()
   })
 
   it('归档活动与完成版本快照必须保持完整', () => {

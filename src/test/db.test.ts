@@ -120,7 +120,28 @@ describe('IndexedDB 事务', () => {
     expect(upgrades.filter((result) => result.awarded)).toHaveLength(1)
     expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
     expect(await database.completions.count()).toBe(1)
-    expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, achievedValue: 45, tierUnit: '分钟' })
+    expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, tierGoalSnapshot: tieredHabit.goal })
+  })
+
+  it('组合三层目标仍只按难度和层次发奖', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      difficulty: '困难',
+      goal: {
+        kind: 'tiered', metric: 'combined', mode: 'per_occurrence', countUnit: '次', inputUnit: '秒',
+        thresholds: [
+          { count: 3, durationSeconds: 30 },
+          { count: 5, durationSeconds: 30 },
+          { count: 5, durationSeconds: 45 },
+        ],
+      },
+    }, database)
+    const base = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    expect(base.awarded).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 12, coins: 10 })
+    await completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 20, coins: 10 })
+    expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, tierGoalSnapshot: activity.goal })
   })
 
   it('撤销三层完成会抵消首次和全部升级奖励', async () => {
@@ -153,9 +174,16 @@ describe('IndexedDB 事务', () => {
       titleSnapshot: _titleSnapshot,
       attributeSnapshot: _attributeSnapshot,
       difficultySnapshot: _difficultySnapshot,
+      tierGoalSnapshot: _tierGoalSnapshot,
       ...legacyCompletion
     } = first.completion
-    await database.completions.put(legacyCompletion)
+    await database.completions.put({
+      ...legacyCompletion,
+      tierMetric: 'duration',
+      tierUnit: '分钟',
+      tierThresholds: [5, 20, 45],
+      achievedValue: 5,
+    })
 
     const updated = await updateHabit(activity.id, {
       title: '修改后的习惯',
@@ -256,6 +284,13 @@ describe('IndexedDB 事务', () => {
     await createActivity(dailyHabit, database)
     const current = await createBackup(database)
     await restoreBackup({ ...current, schemaVersion: 2, appVersion: '2.1.0' }, database)
+    expect(await database.activities.count()).toBe(1)
+  })
+
+  it('可以恢复 V2.2.0 的 schema 3 备份', async () => {
+    await createActivity(dailyHabit, database)
+    const current = await createBackup(database)
+    await restoreBackup({ ...current, schemaVersion: 3, appVersion: '2.2.0' }, database)
     expect(await database.activities.count()).toBe(1)
   })
 })

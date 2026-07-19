@@ -6,8 +6,8 @@ const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().in
 
 export const BackupSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0')]),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
@@ -18,7 +18,7 @@ export const BackupSchema = z
     settings: z.array(SettingSchema),
   })
   .superRefine((backup, context) => {
-    const expectedAppVersion = { 1: '2.0.0', 2: '2.1.0', 3: '2.2.0' }[backup.schemaVersion]
+    const expectedAppVersion = { 1: '2.0.0', 2: '2.1.0', 3: '2.2.0', 4: '2.3.0' }[backup.schemaVersion]
     if (backup.appVersion !== expectedAppVersion) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
     }
@@ -47,8 +47,8 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
   const snapshot = await getSnapshot(database)
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
-    schemaVersion: 3,
-    appVersion: '2.2.0',
+    schemaVersion: 4,
+    appVersion: '2.3.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,

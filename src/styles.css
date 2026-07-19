@@ -170,7 +170,17 @@ label textarea { min-height: 80px; resize: vertical; }
 .character-count { color: var(--muted); font-size: 12px; text-align: right; }
 .field-hint { display: block; margin-top: 5px; color: var(--blue); font-size: 12px; }
 .tier-goal-fields { margin-top: 14px; }
+.advanced-toggle { min-height: 52px; padding: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); border-bottom: 1px solid var(--line); }
+.advanced-toggle > span { min-width: 0; display: grid; gap: 3px; }
+.advanced-toggle small { color: var(--muted); }
+.advanced-toggle input { position: relative; width: 44px; height: 24px; margin: 0; appearance: none; border: 1px solid #aab9b1; border-radius: 12px; background: #dfe5e1; cursor: pointer; }
+.advanced-toggle input::before { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: white; box-shadow: 0 1px 3px rgba(29, 40, 36, 0.25); transition: transform 160ms ease; }
+.advanced-toggle input:checked { border-color: var(--green); background: var(--green); }
+.advanced-toggle input:checked::before { transform: translateX(20px); }
 .tier-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.combined-tier-list { margin-top: 14px; display: grid; gap: 10px; }
+.combined-tier-row { display: grid; grid-template-columns: 58px repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; padding: 10px; background: var(--surface-soft); border-radius: 6px; }
+.combined-tier-row > strong { align-self: center; color: var(--green); font-size: 13px; }
 .legacy-goal { padding: 12px; color: var(--blue); background: #edf4fb; border-radius: 6px; }
 .tier-choice-list { display: grid; gap: 10px; }
 .tier-choice { width: 100%; min-height: 68px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); text-align: left; cursor: pointer; }
@@ -227,6 +237,7 @@ label textarea { min-height: 80px; resize: vertical; }
   .attribute-grid { grid-template-columns: 1fr; gap: 0; }
   .data-actions { grid-template-columns: 1fr; }
   .tier-threshold-grid { grid-template-columns: 1fr; }
+  .combined-tier-row { grid-template-columns: 1fr; }
   .tier-choice { align-items: flex-start; }
   .manage-row { align-items: flex-start; padding: 9px 0; }
   .manage-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 84px; }

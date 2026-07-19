@@ -5,12 +5,16 @@ export const difficulties = ['简单', '普通', '困难', 'Boss'] as const
 export const reviewDecisions = ['保留', '调整', '暂停'] as const
 export const tierLevels = [1, 2, 3] as const
 export const tierLabels = { 1: '基础', 2: '标准', 3: '突破' } as const
+export const timeInputUnits = ['秒', '分钟'] as const
+export const combinedModes = ['per_occurrence', 'total'] as const
 
 export type Attribute = (typeof attributes)[number]
 export type Difficulty = (typeof difficulties)[number]
 export type ReviewDecision = (typeof reviewDecisions)[number]
 export type TierLevel = (typeof tierLevels)[number]
 export type TierMetric = 'duration' | 'count'
+export type TimeInputUnit = (typeof timeInputUnits)[number]
+export type CombinedMode = (typeof combinedModes)[number]
 
 export const rewardTable: Record<Difficulty, { xp: number; coins: number }> = {
   简单: { xp: 5, coins: 2 },
@@ -48,29 +52,94 @@ const LegacyGoalSchema = z.object({
 
 export type LegacyGoal = z.infer<typeof LegacyGoalSchema>
 
-export const TieredGoalSchema = z
+const ScalarThresholdsSchema = z.tuple([
+  z.number().int().positive(),
+  z.number().int().positive(),
+  z.number().int().positive(),
+])
+
+function validateScalarThresholds(thresholds: [number, number, number], maximum: number, context: z.RefinementCtx) {
+  thresholds.forEach((value, index) => {
+    if (value > maximum) context.addIssue({ code: 'custom', path: ['thresholds', index], message: `目标不能超过 ${maximum}` })
+  })
+  if (!(thresholds[0] < thresholds[1] && thresholds[1] < thresholds[2])) {
+    context.addIssue({ code: 'custom', path: ['thresholds'], message: '三层目标必须按基础、标准、突破严格递增' })
+  }
+}
+
+const CountTieredGoalSchema = z
   .object({
     kind: z.literal('tiered'),
-    metric: z.enum(['duration', 'count']),
+    metric: z.literal('count'),
     unit: z.string().trim().min(1).max(12),
-    thresholds: z.tuple([
-      z.number().int().positive(),
-      z.number().int().positive(),
-      z.number().int().positive(),
-    ]),
+    thresholds: ScalarThresholdsSchema,
+  })
+  .superRefine((goal, context) => validateScalarThresholds(goal.thresholds, 999, context))
+
+const LegacyDurationTieredGoalSchema = z
+  .object({
+    kind: z.literal('tiered'),
+    metric: z.literal('duration'),
+    unit: z.literal('分钟'),
+    thresholds: ScalarThresholdsSchema,
+  })
+  .superRefine((goal, context) => validateScalarThresholds(goal.thresholds, 1440, context))
+
+const DurationTieredGoalSchema = z
+  .object({
+    kind: z.literal('tiered'),
+    metric: z.literal('duration'),
+    unit: z.literal('秒'),
+    inputUnit: z.enum(timeInputUnits),
+    thresholds: ScalarThresholdsSchema,
   })
   .superRefine((goal, context) => {
-    const maximum = goal.metric === 'duration' ? 1440 : 999
-    if (goal.metric === 'duration' && goal.unit !== '分钟') {
-      context.addIssue({ code: 'custom', path: ['unit'], message: '时间目标的单位必须是分钟' })
-    }
-    goal.thresholds.forEach((value, index) => {
-      if (value > maximum) context.addIssue({ code: 'custom', path: ['thresholds', index], message: `目标不能超过 ${maximum}` })
-    })
-    if (!(goal.thresholds[0] < goal.thresholds[1] && goal.thresholds[1] < goal.thresholds[2])) {
-      context.addIssue({ code: 'custom', path: ['thresholds'], message: '三层目标必须按基础、标准、突破严格递增' })
+    validateScalarThresholds(goal.thresholds, 86_400, context)
+    if (goal.inputUnit === '分钟' && goal.thresholds.some((value) => value % 60 !== 0)) {
+      context.addIssue({ code: 'custom', path: ['thresholds'], message: '分钟输入必须换算为完整的整数分钟' })
     }
   })
+
+export const CombinedThresholdSchema = z.object({
+  count: z.number().int().min(1).max(999),
+  durationSeconds: z.number().int().min(1).max(86_400),
+})
+
+const CombinedTieredGoalSchema = z
+  .object({
+    kind: z.literal('tiered'),
+    metric: z.literal('combined'),
+    mode: z.enum(combinedModes),
+    countUnit: z.string().trim().min(1).max(12),
+    inputUnit: z.enum(timeInputUnits),
+    thresholds: z.tuple([CombinedThresholdSchema, CombinedThresholdSchema, CombinedThresholdSchema]),
+  })
+  .superRefine((goal, context) => {
+    if (goal.inputUnit === '分钟' && goal.thresholds.some((value) => value.durationSeconds % 60 !== 0)) {
+      context.addIssue({ code: 'custom', path: ['thresholds'], message: '分钟输入必须换算为完整的整数分钟' })
+    }
+    goal.thresholds.forEach((threshold, index) => {
+      if (goal.mode === 'per_occurrence' && threshold.count * threshold.durationSeconds > 86_400) {
+        context.addIssue({ code: 'custom', path: ['thresholds', index], message: '单层最低总时长不能超过 24 小时' })
+      }
+      if (index === 0) return
+      const previous = goal.thresholds[index - 1]
+      if (
+        threshold.count < previous.count ||
+        threshold.durationSeconds < previous.durationSeconds ||
+        (threshold.count === previous.count && threshold.durationSeconds === previous.durationSeconds)
+      ) {
+        context.addIssue({ code: 'custom', path: ['thresholds', index], message: '层次升级时次数和时间不能下降，且至少一项必须增加' })
+      }
+    })
+  })
+
+export const TieredGoalSchema = z.union([
+  CountTieredGoalSchema,
+  LegacyDurationTieredGoalSchema,
+  DurationTieredGoalSchema,
+  CombinedTieredGoalSchema,
+])
 
 export type TieredGoal = z.infer<typeof TieredGoalSchema>
 
@@ -123,6 +192,7 @@ export const CompletionSchema = z
     tierUnit: z.string().trim().min(1).max(12).optional(),
     tierThresholds: z.tuple([z.number().int().positive(), z.number().int().positive(), z.number().int().positive()]).optional(),
     achievedValue: z.number().int().positive().optional(),
+    tierGoalSnapshot: TieredGoalSchema.optional(),
     activityRevision: z.number().int().positive().optional(),
     titleSnapshot: z.string().trim().min(1).max(60).optional(),
     attributeSnapshot: z.enum(attributes).optional(),
@@ -131,10 +201,16 @@ export const CompletionSchema = z
     undoneAt: timestamp.optional(),
   })
   .superRefine((completion, context) => {
-    const values = [completion.tier, completion.tierMetric, completion.tierUnit, completion.tierThresholds, completion.achievedValue]
-    if (values.some((value) => value !== undefined) && values.some((value) => value === undefined)) {
+    const legacyValues = [completion.tierMetric, completion.tierUnit, completion.tierThresholds, completion.achievedValue]
+    if (legacyValues.some((value) => value !== undefined) && legacyValues.some((value) => value === undefined)) {
       context.addIssue({ code: 'custom', path: ['tier'], message: '三层完成快照字段不完整' })
       return
+    }
+    if (completion.tier && !completion.tierGoalSnapshot && legacyValues.every((value) => value === undefined)) {
+      context.addIssue({ code: 'custom', path: ['tier'], message: '三层完成必须保存目标快照' })
+    }
+    if (!completion.tier && (completion.tierGoalSnapshot || legacyValues.some((value) => value !== undefined))) {
+      context.addIssue({ code: 'custom', path: ['tier'], message: '目标快照缺少完成层次' })
     }
     if (completion.tier && completion.tierMetric && completion.tierUnit && completion.tierThresholds && completion.achievedValue) {
       const goal = TieredGoalSchema.safeParse({ kind: 'tiered', metric: completion.tierMetric, unit: completion.tierUnit, thresholds: completion.tierThresholds })
@@ -188,6 +264,9 @@ export const ReviewItemSchema = z.object({
   tierCounts: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
   achievedTotal: z.number().int().nonnegative().optional(),
   achievedUnit: z.string().trim().min(1).max(12).optional(),
+  achievedCountTotal: z.number().int().nonnegative().optional(),
+  achievedDurationSeconds: z.number().int().nonnegative().optional(),
+  achievedCountUnit: z.string().trim().min(1).max(12).optional(),
 })
 
 export const WeeklyReviewSchema = z.object({
@@ -288,8 +367,55 @@ export function isTieredGoal(activity: Activity): activity is Activity & { goal:
 
 export function formatGoalValue(value: number, metric: TierMetric, unit: string) {
   if (metric !== 'duration') return `${value}${unit}`
-  if (value < 60) return `${value} 分钟`
-  const hours = Math.floor(value / 60)
-  const minutes = value % 60
-  return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`
+  return formatDurationSeconds(unit === '分钟' ? value * 60 : value)
+}
+
+export function formatDurationSeconds(totalSeconds: number) {
+  const value = Math.max(0, Math.floor(totalSeconds))
+  if (value < 60) return `${value}秒`
+  const hours = Math.floor(value / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  const seconds = value % 60
+  const parts = [hours ? `${hours}小时` : '', minutes ? `${minutes}分钟` : '', seconds ? `${seconds}秒` : ''].filter(Boolean)
+  return parts.join('')
+}
+
+export function getTierDurationSeconds(goal: Extract<TieredGoal, { metric: 'duration' }>, tier: TierLevel) {
+  const value = goal.thresholds[tier - 1]
+  return goal.unit === '分钟' ? value * 60 : value
+}
+
+export function formatTierGoalValue(goal: TieredGoal, tier: TierLevel) {
+  if (goal.metric === 'count') return `${goal.thresholds[tier - 1]}${goal.unit}`
+  if (goal.metric === 'duration') return formatDurationSeconds(getTierDurationSeconds(goal, tier))
+  const threshold = goal.thresholds[tier - 1]
+  const duration = formatDurationSeconds(threshold.durationSeconds)
+  return goal.mode === 'per_occurrence'
+    ? `${threshold.count}${goal.countUnit} × 每次${duration}`
+    : `总计${threshold.count}${goal.countUnit} · 累计${duration}`
+}
+
+export function getTierAchievement(goal: TieredGoal, tier: TierLevel) {
+  if (goal.metric === 'count') return { count: goal.thresholds[tier - 1], countUnit: goal.unit, durationSeconds: 0 }
+  if (goal.metric === 'duration') return { count: 0, durationSeconds: getTierDurationSeconds(goal, tier) }
+  const threshold = goal.thresholds[tier - 1]
+  return {
+    count: threshold.count,
+    countUnit: goal.countUnit,
+    durationSeconds: goal.mode === 'per_occurrence' ? threshold.count * threshold.durationSeconds : threshold.durationSeconds,
+  }
+}
+
+export function getCompletionTierGoal(completion: Completion, activity?: Activity): TieredGoal | undefined {
+  if (completion.tierGoalSnapshot) return completion.tierGoalSnapshot
+  if (completion.tierMetric && completion.tierUnit && completion.tierThresholds) {
+    const legacy = TieredGoalSchema.safeParse({
+      kind: 'tiered',
+      metric: completion.tierMetric,
+      unit: completion.tierUnit,
+      thresholds: completion.tierThresholds,
+    })
+    if (legacy.success) return legacy.data
+  }
+  return activity && isTieredGoal(activity) ? activity.goal : undefined
 }
