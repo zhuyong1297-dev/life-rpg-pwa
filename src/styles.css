@@ -37,6 +37,8 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .main-content { width: min(100%, 1180px); margin: 0 auto; padding: 22px 16px 112px; }
 .loading-screen { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--forest); }
 .loading-screen svg { width: 38px; height: 38px; }
+.preview-banner { min-height: 44px; margin-bottom: 16px; padding: 9px 12px; display: flex; align-items: center; justify-content: center; gap: 8px; color: #234d70; background: var(--blue-soft); border: 1px solid #9ebdd6; border-radius: 7px; font-size: 13px; text-align: center; }
+.preview-banner svg { width: 18px; height: 18px; }
 
 .navigation { position: fixed; z-index: 30; inset: auto 0 0; height: calc(68px + env(safe-area-inset-bottom)); padding: 7px 8px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(4, 1fr); background: rgba(255, 255, 255, 0.98); border-top: 1px solid var(--line); }
 .brand-mark { display: none; }

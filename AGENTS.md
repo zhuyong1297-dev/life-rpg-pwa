@@ -8,7 +8,8 @@
 
 - 技术栈：React、TypeScript、Vite、Dexie、Zod、Lucide、Vitest、Playwright、普通 CSS。
 - IndexedDB 是运行数据的唯一事实来源；不增加后端、账号、云同步或状态管理框架。
-- PWA 必须离线可用，部署路径固定为 `/life-rpg-pwa/`。
+- PWA 必须离线可用；正式路径为 `/life-rpg-pwa/`，预览路径为 `/life-rpg-pwa/preview/`。
+- `main` 是正式版来源，`ui-redesign` 是预览版来源；预览构建必须使用独立 IndexedDB、manifest 和 Service Worker scope，不得读取或修改正式数据。
 - 所有完成、撤销、兑换都使用追加式账本事件；不得直接修改历史事件。
 - 数据导入必须先完整校验，再在单个事务中整体替换。
 

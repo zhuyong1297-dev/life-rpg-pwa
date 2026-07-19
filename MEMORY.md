@@ -33,3 +33,4 @@
 - GitHub Pages 基础路径：`/life-rpg-pwa/`。
 - 线上地址：`https://zhuyong1297-dev.github.io/life-rpg-pwa/`；`2026-07-19` 已验证线上 Service Worker、缓存和离线刷新。
 - GitHub 凭据由本机 GitHub CLI 管理，本仓库不保存凭据。
+- `2026-07-19`：采用“正式版 + 手机预览版”双通道。`main` 部署 `/life-rpg-pwa/`，`ui-redesign` 部署 `/life-rpg-pwa/preview/`；预览版使用独立数据库 `earth-online-preview-v2`、manifest 和 Service Worker scope，确认后才将同一提交快进到 `main`。

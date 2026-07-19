@@ -2,7 +2,7 @@ name: Test and deploy GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, ui-redesign]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout stable
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: stable
+      - name: Checkout preview
+        uses: actions/checkout@v4
+        with:
+          ref: ui-redesign
+          path: preview
       - uses: pnpm/action-setup@v4
         with:
           version: 11.9.0
@@ -26,14 +35,41 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm build
-      - run: pnpm privacy:scan
+          cache-dependency-path: |
+            stable/pnpm-lock.yaml
+            preview/pnpm-lock.yaml
+      - name: Install stable
+        working-directory: stable
+        run: pnpm install --frozen-lockfile
+      - name: Test stable
+        working-directory: stable
+        run: pnpm test
+      - name: Build stable
+        working-directory: stable
+        run: pnpm build
+      - name: Scan stable
+        working-directory: stable
+        run: pnpm privacy:scan
+      - name: Install preview
+        working-directory: preview
+        run: pnpm install --frozen-lockfile
+      - name: Test preview
+        working-directory: preview
+        run: pnpm test
+      - name: Build preview
+        working-directory: preview
+        run: pnpm build:preview
+      - name: Scan preview
+        working-directory: preview
+        run: pnpm privacy:scan
+      - name: Add preview to Pages artifact
+        run: |
+          mkdir -p stable/dist/preview
+          cp -a preview/dist/. stable/dist/preview/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: stable/dist
   deploy:
     environment:
       name: github-pages

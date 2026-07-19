@@ -76,8 +76,9 @@
 
 - `vite-plugin-pwa` 生成 manifest 和 Workbox Service Worker。
 - 预缓存入口、JS、CSS、manifest、图标和四阶段人物 PNG。
-- Vite `base` 固定为 `/life-rpg-pwa/`。
-- GitHub Actions 在 `main` 推送时安装、测试、构建并部署 `dist`。
+- 正式版 Vite `base` 为 `/life-rpg-pwa/`，由 `main` 构建；预览版为 `/life-rpg-pwa/preview/`，由 `ui-redesign` 构建。
+- 预览版使用独立数据库 `earth-online-preview-v2`、独立 manifest 和更具体的 Service Worker scope；正式版 Service Worker 明确排除 `/preview/` 导航。
+- 任一分支推送时，GitHub Actions 分别测试并构建两个分支，再组合为一个 Pages 产物；预览失败不得覆盖正式站点。
 
 ## 8. 测试分层
 

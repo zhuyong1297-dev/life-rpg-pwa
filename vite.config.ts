@@ -2,31 +2,37 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
-  base: '/life-rpg-pwa/',
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      manifest: {
-        name: '地球 Online',
-        short_name: '地球Online',
-        description: '把现实行动转化为即时成长反馈',
-        theme_color: '#176b52',
-        background_color: '#f4f6f3',
-        display: 'standalone',
-        start_url: '/life-rpg-pwa/',
-        scope: '/life-rpg-pwa/',
-        lang: 'zh-CN',
-        icons: [
-          { src: 'app-icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any maskable' },
-        ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
-        cleanupOutdatedCaches: true,
-        navigateFallback: 'index.html',
-      },
-    }),
-  ],
+export default defineConfig(({ mode }) => {
+  const isPreview = mode === 'preview'
+  const base = isPreview ? '/life-rpg-pwa/preview/' : '/life-rpg-pwa/'
+
+  return {
+    base,
+    plugins: [
+      react(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        manifest: {
+          name: isPreview ? '地球 Online 预览版' : '地球 Online',
+          short_name: isPreview ? '地球预览' : '地球Online',
+          description: isPreview ? '与正式数据隔离的地球 Online 测试环境' : '把现实行动转化为即时成长反馈',
+          theme_color: isPreview ? '#356f9f' : '#176b52',
+          background_color: '#f4f6f3',
+          display: 'standalone',
+          start_url: base,
+          scope: base,
+          lang: 'zh-CN',
+          icons: [
+            { src: 'app-icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any maskable' },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+          cleanupOutdatedCaches: true,
+          navigateFallback: 'index.html',
+          ...(!isPreview && { navigateFallbackDenylist: [/^\/life-rpg-pwa\/preview(?:\/|$)/] }),
+        },
+      }),
+    ],
+  }
 })

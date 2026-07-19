@@ -44,7 +44,7 @@ export class LifeRpgDatabase extends Dexie {
   }
 }
 
-export const db = new LifeRpgDatabase()
+export const db = new LifeRpgDatabase(import.meta.env.MODE === 'preview' ? 'earth-online-preview-v2' : 'earth-online-v2')
 
 const defaultRewards = [
   ['reward-entertainment', '无负担娱乐 1 小时', 30],

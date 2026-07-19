@@ -231,6 +231,7 @@ function timeInputSeconds(value: string, unit: TimeInputUnit) {
 }
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
+const isPreview = import.meta.env.MODE === 'preview'
 
 function App() {
   const [page, setPage] = useState<Page>('today')
@@ -355,6 +356,12 @@ function App() {
     <div className="app-shell">
       <Navigation page={page} onChange={setPage} />
       <main className="main-content">
+        {isPreview && (
+          <div className="preview-banner" role="status">
+            <ShieldCheck aria-hidden="true" />
+            <span><strong>预览版</strong> · 测试数据与正式版完全分开</span>
+          </div>
+        )}
         {notice && (
           <div className="notice" role="status">
             <span>{notice}</span>
@@ -1133,7 +1140,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.4.0</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.4.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
