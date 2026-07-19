@@ -196,10 +196,71 @@ test('习惯归档保留历史并可从折叠区恢复', async ({ page }) => {
   await expect(page.locator('.manage-row').filter({ hasText: '归档示例' }).getByTitle('编辑习惯')).toBeVisible()
 })
 
-test('Android 完成声音可试听、复用并在升级时播放三音', async ({ page }, testInfo) => {
+test('奖励商店支持紧凑入口、新增编辑、目标和停用恢复', async ({ page }) => {
+  await page.getByRole('button', { name: '角色' }).click()
+  await expect(page.locator('.shop-summary')).toBeVisible()
+  await page.getByRole('button', { name: '查看奖励商店' }).click()
+  await page.getByRole('button', { name: /全部 3/ }).click()
+  await page.getByTitle('新增奖励商品').click()
+  await page.getByLabel('商品名称').fill('周末电影')
+  await page.getByLabel('设为当前奖励目标').check()
+  await page.getByRole('button', { name: '保存商品' }).click()
+
+  const created = page.locator('.shop-row').filter({ hasText: '周末电影' })
+  await expect(created).toContainText('当前目标')
+  await page.locator('.shop-modal').getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.locator('.shop-summary')).toContainText('周末电影')
+  await page.getByRole('button', { name: '今天' }).click()
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('赚取目标金币')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 赚取目标金币' }).click()
+  await expect(page.locator('.feedback-overlay')).toContainText('距离「周末电影」还差 28 金币')
+  await page.getByRole('button', { name: '角色' }).click()
+  await page.getByRole('button', { name: '查看奖励商店' }).click()
+  await page.getByRole('button', { name: /全部 4/ }).click()
+  const createdAgain = page.locator('.shop-row').filter({ hasText: '周末电影' })
+  await createdAgain.getByTitle('编辑奖励商品').click()
+  await page.getByLabel('商品名称').fill('周末电影之夜')
+  await page.getByLabel('金币价格').fill('80')
+  await page.getByRole('button', { name: '保存商品' }).click()
+  const edited = page.locator('.shop-row').filter({ hasText: '周末电影之夜' })
+  await expect(edited).toContainText('80')
+
+  await edited.getByTitle('停用奖励商品').click()
+  await page.getByRole('button', { name: /已停用 1/ }).click()
+  const disabled = page.locator('.shop-row').filter({ hasText: '周末电影之夜' })
+  await expect(disabled).toContainText('已停用')
+  await disabled.getByTitle('恢复奖励商品').click()
+  await page.getByRole('button', { name: /全部 4/ }).click()
+  await expect(page.locator('.shop-row').filter({ hasText: '周末电影之夜' })).toBeVisible()
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.locator('.shop-summary')).toContainText('选择一个现实奖励目标')
+})
+
+test('成长轨迹只显示近期摘要，完整记录按月进入旅程档案', async ({ page }) => {
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('旅程示例行动')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 旅程示例行动' }).click()
+  await page.getByRole('button', { name: '角色' }).click()
+  await expect(page.locator('.growth-section .growth-row')).toHaveCount(1)
+  await page.getByRole('button', { name: '旅程档案' }).click()
+  await expect(page.locator('.journey-chapter')).toHaveCount(1)
+  await page.locator('.journey-chapter summary').click()
+  await expect(page.locator('.journey-chapter')).toContainText('1 个活跃日 · 1 项完成')
+  await expect(page.locator('.journey-chapter .growth-row')).toHaveCount(1)
+})
+
+test('Android 完成声音可试听，并区分普通、层次和角色升级', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'android')
   await page.addInitScript(() => {
     Object.defineProperty(window, '__audioStarts', { configurable: true, writable: true, value: 0 })
+    Object.defineProperty(window, '__vibrationPatterns', { configurable: true, writable: true, value: [] })
+    Object.defineProperty(navigator, 'vibrate', {
+      configurable: true,
+      value: (pattern: number[]) => { (window as typeof window & { __vibrationPatterns: number[][] }).__vibrationPatterns.push(pattern); return true },
+    })
     class FakeAudioContext {
       state = 'running'
       currentTime = 0
@@ -229,6 +290,11 @@ test('Android 完成声音可试听、复用并在升级时播放三音', async 
   await expect(page.getByRole('switch', { name: '完成声音' })).toBeChecked()
   await expect(page.getByText('完成声音已开启，刚才播放的是试听音')).toBeVisible()
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(2)
+  await page.getByRole('button', { name: '强烈' }).click()
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(4)
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __vibrationPatterns: number[][] }).__vibrationPatterns.at(-1))).toEqual([70])
+  await page.getByRole('button', { name: '测试反馈' }).click()
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(6)
 
   await page.getByRole('button', { name: '今天' }).click()
   await page.getByRole('button', { name: '创建行动' }).click()
@@ -243,6 +309,11 @@ test('Android 完成声音可试听、复用并在升级时播放三音', async 
   await page.getByRole('button', { name: '创建', exact: true }).click()
   await page.getByRole('button', { name: '完成 分层完成音' }).click()
   await page.getByRole('button', { name: '选择 基础层' }).click()
+  await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
+  const tierCompletion = page.getByRole('button', { name: '查看 分层完成音 完成记录' })
+  await tierCompletion.evaluate((element) => element.scrollIntoView({ block: 'start' }))
+  await tierCompletion.click()
+  await page.getByRole('button', { name: '升级到 标准层' }).click()
   await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
 
   await page.getByRole('button', { name: '创建行动' }).click()
@@ -265,7 +336,7 @@ test('Android 完成声音可试听、复用并在升级时播放三音', async 
     await page.getByRole('button', { name: '确认完成' }).click()
     await expect(page.locator('.feedback-overlay')).toHaveClass(/condensed/)
   }
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(13)
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __audioStarts: number }).__audioStarts)).toBe(21)
 })
 
 test('移动端中央创建按钮与完成按钮始终不相交', async ({ page }, testInfo) => {

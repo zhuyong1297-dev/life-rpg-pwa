@@ -1,6 +1,26 @@
-import { tierLabels, type Attribute, type Preferences, type TierLevel } from './domain'
+import { tierLabels, type Attribute, type FeedbackIntensity, type Preferences, type TierLevel } from './domain'
 
 let completionAudioContext: AudioContext | undefined
+
+export type FeedbackKind = 'completion' | 'tier-up' | 'level-up'
+
+const chimeNotes: Record<FeedbackKind, number[]> = {
+  completion: [659, 880],
+  'tier-up': [659, 880, 1047],
+  'level-up': [523, 659, 784, 1047],
+}
+
+const peakGain: Record<FeedbackIntensity, number> = {
+  gentle: 0.09,
+  clear: 0.17,
+  strong: 0.24,
+}
+
+const vibrationPatterns: Record<FeedbackIntensity, Record<FeedbackKind, number[]>> = {
+  gentle: { completion: [25], 'tier-up': [25, 35, 45], 'level-up': [35, 35, 60] },
+  clear: { completion: [45], 'tier-up': [40, 30, 70], 'level-up': [55, 35, 70, 35, 110] },
+  strong: { completion: [70], 'tier-up': [65, 35, 100], 'level-up': [80, 40, 100, 40, 160] },
+}
 
 export async function prepareCompletionAudio() {
   try {
@@ -14,27 +34,40 @@ export async function prepareCompletionAudio() {
   }
 }
 
-export async function playCompletionChime(kind: 'completion' | 'level-up' = 'completion', prepared?: Promise<boolean>) {
+export async function playCompletionChime(
+  kind: FeedbackKind = 'completion',
+  intensity: FeedbackIntensity = 'clear',
+  prepared?: Promise<boolean>,
+) {
   const ready = prepared ? await prepared : await prepareCompletionAudio()
   const context = completionAudioContext
   if (!ready || !context) return false
   try {
-    const notes = kind === 'level-up' ? [523, 659, 784] : [523, 659]
+    const notes = chimeNotes[kind]
     const start = context.currentTime
     notes.forEach((frequency, index) => {
       const oscillator = context.createOscillator()
       const gain = context.createGain()
-      const noteStart = start + index * 0.085
-      oscillator.type = 'sine'
+      const noteStart = start + index * 0.075
+      oscillator.type = 'triangle'
       oscillator.frequency.setValueAtTime(frequency, noteStart)
       gain.gain.setValueAtTime(0.0001, noteStart)
-      gain.gain.linearRampToValueAtTime(kind === 'level-up' ? 0.1 : 0.085, noteStart + 0.018)
-      gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.19)
+      gain.gain.linearRampToValueAtTime(peakGain[intensity], noteStart + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.22)
       oscillator.connect(gain).connect(context.destination)
       oscillator.start(noteStart)
-      oscillator.stop(noteStart + 0.2)
+      oscillator.stop(noteStart + 0.23)
     })
     return true
+  } catch {
+    return false
+  }
+}
+
+export function playCompletionVibration(kind: FeedbackKind = 'completion', intensity: FeedbackIntensity = 'clear') {
+  if (!('vibrate' in navigator) || typeof navigator.vibrate !== 'function') return false
+  try {
+    return navigator.vibrate(vibrationPatterns[intensity][kind])
   } catch {
     return false
   }
@@ -45,9 +78,12 @@ export async function sendCompletionFeedback(
   detail: { title: string; xp: number; coins: number; attribute: Attribute; durationMinutes?: number; tier?: TierLevel; upgraded?: boolean; leveledUp?: boolean },
   preparedAudio?: Promise<boolean>,
 ) {
-  if (preferences.vibration && 'vibrate' in navigator) navigator.vibrate([35, 30, 55])
-  if (preferences.sound) void playCompletionChime(detail.leveledUp ? 'level-up' : 'completion', preparedAudio)
-  if (!preferences.notifications || !('Notification' in window) || Notification.permission !== 'granted') return 'unavailable'
+  const kind: FeedbackKind = detail.leveledUp ? 'level-up' : detail.upgraded ? 'tier-up' : 'completion'
+  const vibration = preferences.vibration ? playCompletionVibration(kind, preferences.feedbackIntensity) : undefined
+  const sound = preferences.sound ? await playCompletionChime(kind, preferences.feedbackIntensity, preparedAudio) : undefined
+  if (!preferences.notifications || !('Notification' in window) || Notification.permission !== 'granted') {
+    return { notification: 'unavailable' as const, vibration, sound }
+  }
   try {
     const registration = await navigator.serviceWorker.ready
     const rewards = [`+${detail.xp} XP`, detail.coins > 0 ? `+${detail.coins} 金币` : '', detail.attribute].filter(Boolean).join(' · ')
@@ -57,9 +93,9 @@ export async function sendCompletionFeedback(
       badge: `${import.meta.env.BASE_URL}app-icon.png`,
       tag: `completion-${Date.now()}`,
     })
-    return 'sent'
+    return { notification: 'sent' as const, vibration, sound }
   } catch {
-    return 'failed'
+    return { notification: 'failed' as const, vibration, sound }
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getCharacterStageName, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getCharacterStageName, getJourneyChapters, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -144,6 +144,21 @@ describe('领域规则', () => {
       strongestAttribute: '智识',
       topActions: [{ title: '阅读', xp: 10 }],
     })
+  })
+
+  it('旅程档案按月压缩并合并同一次完成的层次升级', () => {
+    const events: LedgerEvent[] = [
+      { id: 'jan-base', kind: 'reward', sourceId: 'completion-1', occurredOn: '2026-01-05', title: '示例习惯', attribute: '专注', xpDelta: 6, coinDelta: 5, createdAt: '2026-01-05T08:00:00.000Z' },
+      { id: 'jan-tier', kind: 'reward', sourceId: 'completion-1', occurredOn: '2026-01-05', title: '层次升级：示例习惯', attribute: '专注', xpDelta: 2, coinDelta: 0, createdAt: '2026-01-05T09:00:00.000Z' },
+      { id: 'jan-undone', kind: 'reward', sourceId: 'completion-2', occurredOn: '2026-01-06', title: '撤销示例', attribute: '体魄', xpDelta: 5, coinDelta: 2, createdAt: '2026-01-06T08:00:00.000Z' },
+      { id: 'jan-correction', kind: 'correction', sourceId: 'jan-undone', occurredOn: '2026-01-06', title: '撤销：撤销示例', attribute: '体魄', xpDelta: -5, coinDelta: -2, createdAt: '2026-01-06T08:01:00.000Z' },
+      { id: 'feb-base', kind: 'reward', sourceId: 'completion-3', occurredOn: '2026-02-02', title: '二月行动', attribute: '智识', xpDelta: 10, coinDelta: 5, createdAt: '2026-02-02T08:00:00.000Z' },
+    ]
+
+    const chapters = getJourneyChapters(events)
+    expect(chapters.map((chapter) => chapter.month)).toEqual(['2026-02', '2026-01'])
+    expect(chapters[1]).toMatchObject({ activeDays: 1, completionCount: 1, netXp: 8, netCoins: 5, strongestAttribute: '专注' })
+    expect(chapters[0]).toMatchObject({ activeDays: 1, completionCount: 1, netXp: 10, netCoins: 5, strongestAttribute: '智识' })
   })
 
   it('完全从追加式流水派生角色数值', () => {

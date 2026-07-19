@@ -10,6 +10,7 @@ import {
   type LedgerEvent,
   type Preferences,
   type Reward,
+  RewardSchema,
   rewardTable,
   type Setting,
   type WeeklyReview,
@@ -66,11 +67,14 @@ export async function initializeDatabase(database = db) {
         defaultRewards.map(([id, title, cost]) => ({ id, title, cost, enabled: true, createdAt })),
       )
     }
-    if (!(await database.settings.get('preferences'))) {
+    const storedPreferences = await database.settings.get('preferences')
+    if (!storedPreferences) {
       await database.settings.add({
         key: 'preferences',
-        value: { notifications: false, vibration: true, sound: false },
+        value: { notifications: false, vibration: true, sound: false, feedbackIntensity: 'clear' },
       })
+    } else if (!('feedbackIntensity' in storedPreferences.value)) {
+      await database.settings.put({ key: 'preferences', value: { ...storedPreferences.value, feedbackIntensity: 'clear' } })
     }
     const storedMeta = await database.settings.get('meta')
     const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
@@ -369,6 +373,72 @@ export async function redeemReward(rewardId: string, database = db) {
     }
     await database.ledgerEvents.add(event)
     return event
+  })
+}
+
+export interface RewardInput {
+  title: string
+  cost: number
+  target: boolean
+}
+
+export async function createReward(input: RewardInput, database = db) {
+  return database.transaction('rw', database.rewards, database.settings, async () => {
+    const reward = RewardSchema.parse({
+      id: crypto.randomUUID(),
+      title: input.title,
+      cost: input.cost,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+    })
+    await database.rewards.add(reward)
+    if (input.target) await writeTargetReward(reward.id, database)
+    return reward
+  })
+}
+
+export async function updateReward(rewardId: string, input: RewardInput, database = db) {
+  return database.transaction('rw', database.rewards, database.settings, async () => {
+    const existing = await database.rewards.get(rewardId)
+    if (!existing) throw new Error('找不到这个奖励')
+    const reward = RewardSchema.parse({ ...existing, title: input.title, cost: input.cost })
+    await database.rewards.put(reward)
+    const storedMeta = await database.settings.get('meta')
+    const currentTarget = storedMeta?.key === 'meta' ? storedMeta.value.targetRewardId : undefined
+    if (input.target) await writeTargetReward(reward.id, database)
+    else if (currentTarget === reward.id) await writeTargetReward(undefined, database)
+    return reward
+  })
+}
+
+export async function setRewardEnabled(rewardId: string, enabled: boolean, database = db) {
+  return database.transaction('rw', database.rewards, database.settings, async () => {
+    const reward = await database.rewards.get(rewardId)
+    if (!reward) throw new Error('找不到这个奖励')
+    await database.rewards.update(rewardId, { enabled })
+    const storedMeta = await database.settings.get('meta')
+    if (!enabled && storedMeta?.key === 'meta' && storedMeta.value.targetRewardId === rewardId) {
+      await writeTargetReward(undefined, database)
+    }
+  })
+}
+
+export async function setTargetReward(rewardId: string | undefined, database = db) {
+  return database.transaction('rw', database.rewards, database.settings, async () => {
+    if (rewardId) {
+      const reward = await database.rewards.get(rewardId)
+      if (!reward?.enabled) throw new Error('只能把启用中的商品设为当前目标')
+    }
+    await writeTargetReward(rewardId, database)
+  })
+}
+
+async function writeTargetReward(rewardId: string | undefined, database: LifeRpgDatabase) {
+  const storedMeta = await database.settings.get('meta')
+  const value = storedMeta?.key === 'meta' ? storedMeta.value : {}
+  await database.settings.put({
+    key: 'meta',
+    value: { ...value, targetRewardId: rewardId },
   })
 }
 

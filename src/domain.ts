@@ -278,10 +278,13 @@ export const WeeklyReviewSchema = z.object({
 
 export type WeeklyReview = z.infer<typeof WeeklyReviewSchema>
 
+export const feedbackIntensities = ['gentle', 'clear', 'strong'] as const
+
 export const PreferencesSchema = z.object({
   notifications: z.boolean(),
   vibration: z.boolean(),
   sound: z.boolean(),
+  feedbackIntensity: z.enum(feedbackIntensities).default('clear'),
 })
 
 export const LevelMilestoneSchema = z
@@ -336,6 +339,7 @@ export const MetaSchema = z.object({
   lastBackupAt: timestamp.optional(),
   migrationImportedAt: timestamp.optional(),
   levelSystem: LevelSystemSchema.optional(),
+  targetRewardId: z.string().min(1).optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [
@@ -345,6 +349,7 @@ export const SettingSchema = z.discriminatedUnion('key', [
 
 export type Setting = z.infer<typeof SettingSchema>
 export type Preferences = z.infer<typeof PreferencesSchema>
+export type FeedbackIntensity = Preferences['feedbackIntensity']
 
 export interface CharacterStats {
   totalXp: number
@@ -444,6 +449,51 @@ export function getLevelReport(events: LedgerEvent[], milestone: LevelMilestone,
       .slice(0, 3)
       .map(({ title, xp }) => ({ title, xp })),
   }
+}
+
+export interface JourneyChapter {
+  month: string
+  label: string
+  activeDays: number
+  completionCount: number
+  netXp: number
+  netCoins: number
+  strongestAttribute?: Attribute
+  startLevel: number
+  endLevel: number
+  events: LedgerEvent[]
+}
+
+export function getJourneyChapters(events: LedgerEvent[]): JourneyChapter[] {
+  const months = [...new Set(events.map((event) => event.occurredOn.slice(0, 7)))].sort().reverse()
+  const correctedRewards = new Set(events.filter((event) => event.kind === 'correction').map((event) => event.sourceId))
+  return months.map((month) => {
+    const monthEvents = events
+      .filter((event) => event.occurredOn.startsWith(month))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    const monthStats = calculateStats(monthEvents)
+    const completions = new Map<string, string>()
+    monthEvents
+      .filter((event) => event.kind === 'reward' && !correctedRewards.has(event.id))
+      .forEach((event) => completions.set(event.sourceId, event.occurredOn))
+    const beforeXp = calculateStats(events.filter((event) => event.occurredOn < `${month}-01`)).totalXp
+    const strongestAttribute = [...attributes]
+      .sort((left, right) => monthStats.attributeXp[right] - monthStats.attributeXp[left])
+      .find((attribute) => monthStats.attributeXp[attribute] > 0)
+    const [year, monthNumber] = month.split('-')
+    return {
+      month,
+      label: `${year} 年 ${Number(monthNumber)} 月`,
+      activeDays: new Set(completions.values()).size,
+      completionCount: completions.size,
+      netXp: monthStats.totalXp,
+      netCoins: monthStats.coins,
+      strongestAttribute,
+      startLevel: getLevel(beforeXp).level,
+      endLevel: getLevel(beforeXp + monthStats.totalXp).level,
+      events: monthEvents,
+    }
+  })
 }
 
 export function calculateStats(events: LedgerEvent[]): CharacterStats {

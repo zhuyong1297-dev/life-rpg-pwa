@@ -130,9 +130,14 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
 
   await page.getByRole('button', { name: '角色' }).click()
   await expectNoHorizontalOverflow(page)
-  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.3 · 行动者' })).toContainText('30 金币档阶段礼券')
-  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.6 · 践行者' })).toContainText('80 金币档阶段礼券')
-  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.10 · 塑造者' })).toContainText('200 金币档阶段礼券')
+  await expect(page.locator('.milestone-row')).toHaveCount(0)
+  await page.getByRole('button', { name: '查看等级奖励路线' }).click()
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.3 · 30 金币档礼券' })).toBeVisible()
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.6 · 80 金币档礼券' })).toBeVisible()
+  await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.10 · 200 金币档礼券' })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/reward-route-${testInfo.project.name}.png` })
+  await page.getByTitle('关闭').click()
   const heroLayout = await page.evaluate(() => {
     const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
     const overlaps = (left?: DOMRect, right?: DOMRect) => Boolean(
@@ -142,9 +147,16 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
     const stage = rect('.stage-badge')
     const level = rect('.character-level-line > div:first-child')
     const coins = rect('.coin-balance')
-    return { stageOverlapsPortrait: overlaps(stage, portrait), levelOverlapsCoins: overlaps(level, coins) }
+    const routeSummary = rect('.reward-route-summary')
+    const shopSummary = rect('.shop-summary')
+    return {
+      stageOverlapsPortrait: overlaps(stage, portrait),
+      levelOverlapsCoins: overlaps(level, coins),
+      routeSummaryHeight: routeSummary?.height,
+      shopSummaryHeight: shopSummary?.height,
+    }
   })
-  expect(heroLayout).toEqual({ stageOverlapsPortrait: false, levelOverlapsCoins: false })
+  expect(heroLayout).toMatchObject({ stageOverlapsPortrait: false, levelOverlapsCoins: false, routeSummaryHeight: 88, shopSummaryHeight: 104 })
   await page.screenshot({ path: `test-results/character-${testInfo.project.name}.png`, fullPage: true })
 
   await page.getByRole('button', { name: '复盘' }).click()
@@ -159,4 +171,26 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
   await expect(page.getByRole('heading', { name: '编辑习惯' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/edit-${testInfo.project.name}.png` })
+})
+
+test('旅程、商店和商品编辑弹层在各视口保持紧凑', async ({ page }, testInfo) => {
+  await page.goto('./')
+  await createVisualActivity(page, '用于旅程章节的示例行动')
+  await page.getByRole('button', { name: '完成 用于旅程章节的示例行动' }).click()
+  await page.getByRole('button', { name: '角色' }).click()
+
+  await page.getByRole('button', { name: '查看奖励商店' }).click()
+  await page.getByRole('button', { name: /全部 3/ }).click()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/reward-shop-${testInfo.project.name}.png` })
+  await page.getByTitle('新增奖励商品').click()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/reward-editor-${testInfo.project.name}.png` })
+  await page.locator('.nested-modal').getByRole('button', { name: '关闭', exact: true }).click()
+  await page.locator('.shop-modal').getByRole('button', { name: '关闭', exact: true }).click()
+
+  await page.getByRole('button', { name: '旅程档案' }).click()
+  await page.locator('.journey-chapter summary').click()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/journey-${testInfo.project.name}.png` })
 })

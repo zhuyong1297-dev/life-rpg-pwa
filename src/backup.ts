@@ -41,6 +41,11 @@ export const BackupSchema = z
     }
     const keyCount = backup.activities.filter((activity) => activity.enabled && activity.isKey).length
     if (keyCount > 3) context.addIssue({ code: 'custom', path: ['activities'], message: '活动关键行为超过 3 项' })
+    const meta = backup.settings.find((setting) => setting.key === 'meta')
+    const targetRewardId = meta?.key === 'meta' ? meta.value.targetRewardId : undefined
+    if (targetRewardId && !backup.rewards.some((reward) => reward.id === targetRewardId && reward.enabled)) {
+      context.addIssue({ code: 'custom', path: ['settings'], message: '当前奖励目标不存在或已停用' })
+    }
     const stats = calculateStats(backup.ledgerEvents)
     if (stats.totalXp !== backup.summary.totalXp || stats.coins !== backup.summary.coins) {
       context.addIssue({ code: 'custom', path: ['summary'], message: '备份汇总与账本不一致' })

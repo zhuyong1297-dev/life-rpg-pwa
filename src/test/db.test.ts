@@ -7,15 +7,19 @@ import {
   cancelTodayCompletion,
   completeActivity,
   createActivity,
+  createReward,
   getSnapshot,
   initializeDatabase,
   claimMilestoneReward,
   redeemReward,
   restoreHabit,
+  setRewardEnabled,
+  setTargetReward,
   syncLevelMilestones,
   undoCompletion,
   updateActivityGoal,
   updateHabit,
+  updateReward,
   type NewActivity,
 } from '../db'
 import { calculateStats } from '../domain'
@@ -264,6 +268,42 @@ describe('IndexedDB 事务', () => {
     await completeActivity(activity.id, '2026-01-06', '完成了第二次成果', database)
     await redeemReward(reward.id, database)
     expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(20)
+  })
+
+  it('奖励商品支持新增、目标唯一、编辑、停用和恢复，历史兑换不重写', async () => {
+    const reward = await createReward({ title: '短暂休息', cost: 30, target: true }, database)
+    expect((await database.settings.get('meta'))?.value).toMatchObject({ targetRewardId: reward.id })
+
+    const second = await createReward({ title: '一次体验', cost: 80, target: true }, database)
+    expect((await database.settings.get('meta'))?.value).toMatchObject({ targetRewardId: second.id })
+    await setTargetReward(reward.id, database)
+
+    const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
+    await completeActivity(activity.id, '2026-01-05', '成果一', database)
+    await completeActivity(activity.id, '2026-01-06', '成果二', database)
+    const redemption = await redeemReward(reward.id, database)
+    expect(redemption).toMatchObject({ title: '兑换：短暂休息', coinDelta: -30 })
+
+    await updateReward(reward.id, { title: '更名后的休息', cost: 80, target: true }, database)
+    expect(await database.ledgerEvents.get(redemption.id)).toMatchObject({ title: '兑换：短暂休息', coinDelta: -30 })
+    expect(await database.rewards.get(reward.id)).toMatchObject({ title: '更名后的休息', cost: 80 })
+
+    await setRewardEnabled(reward.id, false, database)
+    const metaAfterDisable = await database.settings.get('meta')
+    expect(metaAfterDisable?.key === 'meta' ? metaAfterDisable.value.targetRewardId : undefined).toBeUndefined()
+    await expect(setTargetReward(reward.id, database)).rejects.toThrow('只能把启用中的商品设为当前目标')
+    await setRewardEnabled(reward.id, true, database)
+    expect(await database.rewards.get(reward.id)).toMatchObject({ enabled: true })
+  })
+
+  it('旧 schema 5 偏好缺少反馈强度时恢复为清晰档', async () => {
+    const backup = await createBackup(database)
+    const input = structuredClone(backup) as unknown as { settings: Array<{ key: string; value: Record<string, unknown> }> }
+    const preferences = input.settings.find((setting) => setting.key === 'preferences')
+    if (!preferences) throw new Error('测试备份缺少偏好')
+    delete preferences.value.feedbackIntensity
+    await restoreBackup(input, database)
+    expect(await database.settings.get('preferences')).toMatchObject({ value: { feedbackIntensity: 'clear' } })
   })
 
   it('撤销窗口结束后只生成一次历史新等级里程碑', async () => {
