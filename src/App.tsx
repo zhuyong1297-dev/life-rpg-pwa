@@ -43,7 +43,7 @@ import {
 } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
-  archiveHabit,
+  archiveActivity as archiveActivityDefinition,
   cancelTodayCompletion,
   completeActivity,
   createActivity,
@@ -54,6 +54,7 @@ import {
   acknowledgeLevelMilestone,
   claimMilestoneReward,
   redeemReward,
+  permanentlyDeleteActivity,
   saveWeeklyReview,
   setActivityEnabled,
   setActivityKey,
@@ -61,7 +62,7 @@ import {
   setTargetReward,
   undoCompletion,
   updateHabit,
-  restoreHabit,
+  restoreActivity,
   syncLevelMilestones,
   updatePreferences,
   updateReward,
@@ -280,6 +281,8 @@ function App() {
   const [goalActivity, setGoalActivity] = useState<Activity | null>(null)
   const [completionActivity, setCompletionActivity] = useState<Activity | null>(null)
   const [archiveActivity, setArchiveActivity] = useState<Activity | null>(null)
+  const [deleteActivity, setDeleteActivity] = useState<Activity | null>(null)
+  const [activityManagerOpen, setActivityManagerOpen] = useState(false)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
   const [clock, setClock] = useState(() => new Date())
 
@@ -586,18 +589,7 @@ function App() {
             preferences={preferences}
             activities={snapshot.activities}
             completions={snapshot.completions}
-            today={today}
-            onEditGoal={setGoalActivity}
-            onArchive={setArchiveActivity}
-            onRestore={async (activityId) => {
-              try {
-                await restoreHabit(activityId)
-                await refresh()
-                setNotice('习惯已恢复')
-              } catch (error) {
-                setNotice(errorMessage(error))
-              }
-            }}
+            onManage={() => setActivityManagerOpen(true)}
             onPreferences={async (value) => {
               await updatePreferences(value)
               await refresh()
@@ -681,15 +673,56 @@ function App() {
         />
       )}
       {archiveActivity && (
-        <ArchiveHabitModal
+        <ArchiveActivityModal
           activity={archiveActivity}
           onClose={() => setArchiveActivity(null)}
           onConfirm={async () => {
             try {
-              await archiveHabit(archiveActivity.id)
+              await archiveActivityDefinition(archiveActivity.id)
               setArchiveActivity(null)
               await refresh()
-              setNotice('习惯已归档，历史记录仍然保留')
+              setNotice('活动已归档，历史记录仍然保留')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
+        />
+      )}
+      {activityManagerOpen && (
+        <ActivityManagerModal
+          activities={snapshot.activities}
+          completions={snapshot.completions}
+          today={today}
+          onClose={() => setActivityManagerOpen(false)}
+          onEdit={(activity) => {
+            setActivityManagerOpen(false)
+            setGoalActivity(activity)
+          }}
+          onArchive={setArchiveActivity}
+          onDelete={setDeleteActivity}
+          onRestore={async (activityId) => {
+            try {
+              await restoreActivity(activityId)
+              await refresh()
+              setNotice('活动已恢复')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
+          onRefresh={refresh}
+          onNotice={setNotice}
+        />
+      )}
+      {deleteActivity && (
+        <DeleteActivityModal
+          activity={deleteActivity}
+          onClose={() => setDeleteActivity(null)}
+          onConfirm={async () => {
+            try {
+              await permanentlyDeleteActivity(deleteActivity.id)
+              setDeleteActivity(null)
+              await refresh()
+              setNotice('活动定义已删除，成长历史和角色数值保持不变')
             } catch (error) {
               setNotice(errorMessage(error))
             }
@@ -934,7 +967,15 @@ function ActivitySection({
                   {variant === 'regular' && <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>}
                   {completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
                 </div>
-                <span className="activity-schedule">{variant === 'regular' && `${activity.attribute} · `}{scheduleLabel(activity)}</span>
+                {variant === 'regular' ? (
+                  <>
+                    <span className="activity-frequency">{activity.attribute} · {activityFrequencyLabel(activity)}</span>
+                    <div className="activity-detail-line">
+                      <span className="activity-goal">{activityGoalLabel(activity)}</span>
+                      <span className="activity-row-reward"><Award aria-hidden="true" />{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP <Coins aria-hidden="true" />+{reward.coins}</span>
+                    </div>
+                  </>
+                ) : <span className="activity-schedule">{scheduleLabel(activity)}</span>}
                 {variant === 'key' && <div className="mission-reward"><Award aria-hidden="true" /><span>{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP</span><Coins aria-hidden="true" /><span>+{reward.coins}</span></div>}
               </div>
               <button
@@ -1395,6 +1436,8 @@ function ReviewPage({
       weekStart,
       items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }) => ({
         activityId: activity.id,
+        titleSnapshot: activity.title,
+        attributeSnapshot: activity.attribute,
         completed,
         planned,
         adherence,
@@ -1490,33 +1533,20 @@ function SettingsPage({
   preferences,
   activities,
   completions,
-  today,
   onPreferences,
   onRefresh,
   onNotice,
-  onEditGoal,
-  onArchive,
-  onRestore,
+  onManage,
 }: {
   preferences: Preferences
   activities: Activity[]
   completions: Completion[]
-  today: string
   onPreferences: (value: Preferences) => Promise<void>
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
-  onEditGoal: (activity: Activity) => void
-  onArchive: (activity: Activity) => void
-  onRestore: (activityId: string) => Promise<void>
+  onManage: () => void
 }) {
-  const completedTaskById = new Map(
-    completions.filter((completion) => completion.status === 'active').map((completion) => [completion.activityId, completion]),
-  )
-  const activeActivities = activities.filter((activity) => !activity.archivedAt && !(activity.type === 'task' && completedTaskById.has(activity.id)))
-  const completedTasks = activities
-    .filter((activity) => activity.type === 'task' && completedTaskById.has(activity.id))
-    .sort((left, right) => completedTaskById.get(right.id)!.occurredOn.localeCompare(completedTaskById.get(left.id)!.occurredOn))
-  const archivedActivities = activities.filter((activity) => Boolean(activity.archivedAt))
+  const activityGroups = groupManagedActivities(activities, completions)
 
   async function toggleNotifications() {
     if (!preferences.notifications) {
@@ -1647,67 +1677,14 @@ function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>行动编排</span><h2>活动管理</h2></div></div>
-        {activeActivities.length === 0 && <p className="empty-state">还没有活动</p>}
-        {activeActivities.map((activity) => (
-          <div className="manage-row" key={activity.id}>
-            <div><strong>{activity.title}</strong><span>{activity.attribute} · {activity.difficulty}</span></div>
-            <div className="manage-actions">
-              {activity.type === 'habit' && (
-                <button className="icon-button" type="button" title="编辑习惯" onClick={() => onEditGoal(activity)}>
-                  <Pencil aria-hidden="true" />
-                </button>
-              )}
-              <button
-                className={activity.isKey ? 'icon-button selected' : 'icon-button'}
-                type="button"
-                title={activity.isKey ? '取消关键行为' : '设为关键行为'}
-                aria-pressed={activity.isKey}
-                onClick={async () => {
-                  try { await setActivityKey(activity.id, !activity.isKey); await onRefresh() } catch (error) { onNotice(errorMessage(error)) }
-                }}
-              ><Star aria-hidden="true" /></button>
-              <button
-                className={activity.enabled ? 'icon-button' : 'icon-button paused'}
-                type="button"
-                title={activity.enabled ? '暂停活动' : '启用活动'}
-                onClick={async () => {
-                  try { await setActivityEnabled(activity.id, !activity.enabled); await onRefresh() } catch (error) { onNotice(errorMessage(error)) }
-                }}
-              >{activity.enabled ? <Pause aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}</button>
-              {activity.type === 'habit' && (
-                <button className="icon-button danger-icon" type="button" title="归档习惯" onClick={() => onArchive(activity)}>
-                  <Trash2 aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        {completedTasks.length > 0 && (
-          <details className="archive-section completed-task-section">
-            <summary>已完成任务（{completedTasks.length}）</summary>
-            <div className="archive-list">
-              {completedTasks.map((activity) => {
-                const completion = completedTaskById.get(activity.id)!
-                return <div className="manage-row archived-row" key={activity.id}><div><strong>{activity.title}</strong><span>{formatShortDate(completion.occurredOn)} 完成{completion.occurredOn === today ? ' · 今天仍可取消' : ''}</span></div><Check aria-hidden="true" /></div>
-              })}
-            </div>
-          </details>
-        )}
-        {archivedActivities.length > 0 && (
-          <details className="archive-section">
-            <summary>已归档（{archivedActivities.length}）</summary>
-            <div className="archive-list">
-              {archivedActivities.map((activity) => (
-                <div className="manage-row archived-row" key={activity.id}>
-                  <div><strong>{activity.title}</strong><span>{activity.attribute} · {activity.difficulty}</span></div>
-                  <button className="restore-button" type="button" onClick={() => void onRestore(activity.id)}>
-                    <RotateCcw aria-hidden="true" />恢复
-                  </button>
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
+        <button className="activity-management-summary" type="button" onClick={onManage} aria-label="管理全部活动">
+          <span className="feature-summary-icon"><ListTodo aria-hidden="true" /></span>
+          <span className="activity-management-copy">
+            <strong>{activities.length === 0 ? '还没有活动' : `共 ${activities.length} 项活动`}</strong>
+            <small>进行中 {activityGroups.running.length} · 已暂停 {activityGroups.paused.length} · 已归档 {activityGroups.archived.length} · 已完成 {activityGroups.completed.length}</small>
+          </span>
+          <span className="activity-management-action">管理全部<ChevronRight aria-hidden="true" /></span>
+        </button>
       </section>
 
       <section className="content-section settings-section">
@@ -1720,7 +1697,140 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.6.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.7.0{isPreview ? ' 预览版' : ''}</footer>
+    </div>
+  )
+}
+
+type ActivityManagerTab = 'running' | 'paused' | 'archived' | 'completed'
+
+function groupManagedActivities(activities: Activity[], completions: Completion[]) {
+  const completedTaskById = new Map(
+    completions
+      .filter((completion) => completion.status === 'active')
+      .map((completion) => [completion.activityId, completion]),
+  )
+  const available = activities.filter((activity) => !activity.archivedAt && !(activity.type === 'task' && completedTaskById.has(activity.id)))
+  return {
+    running: available.filter((activity) => activity.enabled),
+    paused: available.filter((activity) => !activity.enabled),
+    archived: activities.filter((activity) => Boolean(activity.archivedAt)),
+    completed: activities
+      .filter((activity) => !activity.archivedAt && activity.type === 'task' && completedTaskById.has(activity.id))
+      .sort((left, right) => completedTaskById.get(right.id)!.occurredOn.localeCompare(completedTaskById.get(left.id)!.occurredOn)),
+    completedTaskById,
+  }
+}
+
+function ActivityManagerModal({
+  activities,
+  completions,
+  today,
+  onClose,
+  onEdit,
+  onArchive,
+  onDelete,
+  onRestore,
+  onRefresh,
+  onNotice,
+}: {
+  activities: Activity[]
+  completions: Completion[]
+  today: string
+  onClose: () => void
+  onEdit: (activity: Activity) => void
+  onArchive: (activity: Activity) => void
+  onDelete: (activity: Activity) => void
+  onRestore: (activityId: string) => Promise<void>
+  onRefresh: () => Promise<void>
+  onNotice: (message: string) => void
+}) {
+  const [tab, setTab] = useState<ActivityManagerTab>('running')
+  const [query, setQuery] = useState('')
+  const [expandedId, setExpandedId] = useState<string>()
+  const groups = groupManagedActivities(activities, completions)
+  const tabs: Array<{ id: ActivityManagerTab; label: string }> = [
+    { id: 'running', label: '进行中' },
+    { id: 'paused', label: '已暂停' },
+    { id: 'archived', label: '已归档' },
+    { id: 'completed', label: '已完成' },
+  ]
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
+  const visible = groups[tab].filter((activity) => (
+    !normalizedQuery || `${activity.title} ${activity.attribute} ${activity.difficulty}`.toLocaleLowerCase('zh-CN').includes(normalizedQuery)
+  ))
+
+  async function updateActivity(action: () => Promise<unknown>) {
+    try {
+      await action()
+      await onRefresh()
+    } catch (error) {
+      onNotice(errorMessage(error))
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal activity-manager-modal" role="dialog" aria-modal="true" aria-labelledby="activity-manager-title">
+        <div className="modal-header">
+          <div><span className="modal-kicker">行动编排</span><h2 id="activity-manager-title">活动管理</h2></div>
+          <button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button>
+        </div>
+        <div className="segmented-control activity-manager-tabs" aria-label="活动状态">
+          {tabs.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={tab === item.id ? 'selected' : ''}
+              onClick={() => { setTab(item.id); setExpandedId(undefined) }}
+            >{item.label}<small>{groups[item.id].length}</small></button>
+          ))}
+        </div>
+        {activities.length > 8 && (
+          <label className="activity-manager-search"><Search aria-hidden="true" /><span className="sr-only">搜索活动</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、属性或难度" /></label>
+        )}
+        <div className="activity-manager-list">
+          {visible.length === 0 && <p className="empty-state">{normalizedQuery ? '没有匹配的活动' : '这里还没有活动'}</p>}
+          {visible.map((activity) => {
+            const expanded = expandedId === activity.id
+            const completion = groups.completedTaskById.get(activity.id)
+            const completedToday = completions.some((item) => item.activityId === activity.id && item.status === 'active' && item.occurredOn === today)
+            return (
+              <div className={expanded ? 'activity-manager-row expanded' : 'activity-manager-row'} key={activity.id}>
+                <button className="activity-manager-row-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? undefined : activity.id)}>
+                  <span><strong>{activity.title}</strong><small>{activity.type === 'habit' ? '习惯' : '一次性任务'} · {activity.attribute} · {activity.difficulty}</small></span>
+                  <ChevronRight aria-hidden="true" />
+                </button>
+                {expanded && (
+                  <div className="activity-manager-row-details">
+                    <p>{completion ? `${formatShortDate(completion.occurredOn)} 完成` : scheduleLabel(activity)}</p>
+                    <div className="activity-manager-actions">
+                      {(tab === 'running' || tab === 'paused') && (
+                        <>
+                          {activity.type === 'habit' && <button type="button" onClick={() => onEdit(activity)}><Pencil aria-hidden="true" />编辑</button>}
+                          <button type="button" aria-pressed={activity.isKey} onClick={() => void updateActivity(() => setActivityKey(activity.id, !activity.isKey))}><Star aria-hidden="true" />{activity.isKey ? '取消关键' : '设为关键'}</button>
+                          <button type="button" onClick={() => void updateActivity(() => setActivityEnabled(activity.id, !activity.enabled))}>{activity.enabled ? <Pause aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}{activity.enabled ? '暂停' : '启用'}</button>
+                          <button className="danger-action" type="button" onClick={() => onArchive(activity)}><Trash2 aria-hidden="true" />归档</button>
+                        </>
+                      )}
+                      {tab === 'archived' && (
+                        <>
+                          <button type="button" onClick={() => void onRestore(activity.id)}><RotateCcw aria-hidden="true" />恢复</button>
+                          <button className="danger-action" type="button" disabled={completedToday} onClick={() => onDelete(activity)}><Trash2 aria-hidden="true" />永久删除</button>
+                        </>
+                      )}
+                      {tab === 'completed' && (
+                        <button className="danger-action" type="button" disabled={completion?.occurredOn === today} onClick={() => onDelete(activity)}><Trash2 aria-hidden="true" />永久删除</button>
+                      )}
+                    </div>
+                    {((tab === 'archived' && completedToday) || (tab === 'completed' && completion?.occurredOn === today)) && <small className="delete-wait-note">本日结算后可永久删除</small>}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }
@@ -2116,15 +2226,30 @@ function CompletionActionsModal({
   )
 }
 
-function ArchiveHabitModal({ activity, onClose, onConfirm }: { activity: Activity; onClose: () => void; onConfirm: () => Promise<void> }) {
+function ArchiveActivityModal({ activity, onClose, onConfirm }: { activity: Activity; onClose: () => void; onConfirm: () => Promise<void> }) {
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal compact-modal" aria-labelledby="archive-habit-title">
-        <div className="modal-header"><h2 id="archive-habit-title">归档习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+    <div className="modal-backdrop nested-modal" role="presentation">
+      <section className="modal compact-modal" aria-labelledby="archive-activity-title">
+        <div className="modal-header"><h2 id="archive-activity-title">归档活动</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <p className="modal-description">“{activity.title}”将从今天和默认管理列表隐藏，历史完成、奖励流水和复盘记录会保留，之后可以恢复。</p>
         <div className="confirmation-actions">
           <button type="button" onClick={onClose}>返回</button>
           <button className="danger-action" type="button" onClick={() => void onConfirm()}><Trash2 aria-hidden="true" />确认归档</button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function DeleteActivityModal({ activity, onClose, onConfirm }: { activity: Activity; onClose: () => void; onConfirm: () => Promise<void> }) {
+  return (
+    <div className="modal-backdrop nested-modal" role="presentation">
+      <section className="modal compact-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-activity-title">
+        <div className="modal-header"><h2 id="delete-activity-title">永久删除活动定义</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <p className="modal-description">“{activity.title}”将不再出现在活动管理中。XP、金币、完成记录、行动日志和复盘会永久保留，角色数值不会变化。</p>
+        <div className="confirmation-actions">
+          <button type="button" onClick={onClose}>返回</button>
+          <button className="danger-action" type="button" onClick={() => void onConfirm()}><Trash2 aria-hidden="true" />确认永久删除</button>
         </div>
       </section>
     </div>
@@ -2227,6 +2352,21 @@ function scheduleLabel(activity: Activity) {
   if (activity.schedule.kind === 'daily') return duration ? `每天 · 目标 ${goal.count} 分钟` : `每天 ${goal.count}${goal.unit}`
   if (activity.schedule.kind === 'weekly') return duration ? `每周 ${activity.schedule.times} 次 · 每次 ${goal.count} 分钟` : `每周 ${activity.schedule.times} 次`
   return activity.plannedOn ? formatShortDate(activity.plannedOn) : '单次'
+}
+
+function activityFrequencyLabel(activity: Activity) {
+  if (activity.schedule.kind === 'daily') return '每天'
+  if (activity.schedule.kind === 'weekly') return `每周 ${activity.schedule.times} 次`
+  return activity.plannedOn ? `计划 ${formatShortDate(activity.plannedOn)}` : '一次性任务'
+}
+
+function activityGoalLabel(activity: Activity) {
+  const goal = activity.goal
+  if (goal.kind === 'tiered') {
+    return getTierLevels(goal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(goal, tier)}`).join(' · ')
+  }
+  const duration = goal.kind === 'duration' || goal.unit === '分钟'
+  return `目标 ${goal.count}${duration ? ' 分钟' : goal.unit}`
 }
 
 function formatChineseDate(date: string) {

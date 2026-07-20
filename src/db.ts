@@ -14,6 +14,7 @@ import {
   rewardTable,
   type Setting,
   type WeeklyReview,
+  WeeklyReviewSchema,
   calculateStats,
   addDays,
   createLevelSystem,
@@ -197,21 +198,70 @@ export async function updateHabit(activityId: string, input: HabitUpdate, databa
   })
 }
 
-export async function archiveHabit(activityId: string, database = db) {
-  return database.transaction('rw', database.activities, async () => {
+export async function archiveActivity(activityId: string, database = db) {
+  return database.transaction('rw', database.activities, database.completions, async () => {
     const activity = await database.activities.get(activityId)
-    if (!activity || activity.type !== 'habit' || activity.archivedAt) return false
+    if (!activity || activity.archivedAt) return false
+    if (activity.type === 'task') {
+      const completed = await database.completions.where('activityId').equals(activityId).and((completion) => completion.status === 'active').count()
+      if (completed > 0) throw new Error('已完成任务无需归档')
+    }
     await database.activities.put(ActivitySchema.parse({ ...activity, enabled: false, isKey: false, archivedAt: new Date().toISOString() }))
     return true
   })
 }
 
-export async function restoreHabit(activityId: string, database = db) {
+export async function restoreActivity(activityId: string, database = db) {
   return database.transaction('rw', database.activities, async () => {
     const activity = await database.activities.get(activityId)
-    if (!activity || activity.type !== 'habit' || !activity.archivedAt) return false
+    if (!activity || !activity.archivedAt) return false
     const { archivedAt: _archivedAt, ...rest } = activity
     await database.activities.put(ActivitySchema.parse({ ...rest, enabled: true, isKey: false }))
+    return true
+  })
+}
+
+export async function permanentlyDeleteActivity(
+  activityId: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const today = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.activities, database.completions, database.weeklyReviews, async () => {
+    const activity = await database.activities.get(activityId)
+    if (!activity) return false
+
+    const completions = await database.completions.where('activityId').equals(activityId).toArray()
+    const activeCompletions = completions.filter((completion) => completion.status === 'active')
+    if (activeCompletions.some((completion) => completion.occurredOn === today)) {
+      throw new Error('本日结算后可永久删除')
+    }
+    if (!activity.archivedAt && !(activity.type === 'task' && activeCompletions.some((completion) => completion.occurredOn < today))) {
+      throw new Error('请先归档活动')
+    }
+
+    if (completions.length > 0) {
+      await database.completions.bulkPut(completions.map((completion) => ({
+        ...completion,
+        activityRevision: completion.activityRevision ?? activity.revision ?? 1,
+        titleSnapshot: completion.titleSnapshot ?? activity.title,
+        attributeSnapshot: completion.attributeSnapshot ?? activity.attribute,
+        difficultySnapshot: completion.difficultySnapshot ?? activity.difficulty,
+      })))
+    }
+
+    const reviews = await database.weeklyReviews.toArray()
+    const updatedReviews = reviews
+      .filter((review) => review.items.some((item) => item.activityId === activityId && (!item.titleSnapshot || !item.attributeSnapshot)))
+      .map((review) => ({
+        ...review,
+        items: review.items.map((item) => item.activityId === activityId
+          ? { ...item, titleSnapshot: item.titleSnapshot ?? activity.title, attributeSnapshot: item.attributeSnapshot ?? activity.attribute }
+          : item),
+      }))
+    if (updatedReviews.length > 0) await database.weeklyReviews.bulkPut(updatedReviews)
+
+    await database.activities.delete(activityId)
     return true
   })
 }
@@ -582,8 +632,17 @@ export async function claimMilestoneReward(level: number, rewardId: string, data
 
 export async function saveWeeklyReview(review: WeeklyReview, database = db) {
   await database.transaction('rw', database.weeklyReviews, database.activities, async () => {
-    await database.weeklyReviews.put(review)
-    for (const item of review.items) {
+    const activities = await database.activities.bulkGet(review.items.map((item) => item.activityId))
+    const savedReview = WeeklyReviewSchema.parse({
+      ...review,
+      items: review.items.map((item, index) => ({
+        ...item,
+        titleSnapshot: item.titleSnapshot ?? activities[index]?.title,
+        attributeSnapshot: item.attributeSnapshot ?? activities[index]?.attribute,
+      })),
+    })
+    await database.weeklyReviews.put(savedReview)
+    for (const item of savedReview.items) {
       if (item.decision === '暂停') await database.activities.update(item.activityId, { enabled: false })
     }
   })

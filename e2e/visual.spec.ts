@@ -115,6 +115,22 @@ test('三项关键行动和紧凑日常列表在各视口保持清晰', async ({
 
   await expect(page.locator('.mission-card')).toHaveCount(3)
   await expect(page.locator('.activity-row')).toHaveCount(2)
+  await expect(page.locator('.activity-row').first()).toContainText('体魄 · 每天')
+  await expect(page.locator('.activity-row').first()).toContainText('目标 1次')
+  await expect(page.locator('.activity-row').first()).toContainText('+5 XP')
+  const regularLayout = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.activity-row')].map((row) => {
+    const action = row.querySelector<HTMLElement>('.complete-button')?.getBoundingClientRect()
+    const content = row.querySelector<HTMLElement>('.activity-copy')?.getBoundingClientRect()
+    return {
+      actionWidth: action?.width,
+      overlaps: Boolean(action && content && content.right > action.left && content.left < action.right),
+      textOverflow: row.querySelector<HTMLElement>('.activity-goal') ? getComputedStyle(row.querySelector<HTMLElement>('.activity-goal')!).textOverflow : '',
+    }
+  }))
+  expect(regularLayout).toEqual([
+    { actionWidth: 48, overlaps: false, textOverflow: 'clip' },
+    { actionWidth: 48, overlaps: false, textOverflow: 'clip' },
+  ])
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/today-populated-${testInfo.project.name}.png`, fullPage: true })
 })
@@ -167,7 +183,12 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
   await page.getByRole('button', { name: '设置' }).click()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/settings-${testInfo.project.name}.png`, fullPage: true })
-  await page.getByTitle('编辑习惯').click()
+  await page.getByRole('button', { name: '管理全部活动' }).click()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/activity-manager-${testInfo.project.name}.png` })
+  const managedRow = page.locator('.activity-manager-row').filter({ hasText: '匿名关键行为' })
+  await managedRow.getByRole('button', { name: /匿名关键行为/ }).click()
+  await managedRow.getByRole('button', { name: '编辑' }).click()
   await expect(page.getByRole('heading', { name: '编辑习惯' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/edit-${testInfo.project.name}.png` })

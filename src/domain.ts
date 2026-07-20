@@ -255,6 +255,8 @@ export type Reward = z.infer<typeof RewardSchema>
 
 export const ReviewItemSchema = z.object({
   activityId: z.string().min(1),
+  titleSnapshot: z.string().trim().min(1).max(60).optional(),
+  attributeSnapshot: z.enum(attributes).optional(),
   adherence: z.number().min(0).max(1),
   completed: z.number().int().nonnegative(),
   planned: z.number().int().positive(),

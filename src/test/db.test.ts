@@ -3,7 +3,7 @@ import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
   acknowledgeLevelMilestone,
-  archiveHabit,
+  archiveActivity,
   cancelTodayCompletion,
   completeActivity,
   createActivity,
@@ -11,9 +11,10 @@ import {
   currentGameDate,
   getSnapshot,
   initializeDatabase,
+  permanentlyDeleteActivity,
   claimMilestoneReward,
   redeemReward,
-  restoreHabit,
+  restoreActivity,
   setRewardEnabled,
   setTargetReward,
   syncLevelMilestones,
@@ -261,15 +262,97 @@ describe('IndexedDB 事务', () => {
   it('归档保留历史并可恢复，已归档习惯不能继续完成', async () => {
     const activity = await createActivity(dailyHabit, database)
     await completeActivity(activity.id, '2026-01-05', undefined, database)
-    expect(await archiveHabit(activity.id, database)).toBe(true)
+    expect(await archiveActivity(activity.id, database)).toBe(true)
     expect(await database.activities.get(activity.id)).toMatchObject({ enabled: false, isKey: false })
     expect((await database.activities.get(activity.id))?.archivedAt).toBeTruthy()
     expect(await database.completions.count()).toBe(1)
     expect(await database.ledgerEvents.count()).toBe(1)
     await expect(completeActivity(activity.id, '2026-01-06', undefined, database)).rejects.toThrow('不存在或已暂停')
-    expect(await restoreHabit(activity.id, database)).toBe(true)
+    expect(await restoreActivity(activity.id, database)).toBe(true)
     expect(await database.activities.get(activity.id)).toMatchObject({ enabled: true, isKey: false })
     expect((await database.activities.get(activity.id))?.archivedAt).toBeUndefined()
+  })
+
+  it('未完成的一次性任务可以归档和恢复', async () => {
+    const task = await createActivity({
+      ...dailyHabit,
+      type: 'task',
+      schedule: { kind: 'once' },
+      plannedOn: '2026-01-05',
+    }, database)
+    expect(await archiveActivity(task.id, database)).toBe(true)
+    expect(await database.activities.get(task.id)).toMatchObject({ enabled: false, isKey: false })
+    expect(await restoreActivity(task.id, database)).toBe(true)
+    expect(await database.activities.get(task.id)).toMatchObject({ enabled: true, isKey: false })
+  })
+
+  it('永久删除只移除活动定义并补齐历史快照', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    const completed = await completeActivity(activity.id, '2026-01-05', undefined, database)
+    if (!completed.awarded) throw new Error('测试前置完成失败')
+    const {
+      activityRevision: _activityRevision,
+      titleSnapshot: _titleSnapshot,
+      attributeSnapshot: _attributeSnapshot,
+      difficultySnapshot: _difficultySnapshot,
+      ...legacyCompletion
+    } = completed.completion
+    await database.completions.put(legacyCompletion)
+    await database.weeklyReviews.put({
+      id: 'review-legacy',
+      weekStart: '2026-01-05',
+      createdAt: new Date().toISOString(),
+      items: [{
+        activityId: activity.id,
+        adherence: 1,
+        completed: 1,
+        planned: 1,
+        impact: 4,
+        friction: 2,
+        decision: '保留',
+      }],
+    })
+    const ledgerBefore = await database.ledgerEvents.toArray()
+    const statsBefore = calculateStats(ledgerBefore)
+
+    await archiveActivity(activity.id, database)
+    expect(await permanentlyDeleteActivity(activity.id, '2026-01-06', database)).toBe(true)
+    expect(await database.activities.get(activity.id)).toBeUndefined()
+    expect(await database.completions.get(completed.completion.id)).toMatchObject({
+      titleSnapshot: activity.title,
+      attributeSnapshot: activity.attribute,
+      difficultySnapshot: activity.difficulty,
+      activityRevision: 1,
+    })
+    expect((await database.weeklyReviews.get('review-legacy'))?.items[0]).toMatchObject({
+      titleSnapshot: activity.title,
+      attributeSnapshot: activity.attribute,
+    })
+    expect(await database.ledgerEvents.toArray()).toEqual(ledgerBefore)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toEqual(statsBefore)
+    expect(await permanentlyDeleteActivity(activity.id, '2026-01-06', database)).toBe(false)
+  })
+
+  it('本游戏日完成会阻止永久删除，次日完成任务可直接删除', async () => {
+    const habit = await createActivity(dailyHabit, database)
+    await completeActivity(habit.id, '2026-01-05', undefined, database)
+    await archiveActivity(habit.id, database)
+    await expect(permanentlyDeleteActivity(habit.id, '2026-01-05', database)).rejects.toThrow('本日结算后可永久删除')
+    expect(await database.activities.get(habit.id)).toBeTruthy()
+
+    const task = await createActivity({
+      ...dailyHabit,
+      title: '一次性任务',
+      type: 'task',
+      schedule: { kind: 'once' },
+      plannedOn: '2026-01-05',
+      isKey: false,
+    }, database)
+    await completeActivity(task.id, '2026-01-05', undefined, database)
+    await expect(permanentlyDeleteActivity(task.id, '2026-01-05', database)).rejects.toThrow('本日结算后可永久删除')
+    expect(await permanentlyDeleteActivity(task.id, '2026-01-06', database)).toBe(true)
+    expect(await database.activities.get(task.id)).toBeUndefined()
+    expect(await database.completions.where('activityId').equals(task.id).count()).toBe(1)
   })
 
   it('只能持久取消今天的完成，重复取消幂等且之后可重做', async () => {
@@ -423,7 +506,8 @@ describe('IndexedDB 事务', () => {
 
   it('schema 5 备份完整保存等级系统', async () => {
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.6.0' })
+    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.7.0' })
+    await restoreBackup({ ...current, appVersion: '2.6.0' }, database)
     await restoreBackup(current, database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)

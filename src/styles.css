@@ -132,12 +132,18 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .mission-reward svg { width: 15px; height: 15px; }
 .mission-reward svg:nth-of-type(2) { margin-left: 5px; }
 .activity-list { overflow: hidden; border-top: 1px solid var(--line); }
-.activity-row { min-height: 72px; display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.activity-row { min-height: 96px; display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .activity-row.complete, .mission-card.complete { color: var(--muted); }
 .activity-copy { min-width: 0; flex: 1; display: grid; gap: 6px; }
 .activity-title-line { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .activity-title-line strong { min-width: 0; overflow-wrap: anywhere; }
 .activity-schedule { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.activity-frequency { color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.activity-detail-line { min-width: 0; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 5px 12px; }
+.activity-goal { min-width: 0; flex: 1 1 240px; color: var(--blue); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.activity-row-reward { flex: 0 0 auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; color: var(--gold); font-size: 12px; font-weight: 800; }
+.activity-row-reward svg { width: 14px; height: 14px; }
+.activity-row-reward svg:nth-of-type(2) { margin-left: 3px; }
 .difficulty, .tier-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 800; }
 .difficulty { background: var(--surface-soft); color: var(--muted); }
 .difficulty-普通 { color: var(--forest); background: var(--forest-soft); }
@@ -377,6 +383,12 @@ label textarea { min-height: 84px; resize: vertical; }
 .feedback-intensity-control > div:first-child { display: grid; gap: 3px; }
 .feedback-intensity-control span { color: var(--muted); font-size: 11px; }
 .feedback-test { width: 100%; margin: 4px 0 14px; }
+.activity-management-summary { width: 100%; height: 100px; padding: 12px 10px; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.activity-management-copy { min-width: 0; display: grid; gap: 5px; }
+.activity-management-copy strong, .activity-management-copy small { overflow-wrap: anywhere; }
+.activity-management-copy small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.activity-management-action { display: inline-flex; align-items: center; gap: 3px; color: var(--forest); font-size: 12px; font-weight: 800; }
+.activity-management-action svg { width: 17px; height: 17px; }
 .manage-row > div:first-child { min-width: 0; display: grid; gap: 3px; }
 .manage-row strong, .manage-row span { overflow-wrap: anywhere; }
 .manage-row span { color: var(--muted); font-size: 12px; }
@@ -389,6 +401,28 @@ label textarea { min-height: 84px; resize: vertical; }
 .restore-button, .confirmation-actions > button { min-height: 44px; padding: 8px 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
 .restore-button { flex: 0 0 auto; color: var(--forest); }
 .restore-button svg { width: 17px; height: 17px; }
+.activity-manager-modal { max-height: min(94vh, 860px); }
+.activity-manager-tabs { grid-auto-flow: initial; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.activity-manager-tabs button { min-height: 46px; display: grid; place-content: center; gap: 1px; }
+.activity-manager-tabs small { font-size: 10px; font-weight: 500; }
+.activity-manager-search { position: relative; display: block; margin: 12px 0 4px; }
+.activity-manager-search svg { position: absolute; z-index: 1; left: 11px; top: 50%; width: 17px; height: 17px; color: var(--muted); transform: translateY(-50%); }
+.activity-manager-search input { margin: 0; padding-left: 36px; }
+.activity-manager-list { border-top: 1px solid var(--line); }
+.activity-manager-row { border-bottom: 1px solid var(--line); }
+.activity-manager-row-summary { width: 100%; min-height: 60px; padding: 9px 2px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.activity-manager-row-summary > span { min-width: 0; display: grid; gap: 3px; }
+.activity-manager-row-summary strong, .activity-manager-row-summary small { overflow-wrap: anywhere; }
+.activity-manager-row-summary small { color: var(--muted); font-size: 11px; }
+.activity-manager-row-summary > svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--muted); transition: transform 150ms ease; }
+.activity-manager-row.expanded .activity-manager-row-summary > svg { transform: rotate(90deg); }
+.activity-manager-row-details { padding: 0 2px 12px; }
+.activity-manager-row-details > p { margin: 0 0 9px; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.activity-manager-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.activity-manager-actions button { min-height: 44px; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--forest); cursor: pointer; }
+.activity-manager-actions button svg { width: 16px; height: 16px; }
+.activity-manager-actions .danger-action { color: var(--coral); background: var(--coral-soft); border-color: #d99a94; }
+.delete-wait-note { display: block; margin-top: 7px; color: var(--coral); font-size: 11px; }
 .data-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 8px 0 14px; }
 .file-button { color: var(--ink); font-size: 13px; }
 .file-button input { display: none; }
@@ -506,6 +540,7 @@ label textarea { min-height: 84px; resize: vertical; }
   .modal-backdrop { place-items: center; padding: 24px; }
   .modal { width: min(100%, 540px); border-radius: 8px; padding: 22px; }
   .feature-modal { width: min(100%, 680px); }
+  .activity-manager-modal { width: min(100%, 680px); }
   .feedback-overlay { left: auto; right: 24px; bottom: 24px; width: min(600px, calc(100vw - 292px)); }
 }
 
@@ -538,6 +573,12 @@ label textarea { min-height: 84px; resize: vertical; }
   .growth-row { grid-template-columns: 34px minmax(0, 1fr); padding: 8px 0; }
   .growth-row > b { grid-column: 2; text-align: left; }
   .feedback-intensity-control { grid-template-columns: 1fr; }
+  .activity-management-summary { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 8px; }
+  .activity-management-summary .feature-summary-icon { width: 38px; height: 38px; }
+  .activity-management-action { font-size: 0; }
+  .activity-management-action svg { width: 20px; height: 20px; }
+  .activity-manager-tabs button { padding: 4px 2px; font-size: 11px; }
+  .activity-manager-actions button { flex: 1 1 calc(50% - 4px); }
   .shop-row { grid-template-columns: minmax(0, 1fr) auto; }
   .shop-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .journey-chapter > summary { grid-template-columns: minmax(0, 1fr); gap: 5px; }
