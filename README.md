@@ -4,6 +4,8 @@
 
 正式入口当前运行 V3.2.0：同一时间一个 28 天成长赛季、本地建议型教练和个人策略库。正式数据与预览数据继续完全隔离，现有正式 IndexedDB 会原位增加赛季表，不会清空活动或成长记录。
 
+手机预览当前验证 V3.2.1：修复历史完成过的习惯被误当成已完成一次性任务、从“今天”隐藏的问题。
+
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
 手机预览地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)

@@ -368,7 +368,9 @@ function App() {
   )
 
   const completedTaskIds = new Set(snapshot.completions.filter((completion) => completion.status === 'active' && completion.occurredOn < today).map((completion) => completion.activityId))
-  const enabledActivities = snapshot.activities.filter((activity) => activity.enabled && !completedTaskIds.has(activity.id))
+  const enabledActivities = snapshot.activities.filter(
+    (activity) => activity.enabled && (activity.type !== 'task' || !completedTaskIds.has(activity.id)),
+  )
   const isDue = (activity: Activity) => activity.type === 'habit' || !activity.plannedOn || activity.plannedOn <= today
   const keyActivities = enabledActivities.filter((activity) => activity.isKey && isDue(activity))
   const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
@@ -1783,7 +1785,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V3.2.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V3.2.1{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
