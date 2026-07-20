@@ -8,6 +8,7 @@ import {
   completeActivity,
   createActivity,
   createReward,
+  currentGameDate,
   getSnapshot,
   initializeDatabase,
   claimMilestoneReward,
@@ -128,6 +129,30 @@ describe('IndexedDB 事务', () => {
     expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
     expect(await database.completions.count()).toBe(1)
     expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, tierGoalSnapshot: tieredHabit.goal })
+  })
+
+  it('两层习惯从基础升级到标准后恰好达到完整难度上限', async () => {
+    const activity = await createActivity({
+      ...tieredHabit,
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3] },
+    }, database)
+    const base = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    const standard = await completeActivity(activity.id, '2026-01-05', { tier: 2 }, database)
+    expect(base.awarded && base.event).toMatchObject({ xpDelta: 6, coinDelta: 5 })
+    expect(standard.awarded && standard.event).toMatchObject({ xpDelta: 4, coinDelta: 0 })
+    await expect(completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)).rejects.toThrow('不属于完成时的目标')
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
+  })
+
+  it('游戏日启用前使用自然日，启用后以凌晨四点为边界', async () => {
+    const activation = new Date(2026, 6, 20, 4, 0, 0)
+    const meta = await database.settings.get('meta')
+    if (meta?.key !== 'meta') throw new Error('测试缺少 meta')
+    await database.settings.put({ ...meta, value: { ...meta.value, gameDayBoundaryActivatedAt: activation.toISOString() } })
+    expect(await currentGameDate(database, new Date(2026, 6, 20, 3, 59, 59))).toBe('2026-07-20')
+    expect(await currentGameDate(database, activation)).toBe('2026-07-20')
+    expect(await currentGameDate(database, new Date(2026, 6, 21, 3, 59, 59))).toBe('2026-07-20')
+    expect(await currentGameDate(database, new Date(2026, 6, 21, 4, 0, 0))).toBe('2026-07-21')
   })
 
   it('组合三层目标仍只按难度和层次发奖', async () => {
@@ -398,7 +423,7 @@ describe('IndexedDB 事务', () => {
 
   it('schema 5 备份完整保存等级系统', async () => {
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.5.0' })
+    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.6.0' })
     await restoreBackup(current, database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)

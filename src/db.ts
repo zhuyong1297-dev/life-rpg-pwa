@@ -23,7 +23,10 @@ import {
   getTierReward,
   getTierUpgradeXp,
   getCompletionTierGoal,
-  localDate,
+  effectiveGameDate,
+  getGameDayActivation,
+  getTierCount,
+  getTierLevels,
   isDurationGoal,
   isTieredGoal,
   startOfWeek,
@@ -80,21 +83,44 @@ export async function initializeDatabase(database = db) {
     const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
     if (!meta) {
       const stats = calculateStats(await database.ledgerEvents.toArray())
-      await database.settings.add({ key: 'meta', value: { levelSystem: createLevelSystem(stats.totalXp) } })
-    } else if (!meta.value.levelSystem) {
+      await database.settings.add({ key: 'meta', value: { levelSystem: createLevelSystem(stats.totalXp), gameDayBoundaryActivatedAt: getGameDayActivation() } })
+    } else if (!meta.value.levelSystem || !meta.value.gameDayBoundaryActivatedAt) {
       const stats = calculateStats(await database.ledgerEvents.toArray())
-      await database.settings.put({ ...meta, value: { ...meta.value, levelSystem: createLevelSystem(stats.totalXp) } })
+      await database.settings.put({
+        ...meta,
+        value: {
+          ...meta.value,
+          levelSystem: meta.value.levelSystem ?? createLevelSystem(stats.totalXp),
+          gameDayBoundaryActivatedAt: meta.value.gameDayBoundaryActivatedAt ?? getGameDayActivation(),
+        },
+      })
     }
   })
 }
 
+export async function currentGameDate(database = db, now = new Date()) {
+  const storedMeta = await database.settings.get('meta')
+  const activatedAt = storedMeta?.key === 'meta' ? storedMeta.value.gameDayBoundaryActivatedAt : undefined
+  return effectiveGameDate(now, activatedAt)
+}
+
 export type NewActivity = Omit<Activity, 'id' | 'createdAt'>
+
+async function countOpenKeyActivities(database: LifeRpgDatabase, excludeId?: string) {
+  const today = await currentGameDate(database)
+  const completedTaskIds = new Set(
+    (await database.completions.where('status').equals('active').and((completion) => completion.occurredOn < today).toArray()).map((completion) => completion.activityId),
+  )
+  return database.activities
+    .filter((item) => item.id !== excludeId && item.isKey && item.enabled && !item.archivedAt && (item.type === 'habit' || !completedTaskIds.has(item.id)))
+    .count()
+}
 
 export async function createActivity(input: NewActivity, database = db) {
   const activity = ActivitySchema.parse({ ...input, id: crypto.randomUUID(), revision: 1, createdAt: new Date().toISOString() })
-  await database.transaction('rw', database.activities, async () => {
+  await database.transaction('rw', database.activities, database.completions, database.settings, async () => {
     if (activity.enabled && activity.isKey) {
-      const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
+      const keyCount = await countOpenKeyActivities(database)
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
     }
     await database.activities.add(activity)
@@ -103,12 +129,12 @@ export async function createActivity(input: NewActivity, database = db) {
 }
 
 export async function setActivityKey(activityId: string, isKey: boolean, database = db) {
-  await database.transaction('rw', database.activities, async () => {
+  await database.transaction('rw', database.activities, database.completions, database.settings, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity) throw new Error('找不到这项行动')
     if (activity.archivedAt) throw new Error('已归档活动不能设为关键行为')
     if (isKey && activity.enabled && !activity.isKey) {
-      const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
+      const keyCount = await countOpenKeyActivities(database, activity.id)
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
     }
     await database.activities.update(activityId, { isKey })
@@ -116,12 +142,12 @@ export async function setActivityKey(activityId: string, isKey: boolean, databas
 }
 
 export async function setActivityEnabled(activityId: string, enabled: boolean, database = db) {
-  await database.transaction('rw', database.activities, async () => {
+  await database.transaction('rw', database.activities, database.completions, database.settings, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity) throw new Error('找不到这项行动')
     if (activity.archivedAt) throw new Error('请先恢复已归档活动')
     if (enabled && activity.isKey && !activity.enabled) {
-      const keyCount = await database.activities.filter((item) => item.isKey && item.enabled).count()
+      const keyCount = await countOpenKeyActivities(database, activity.id)
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
     }
     await database.activities.update(activityId, { enabled })
@@ -144,11 +170,11 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
 export type HabitUpdate = Pick<Activity, 'title' | 'attribute' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
 export async function updateHabit(activityId: string, input: HabitUpdate, database = db) {
-  return database.transaction('rw', database.activities, database.completions, async () => {
+  return database.transaction('rw', database.activities, database.completions, database.settings, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity || activity.type !== 'habit' || activity.archivedAt) throw new Error('找不到可编辑的习惯')
     if (input.isKey && activity.enabled && !activity.isKey) {
-      const keyCount = await database.activities.filter((item) => item.isKey && item.enabled && !item.archivedAt).count()
+      const keyCount = await countOpenKeyActivities(database, activity.id)
       if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
     }
     const legacyCompletions = await database.completions
@@ -202,6 +228,7 @@ function validateCompletion(activity: Activity, details: CompletionDetails) {
   if (!isTieredGoal(activity) && difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
   if (cleaned && cleaned.length > 140) throw new Error('实际成果最多 140 字')
   if (isTieredGoal(activity) && !details.tier) throw new Error('请选择本次完成的层次')
+  if (isTieredGoal(activity) && details.tier && !getTierLevels(activity.goal).includes(details.tier)) throw new Error('所选层次不属于当前目标')
   if (isDurationGoal(activity)) {
     if (!Number.isInteger(details.durationMinutes) || !details.durationMinutes || details.durationMinutes > 1440) {
       throw new Error('请填写 1 至 1440 分钟的实际时长')
@@ -219,18 +246,19 @@ function validateCompletion(activity: Activity, details: CompletionDetails) {
 
 export async function completeActivity(
   activityId: string,
-  occurredOn = localDate(),
+  occurredOn: string | undefined = undefined,
   noteOrDetails?: string | CompletionDetails,
   database = db,
 ) {
-  return database.transaction('rw', database.activities, database.completions, database.ledgerEvents, async () => {
+  return database.transaction('rw', database.activities, database.completions, database.ledgerEvents, database.settings, async () => {
+    const eventDate = occurredOn ?? await currentGameDate(database)
     const activity = await database.activities.get(activityId)
     if (!activity || !activity.enabled) throw new Error('这项行动不存在或已暂停')
     const requestedDetails = typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {})
     const active = await database.completions
       .where('activityId')
       .equals(activityId)
-      .and((completion) => completion.status === 'active' && (activity.type === 'task' || completion.occurredOn === occurredOn))
+      .and((completion) => completion.status === 'active' && (activity.type === 'task' || completion.occurredOn === eventDate))
       .first()
     if (active) {
       const tierGoal = getCompletionTierGoal(active, activity)
@@ -241,14 +269,16 @@ export async function completeActivity(
       const difficulty = active.difficultySnapshot ?? activity.difficulty
       const attribute = active.attributeSnapshot ?? activity.attribute
       const title = active.titleSnapshot ?? activity.title
+      if (!getTierLevels(tierGoal).includes(requestedDetails.tier)) throw new Error('所选层次不属于完成时的目标')
+      const tierCount = getTierCount(tierGoal)
       const event = LedgerEventSchema.parse({
         id: `reward:${active.id}:tier:${requestedDetails.tier}`,
         kind: 'reward',
         sourceId: active.id,
-        occurredOn,
+        occurredOn: eventDate,
         title: `层次升级：${title}（${requestedDetails.tier === 2 ? '标准' : '突破'}）`,
         attribute,
-        xpDelta: getTierUpgradeXp(difficulty, active.tier, requestedDetails.tier),
+        xpDelta: getTierUpgradeXp(difficulty, active.tier, requestedDetails.tier, tierCount),
         coinDelta: 0,
         createdAt,
       })
@@ -265,7 +295,7 @@ export async function completeActivity(
     }
     const details = validateCompletion(activity, requestedDetails)
     if (activity.schedule.kind === 'weekly') {
-      const weekStart = startOfWeek(new Date(`${occurredOn}T12:00:00`))
+      const weekStart = startOfWeek(new Date(`${eventDate}T12:00:00`))
       const weekEnd = addDays(weekStart, 6)
       const weeklyCount = await database.completions
         .where('activityId')
@@ -285,7 +315,7 @@ export async function completeActivity(
     const completion: Completion = {
       id: crypto.randomUUID(),
       activityId,
-      occurredOn,
+      occurredOn: eventDate,
       status: 'active',
       note: details.note,
       durationMinutes: details.durationMinutes,
@@ -298,13 +328,13 @@ export async function completeActivity(
       createdAt,
     }
     const reward = isTieredGoal(activity) && details.tier
-      ? getTierReward(activity.difficulty, details.tier)
+      ? getTierReward(activity.difficulty, details.tier, getTierCount(activity.goal))
       : rewardTable[activity.difficulty]
     const event = LedgerEventSchema.parse({
       id: `reward:${completion.id}`,
       kind: 'reward',
       sourceId: completion.id,
-      occurredOn,
+      occurredOn: eventDate,
       title: activity.title,
       attribute: activity.attribute,
       xpDelta: reward.xp,
@@ -321,8 +351,8 @@ export async function undoCompletion(completionId: string, database = db) {
   return undoCompletionOn(completionId, undefined, database)
 }
 
-export async function cancelTodayCompletion(completionId: string, occurredOn = localDate(), database = db) {
-  return undoCompletionOn(completionId, occurredOn, database)
+export async function cancelTodayCompletion(completionId: string, occurredOn: string | undefined = undefined, database = db) {
+  return undoCompletionOn(completionId, occurredOn ?? await currentGameDate(database), database)
 }
 
 function undoCompletionOn(completionId: string, requiredOn: string | undefined, database: LifeRpgDatabase) {
@@ -356,7 +386,7 @@ function undoCompletionOn(completionId: string, requiredOn: string | undefined, 
 }
 
 export async function redeemReward(rewardId: string, database = db) {
-  return database.transaction('rw', database.rewards, database.ledgerEvents, async () => {
+  return database.transaction('rw', database.rewards, database.ledgerEvents, database.settings, async () => {
     const reward = await database.rewards.get(rewardId)
     if (!reward || !reward.enabled) throw new Error('奖励不存在或已停用')
     const events = await database.ledgerEvents.toArray()
@@ -365,7 +395,7 @@ export async function redeemReward(rewardId: string, database = db) {
       id: `redemption:${crypto.randomUUID()}`,
       kind: 'redemption',
       sourceId: reward.id,
-      occurredOn: localDate(),
+      occurredOn: await currentGameDate(database),
       title: `兑换：${reward.title}`,
       xpDelta: 0,
       coinDelta: -reward.cost,
@@ -532,7 +562,7 @@ export async function claimMilestoneReward(level: number, rewardId: string, data
       id: `milestone:level:${level}`,
       kind: 'milestone',
       sourceId: `level:${level}`,
-      occurredOn: localDate(),
+      occurredOn: await currentGameDate(database),
       title: `阶段礼券：${reward.title}`,
       xpDelta: 0,
       coinDelta: 0,

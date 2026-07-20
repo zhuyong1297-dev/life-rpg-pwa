@@ -44,7 +44,7 @@ test('三层选择器在各视口完整可见', async ({ page }, testInfo) => {
   await page.goto('./')
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例分层习惯')
-  await page.getByRole('button', { name: '三层目标' }).click()
+  await page.getByRole('button', { name: '分层目标' }).click()
   await page.getByLabel('基础层（分钟）').fill('5')
   await page.getByLabel('标准层（分钟）').fill('20')
   await page.getByLabel('突破层（分钟）').fill('45')
@@ -89,7 +89,7 @@ test('完成操作和归档确认在各视口完整可见', async ({ page }, tes
 test('高级组合目标在各视口可完整编辑', async ({ page }, testInfo) => {
   await page.goto('./')
   await page.getByRole('button', { name: '创建行动' }).click()
-  await page.getByRole('button', { name: '三层目标' }).click()
+  await page.getByRole('button', { name: '分层目标' }).click()
   await page.getByRole('switch', { name: /高级设置/ }).check()
   await expect(page.getByLabel('基础层次数')).toBeVisible()
   await expect(page.getByLabel('突破层每次时长（秒）')).toBeVisible()
@@ -189,8 +189,8 @@ test('旅程、商店和商品编辑弹层在各视口保持紧凑', async ({ pa
   await page.locator('.nested-modal').getByRole('button', { name: '关闭', exact: true }).click()
   await page.locator('.shop-modal').getByRole('button', { name: '关闭', exact: true }).click()
 
-  await page.getByRole('button', { name: '旅程档案' }).click()
-  await page.locator('.journey-chapter summary').click()
+  await page.getByRole('button', { name: '行动日志' }).click()
+  await expect(page.locator('.action-log-modal')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/journey-${testInfo.project.name}.png` })
 })

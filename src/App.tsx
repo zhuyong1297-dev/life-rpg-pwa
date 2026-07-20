@@ -6,8 +6,10 @@ import {
   BellOff,
   BookOpen,
   Brain,
+  CalendarDays,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   Coins,
@@ -78,17 +80,21 @@ import {
   getCompletionTierGoal,
   getLevel,
   getLevelReport,
-  getJourneyChapters,
+  getJourneyMonths,
   getMilestoneVoucherCost,
   getNextVoucherLevel,
   getTotalXpForLevel,
   getTierAchievement,
+  getTierCount,
+  getTierLevels,
   getTierReward,
   identityMessage,
   formatDurationSeconds,
   isDurationGoal,
   isTieredGoal,
+  effectiveGameDate,
   localDate,
+  nextGameDayBoundary,
   rewardTable,
   reviewDecisions,
   startOfWeek,
@@ -111,6 +117,8 @@ import {
   type TieredGoal,
   type TimeInputUnit,
   type WeeklyReview,
+  type JourneyEntry,
+  type JourneyMonth,
 } from './domain'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from './feedback'
 
@@ -154,6 +162,7 @@ type StringTriple = [string, string, string]
 type CombinedThresholdDraft = { count: string; durationSeconds: string }
 
 interface TierGoalDraft {
+  tierCount: 2 | 3
   advanced: boolean
   metric: TierMetric
   durationSeconds: StringTriple
@@ -167,6 +176,7 @@ interface TierGoalDraft {
 
 function defaultTierGoalDraft(): TierGoalDraft {
   return {
+    tierCount: 3,
     advanced: false,
     metric: 'duration',
     durationSeconds: ['300', '1200', '2700'],
@@ -185,25 +195,30 @@ function defaultTierGoalDraft(): TierGoalDraft {
 
 function tierGoalDraftFromGoal(goal: TieredGoal): TierGoalDraft {
   const draft = defaultTierGoalDraft()
+  const tierCount = getTierCount(goal)
   if (goal.metric === 'count') {
-    return { ...draft, metric: 'count', countUnit: goal.unit, countThresholds: goal.thresholds.map(String) as StringTriple }
+    const countThresholds = [...draft.countThresholds]
+    goal.thresholds.forEach((value, index) => { countThresholds[index] = String(value) })
+    return { ...draft, tierCount, metric: 'count', countUnit: goal.unit, countThresholds: countThresholds as StringTriple }
   }
   if (goal.metric === 'duration') {
     const multiplier = goal.unit === '分钟' ? 60 : 1
     return {
       ...draft,
+      tierCount,
       metric: 'duration',
       timeUnit: 'inputUnit' in goal ? goal.inputUnit : '分钟',
-      durationSeconds: goal.thresholds.map((value) => String(value * multiplier)) as StringTriple,
+      durationSeconds: draft.durationSeconds.map((value, index) => goal.thresholds[index] === undefined ? value : String(goal.thresholds[index] * multiplier)) as StringTriple,
     }
   }
   return {
     ...draft,
+    tierCount,
     advanced: true,
     combinedMode: goal.mode,
     combinedTimeUnit: goal.inputUnit,
     countUnit: goal.countUnit,
-    combinedThresholds: goal.thresholds.map((value) => ({ count: String(value.count), durationSeconds: String(value.durationSeconds) })) as TierGoalDraft['combinedThresholds'],
+    combinedThresholds: draft.combinedThresholds.map((value, index) => goal.thresholds[index] === undefined ? value : ({ count: String(goal.thresholds[index].count), durationSeconds: String(goal.thresholds[index].durationSeconds) })) as TierGoalDraft['combinedThresholds'],
   }
 }
 
@@ -215,6 +230,7 @@ function tierGoalDraftFromLegacy(activity: Activity): TierGoalDraft {
 }
 
 function buildTierGoal(draft: TierGoalDraft): TieredGoal {
+  const takeTiers = <T,>(values: T[]): [T, T] | [T, T, T] => values.slice(0, draft.tierCount) as [T, T] | [T, T, T]
   if (draft.advanced) {
     return {
       kind: 'tiered',
@@ -222,25 +238,21 @@ function buildTierGoal(draft: TierGoalDraft): TieredGoal {
       mode: draft.combinedMode,
       countUnit: draft.countUnit,
       inputUnit: draft.combinedTimeUnit,
-      thresholds: draft.combinedThresholds.map((value) => ({
+      thresholds: takeTiers(draft.combinedThresholds.map((value) => ({
         count: Number(value.count),
         durationSeconds: Number(value.durationSeconds),
-      })) as [
-        { count: number; durationSeconds: number },
-        { count: number; durationSeconds: number },
-        { count: number; durationSeconds: number },
-      ],
+      }))),
     }
   }
   if (draft.metric === 'count') {
-    return { kind: 'tiered', metric: 'count', unit: draft.countUnit, thresholds: draft.countThresholds.map(Number) as [number, number, number] }
+    return { kind: 'tiered', metric: 'count', unit: draft.countUnit, thresholds: takeTiers(draft.countThresholds.map(Number)) }
   }
   return {
     kind: 'tiered',
     metric: 'duration',
     unit: '秒',
     inputUnit: draft.timeUnit,
-    thresholds: draft.durationSeconds.map(Number) as [number, number, number],
+    thresholds: takeTiers(draft.durationSeconds.map(Number)),
   }
 }
 
@@ -269,6 +281,7 @@ function App() {
   const [completionActivity, setCompletionActivity] = useState<Activity | null>(null)
   const [archiveActivity, setArchiveActivity] = useState<Activity | null>(null)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
+  const [clock, setClock] = useState(() => new Date())
 
   const refresh = useCallback(async () => {
     setSnapshot(await getSnapshot())
@@ -310,11 +323,27 @@ function App() {
   const metaSetting = snapshot.settings.find((item) => item.key === 'meta')
   const levelSystem = metaSetting?.key === 'meta' ? metaSetting.value.levelSystem : undefined
   const targetRewardId = metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined
+  const gameDayBoundaryActivatedAt = metaSetting?.key === 'meta' ? metaSetting.value.gameDayBoundaryActivatedAt : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
   const characterNeedsAttention = Boolean(levelSystem?.milestones.some(
     (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
   ))
-  const today = localDate()
+  const today = effectiveGameDate(clock, gameDayBoundaryActivatedAt)
+
+  useEffect(() => {
+    const refreshClock = () => {
+      setClock(new Date())
+      void refresh()
+    }
+    const delay = Math.max(0, nextGameDayBoundary(new Date()).getTime() - Date.now()) + 250
+    const timer = window.setTimeout(refreshClock, delay)
+    const onVisibility = () => { if (document.visibilityState === 'visible') refreshClock() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [clock, gameDayBoundaryActivatedAt, refresh])
 
   const activeCompletion = useCallback(
     (activity: Activity) =>
@@ -322,12 +351,13 @@ function App() {
         (completion) =>
           completion.activityId === activity.id &&
           completion.status === 'active' &&
-          (activity.type === 'task' || completion.occurredOn === today),
+          completion.occurredOn === today,
       ),
     [snapshot.completions, today],
   )
 
-  const enabledActivities = snapshot.activities.filter((activity) => activity.enabled)
+  const completedTaskIds = new Set(snapshot.completions.filter((completion) => completion.status === 'active' && completion.occurredOn < today).map((completion) => completion.activityId))
+  const enabledActivities = snapshot.activities.filter((activity) => activity.enabled && !completedTaskIds.has(activity.id))
   const isDue = (activity: Activity) => activity.type === 'habit' || !activity.plannedOn || activity.plannedOn <= today
   const keyActivities = enabledActivities.filter((activity) => activity.isKey && isDue(activity))
   const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
@@ -336,7 +366,7 @@ function App() {
   async function finishActivity(activity: Activity, details?: CompletionDetails) {
     const preparedAudio = preferences.sound ? prepareCompletionAudio() : undefined
     try {
-      const result = await completeActivity(activity.id, today, details)
+      const result = await completeActivity(activity.id, undefined, details)
       setNoteActivity(null)
       if (!result.awarded) return
       const nextStats = calculateStats([...snapshot.ledgerEvents, result.event])
@@ -462,6 +492,8 @@ function App() {
             stats={stats}
             level={level}
             ledgerEvents={snapshot.ledgerEvents}
+            completions={snapshot.completions}
+            today={today}
             levelSystem={levelSystem}
             rewards={snapshot.rewards}
             targetRewardId={targetRewardId}
@@ -537,6 +569,7 @@ function App() {
             activities={keyActivities}
             completions={snapshot.completions}
             reviews={snapshot.weeklyReviews}
+            today={today}
             onSave={async (review) => {
               try {
                 await saveWeeklyReview(review)
@@ -552,6 +585,8 @@ function App() {
           <SettingsPage
             preferences={preferences}
             activities={snapshot.activities}
+            completions={snapshot.completions}
+            today={today}
             onEditGoal={setGoalActivity}
             onArchive={setArchiveActivity}
             onRestore={async (activityId) => {
@@ -575,6 +610,7 @@ function App() {
 
       {createOpen && (
         <CreateActivityModal
+          today={today}
           onClose={() => setCreateOpen(false)}
           onCreate={async (activity) => {
             try {
@@ -634,7 +670,7 @@ function App() {
             const completion = activeCompletion(completionActivity)
             if (!completion) return
             try {
-              await cancelTodayCompletion(completion.id, today)
+              await cancelTodayCompletion(completion.id)
               setCompletionActivity(null)
               await refresh()
               setNotice('今天的完成已取消，奖励已用修正流水抵消')
@@ -753,6 +789,7 @@ function TodayPage({
               <p className="eyebrow">行动日志 · {formatChineseDate(today)}</p>
               <h1>今天</h1>
               <p className="page-lead">把注意力留给真正重要的行动。</p>
+              <p className="game-day-note"><CalendarDays aria-hidden="true" />本日结算至 {formatShortDate(addDays(today, 1))} 04:00</p>
             </div>
           </header>
           <div className="mobile-status">
@@ -885,7 +922,8 @@ function ActivitySection({
         {activities.map((activity) => {
           const completion = activeCompletion(activity)
           const complete = Boolean(completion)
-          const canUpgrade = Boolean(completion?.tier && completion.tier < 3 && (completion.tierGoalSnapshot || completion.tierThresholds))
+          const completionGoal = completion ? getCompletionTierGoal(completion, activity) : undefined
+          const canUpgrade = Boolean(completion?.tier && completionGoal && completion.tier < getTierCount(completionGoal))
           const reward = rewardTable[activity.difficulty]
           return (
             <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
@@ -934,6 +972,8 @@ function CharacterPage({
   stats,
   level,
   ledgerEvents,
+  completions,
+  today,
   levelSystem,
   rewards,
   targetRewardId,
@@ -948,6 +988,8 @@ function CharacterPage({
   stats: ReturnType<typeof calculateStats>
   level: ReturnType<typeof getLevel>
   ledgerEvents: LedgerEvent[]
+  completions: Completion[]
+  today: string
   levelSystem?: LevelSystem
   rewards: Snapshot['rewards']
   targetRewardId?: string
@@ -962,7 +1004,6 @@ function CharacterPage({
   const [routeOpen, setRouteOpen] = useState(false)
   const [journeyOpen, setJourneyOpen] = useState(false)
   const [shopOpen, setShopOpen] = useState(false)
-  const [loadedMonths, setLoadedMonths] = useState(3)
   const [shopFilter, setShopFilter] = useState<'affordable' | 'all' | 'disabled'>('affordable')
   const [shopSearch, setShopSearch] = useState('')
   const [rewardEditor, setRewardEditor] = useState<Reward | 'new' | null>(null)
@@ -992,12 +1033,13 @@ function CharacterPage({
     routeCursor = getNextVoucherLevel(routeCursor)
   }
   const routeLevels = [...new Set([...reachedVoucherLevels, ...futureVoucherLevels])].sort((left, right) => left - right)
-  const recentCutoff = addDays(localDate(), -6)
-  const recentEvents = [...ledgerEvents]
-    .filter((event) => event.occurredOn >= recentCutoff && event.occurredOn <= localDate())
+  const journeyMonths = getJourneyMonths(completions, ledgerEvents, levelSystem)
+  const recentCutoff = addDays(today, -6)
+  const recentEntries = journeyMonths
+    .flatMap((month) => month.days.flatMap((day) => day.entries))
+    .filter((entry) => entry.occurredOn >= recentCutoff && entry.occurredOn <= today)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .slice(0, 3)
-  const journeyChapters = getJourneyChapters(ledgerEvents)
   const affordableCount = enabledRewards.filter((reward) => reward.cost <= stats.coins).length
   const shopBase = rewards.filter((reward) => shopFilter === 'disabled' ? !reward.enabled : reward.enabled && (shopFilter !== 'affordable' || reward.cost <= stats.coins))
   const showShopSearch = shopBase.length > 8
@@ -1068,10 +1110,10 @@ function CharacterPage({
         </div>
       </section>
       <section className="content-section growth-section">
-        <div className="section-heading"><div><span>最近 7 天</span><h2><TrendingUp aria-hidden="true" />成长轨迹</h2></div><button className="text-action" type="button" onClick={() => setJourneyOpen(true)}>旅程档案</button></div>
+        <div className="section-heading"><div><span>最近 7 天</span><h2><TrendingUp aria-hidden="true" />成长轨迹</h2></div><button className="text-action" type="button" onClick={() => setJourneyOpen(true)}>行动日志</button></div>
         <div className="growth-list">
-          {recentEvents.length === 0 && <p className="empty-state">最近 7 天还没有成长记录。</p>}
-          {recentEvents.map((event) => <GrowthEventRow event={event} key={event.id} />)}
+          {recentEntries.length === 0 && <p className="empty-state">最近 7 天还没有成长记录。</p>}
+          {recentEntries.map((entry) => <GrowthEntryRow entry={entry} key={entry.id} />)}
         </div>
       </section>
       <section className="content-section compact-feature-section">
@@ -1133,16 +1175,7 @@ function CharacterPage({
       )}
 
       {journeyOpen && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal feature-modal" role="dialog" aria-modal="true" aria-labelledby="journey-modal-title">
-            <div className="modal-header"><div><span className="modal-kicker">按月压缩，不丢失历史</span><h2 id="journey-modal-title">旅程档案</h2></div><button className="icon-button" type="button" title="关闭" onClick={() => setJourneyOpen(false)}><X aria-hidden="true" /></button></div>
-            {journeyChapters.length === 0 && <p className="empty-state">完成行动后，第一个旅程章节会出现在这里。</p>}
-            <div className="journey-chapters">
-              {journeyChapters.slice(0, loadedMonths).map((chapter) => <JourneyChapterDetails chapter={chapter} key={chapter.month} />)}
-            </div>
-            {loadedMonths < journeyChapters.length && <button className="secondary-action load-more" type="button" onClick={() => setLoadedMonths((current) => current + 6)}><History aria-hidden="true" />加载更早 6 个月</button>}
-          </section>
-        </div>
+        <ActionLogModal months={journeyMonths} today={today} onClose={() => setJourneyOpen(false)} />
       )}
 
       {shopOpen && (
@@ -1189,29 +1222,82 @@ function CharacterPage({
   )
 }
 
-function GrowthEventRow({ event }: { event: LedgerEvent }) {
+function GrowthEntryRow({ entry }: { entry: JourneyEntry }) {
   return (
-    <div className={`growth-row growth-${event.kind}`}>
-      <span className="growth-icon">{event.kind === 'redemption' || event.kind === 'milestone' ? <Gift aria-hidden="true" /> : event.kind === 'correction' ? <RotateCcw aria-hidden="true" /> : <ActivityIcon aria-hidden="true" />}</span>
-      <div><strong>{event.title}</strong><span>{formatShortDate(event.occurredOn)}{event.attribute ? ` · ${event.attribute}` : ''}</span></div>
-      <b>{event.kind === 'milestone' ? '永久记录' : formatLedgerDelta(event)}</b>
+    <div className={`growth-row growth-${entry.kind}`}>
+      <span className="growth-icon">{entry.kind === 'action' ? <ActivityIcon aria-hidden="true" /> : <Gift aria-hidden="true" />}</span>
+      <div><strong>{entry.title}</strong><span>{formatShortDate(entry.occurredOn)}{entry.attribute ? ` · ${entry.attribute}` : ''}{entry.tier ? ` · ${tierLabels[entry.tier]}` : ''}</span></div>
+      <b>{entry.kind === 'action' ? `+${entry.xp} XP${entry.coins ? ` · +${entry.coins}` : ''}` : '里程碑'}</b>
     </div>
   )
 }
 
-function JourneyChapterDetails({ chapter }: { chapter: ReturnType<typeof getJourneyChapters>[number] }) {
-  const [visibleEvents, setVisibleEvents] = useState(20)
+function ActionLogModal({ months, today, onClose }: { months: JourneyMonth[]; today: string; onClose: () => void }) {
+  const currentMonth = today.slice(0, 7)
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth)
+  const [highlightedDate, setHighlightedDate] = useState<string>()
+  const month = months.find((item) => item.month === selectedMonth)
+  const [year, monthNumber] = selectedMonth.split('-').map(Number)
+  const daysInMonth = new Date(year, monthNumber, 0).getDate()
+  const leading = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7
+  const dayByDate = new Map(month?.days.map((day) => [day.date, day]) ?? [])
+  const cells = [...Array(leading).fill(null), ...Array.from({ length: daysInMonth }, (_, index) => index + 1)]
+
+  function moveMonth(amount: number) {
+    const date = new Date(year, monthNumber - 1 + amount, 1, 12)
+    setSelectedMonth(localDate(date).slice(0, 7))
+    setHighlightedDate(undefined)
+  }
+
+  function selectDate(date: string) {
+    if (!dayByDate.has(date)) return
+    setHighlightedDate(date)
+    document.getElementById(`journey-day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
-    <details className="journey-chapter">
-      <summary>
-        <span><strong>{chapter.label}</strong><small>{chapter.activeDays} 个活跃日 · {chapter.completionCount} 项完成</small></span>
-        <span><b>{chapter.netXp >= 0 ? '+' : ''}{chapter.netXp} XP</b><small>{chapter.startLevel === chapter.endLevel ? `Lv.${chapter.endLevel}` : `Lv.${chapter.startLevel} → Lv.${chapter.endLevel}`}</small></span>
-      </summary>
-      <div className="chapter-stats"><span>净金币 <b>{chapter.netCoins >= 0 ? '+' : ''}{chapter.netCoins}</b></span><span>最强属性 <b>{chapter.strongestAttribute ?? '待积累'}</b></span></div>
-      <div className="growth-list">{chapter.events.slice(0, visibleEvents).map((event) => <GrowthEventRow event={event} key={event.id} />)}</div>
-      {visibleEvents < chapter.events.length && <button className="text-action chapter-more" type="button" onClick={() => setVisibleEvents((current) => current + 20)}>再显示 20 条</button>}
-    </details>
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal feature-modal action-log-modal" role="dialog" aria-modal="true" aria-labelledby="journey-modal-title">
+        <div className="modal-header"><div><span className="modal-kicker">只看最终有效成长</span><h2 id="journey-modal-title">行动日志</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="month-switcher">
+          <button className="icon-button" type="button" title="上个月" onClick={() => moveMonth(-1)}><ChevronLeft aria-hidden="true" /></button>
+          <strong>{year} 年 {monthNumber} 月</strong>
+          <button className="icon-button" type="button" title="下个月" disabled={selectedMonth >= currentMonth} onClick={() => moveMonth(1)}><ChevronRight aria-hidden="true" /></button>
+          {selectedMonth !== currentMonth && <button className="text-action" type="button" onClick={() => setSelectedMonth(currentMonth)}>返回本月</button>}
+        </div>
+        <div className="journey-summary-grid">
+          <span>活跃天数<b>{month?.activeDays ?? 0}</b></span><span>行动数<b>{month?.actionCount ?? 0}</b></span>
+          <span>获得 XP<b>+{month?.xp ?? 0}</b></span><span>获得金币<b>+{month?.coins ?? 0}</b></span><span>最强属性<b>{month?.strongestAttribute ?? '待积累'}</b></span>
+        </div>
+        <div className="journey-calendar" aria-label={`${year} 年 ${monthNumber} 月行动月历`}>
+          {['一', '二', '三', '四', '五', '六', '日'].map((label) => <span className="calendar-weekday" key={label}>{label}</span>)}
+          {cells.map((day, index) => {
+            if (!day) return <span className="calendar-empty" key={`empty:${index}`} />
+            const date = `${selectedMonth}-${String(day).padStart(2, '0')}`
+            const journeyDay = dayByDate.get(date)
+            return <button type="button" key={date} className={`${journeyDay ? 'has-entry' : ''}${highlightedDate === date ? ' selected' : ''}`} onClick={() => selectDate(date)} disabled={!journeyDay}><b>{day}</b>{journeyDay && <small>{journeyDay.actionCount} 项{journeyDay.hasMilestone ? <i aria-label="有里程碑" /> : null}</small>}</button>
+          })}
+        </div>
+        <div className="journey-timeline">
+          {!month && <p className="empty-state">这个月还没有有效行动。</p>}
+          {month?.days.map((day) => (
+            <section className={highlightedDate === day.date ? 'journey-day highlighted' : 'journey-day'} id={`journey-day-${day.date}`} key={day.date}>
+              <div className="journey-day-heading"><b>{formatShortDate(day.date)}</b><span>{day.actionCount} 项行动</span></div>
+              {day.entries.map((entry) => <JourneyEntryDetails entry={entry} key={entry.id} />)}
+            </section>
+          ))}
+        </div>
+      </section>
+    </div>
   )
+}
+
+function JourneyEntryDetails({ entry }: { entry: JourneyEntry }) {
+  if (entry.kind !== 'action') return <article className="journey-milestone"><Gift aria-hidden="true" /><div><strong>{entry.title}</strong><span>永久里程碑</span></div></article>
+  const hasDetails = Boolean(entry.note || entry.durationMinutes || (entry.tier && entry.tierGoalSnapshot))
+  const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{entry.attribute}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>+{entry.xp} XP · +{entry.coins}</b></div>
+  if (!hasDetails) return <article className="journey-entry">{main}</article>
+  return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.note && <p>成果：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.tier && entry.tierGoalSnapshot && <p>完成标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
 }
 
 function RewardEditorModal({ reward, target, onClose, onSave }: { reward?: Reward; target: boolean; onClose: () => void; onSave: (input: RewardInput) => Promise<void> }) {
@@ -1236,26 +1322,20 @@ function RewardEditorModal({ reward, target, onClose, onSave }: { reward?: Rewar
   )
 }
 
-function formatLedgerDelta(event: LedgerEvent) {
-  const values = [
-    event.xpDelta !== 0 ? `${event.xpDelta > 0 ? '+' : ''}${event.xpDelta} XP` : '',
-    event.coinDelta !== 0 ? `${event.coinDelta > 0 ? '+' : ''}${event.coinDelta} 金币` : '',
-  ].filter(Boolean)
-  return values.join(' · ') || '记录'
-}
-
 function ReviewPage({
   activities,
   completions,
   reviews,
+  today,
   onSave,
 }: {
   activities: Activity[]
   completions: Snapshot['completions']
   reviews: Snapshot['weeklyReviews']
+  today: string
   onSave: (review: WeeklyReview) => void
 }) {
-  const weekStart = startOfWeek()
+  const weekStart = startOfWeek(new Date(`${today}T12:00:00`))
   const weekEnd = addDays(weekStart, 6)
   const existing = reviews.find((review) => review.weekStart === weekStart)
   const [drafts, setDrafts] = useState<Record<string, ReviewDraft>>({})
@@ -1283,7 +1363,12 @@ function ReviewPage({
     const planned = activity.schedule.kind === 'daily' ? 7 : activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
     const actualDurationMinutes = matchingCompletions.reduce((total, completion) => total + (completion.durationMinutes ?? 0), 0)
     const plannedDurationMinutes = isDurationGoal(activity) ? planned * activity.goal.count : undefined
-    const tierCounts = tierLevels.map((tier) => matchingCompletions.filter((completion) => completion.tier === tier).length) as [number, number, number]
+    const tierCount = Math.max(
+      isTieredGoal(activity) ? getTierCount(activity.goal) : 2,
+      ...matchingCompletions.map((completion) => completion.tierGoalSnapshot ? getTierCount(completion.tierGoalSnapshot) : 2),
+    ) as 2 | 3
+    const reviewTiers = tierLevels.slice(0, tierCount)
+    const tierCounts = reviewTiers.map((tier) => matchingCompletions.filter((completion) => completion.tier === tier).length) as [number, number] | [number, number, number]
     const achievement = matchingCompletions.reduce(
       (total, completion) => {
         if (!completion.tier) return total
@@ -1298,7 +1383,7 @@ function ReviewPage({
       },
       { count: 0, durationSeconds: 0, countUnit: undefined as string | undefined },
     )
-    return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }
+    return { activity, completed, planned, adherence: Math.min(completed / planned, 1), actualDurationMinutes, plannedDurationMinutes, tierCounts, reviewTiers, achievement }
   })
   const overallAdherence = progress.length > 0 ? progress.reduce((total, item) => total + item.adherence, 0) / progress.length : 0
 
@@ -1341,7 +1426,7 @@ function ReviewPage({
             <ProgressBar value={overallAdherence} label={`${formatShortDate(weekStart)} — ${formatShortDate(weekEnd)}`} compact />
           </section>
           <form onSubmit={submit} className="review-form">
-          {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }) => {
+          {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, reviewTiers, achievement }) => {
             const draft = drafts[activity.id] ?? { impact: 3, friction: 3, decision: '保留' as const, note: '' }
             const update = (next: Partial<ReviewDraft>) => setDrafts((current) => ({ ...current, [activity.id]: { ...draft, ...next } }))
             return (
@@ -1356,7 +1441,7 @@ function ReviewPage({
                 )}
                 {isTieredGoal(activity) && (
                   <div className="tier-review-summary">
-                    <span>基础 {tierCounts[0]}</span><span>标准 {tierCounts[1]}</span><span>突破 {tierCounts[2]}</span>
+                    {reviewTiers.map((tier, index) => <span key={tier}>{tierLabels[tier]} {tierCounts[index]}</span>)}
                     {achievement.count > 0 && <strong>最低次数：{achievement.count}{achievement.countUnit ?? '次'}</strong>}
                     {achievement.durationSeconds > 0 && <strong>最低时间：{formatDurationSeconds(achievement.durationSeconds)}</strong>}
                   </div>
@@ -1404,6 +1489,8 @@ function RatingControl({ label, value, onChange }: { label: string; value: numbe
 function SettingsPage({
   preferences,
   activities,
+  completions,
+  today,
   onPreferences,
   onRefresh,
   onNotice,
@@ -1413,6 +1500,8 @@ function SettingsPage({
 }: {
   preferences: Preferences
   activities: Activity[]
+  completions: Completion[]
+  today: string
   onPreferences: (value: Preferences) => Promise<void>
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
@@ -1420,7 +1509,13 @@ function SettingsPage({
   onArchive: (activity: Activity) => void
   onRestore: (activityId: string) => Promise<void>
 }) {
-  const activeActivities = activities.filter((activity) => !activity.archivedAt)
+  const completedTaskById = new Map(
+    completions.filter((completion) => completion.status === 'active').map((completion) => [completion.activityId, completion]),
+  )
+  const activeActivities = activities.filter((activity) => !activity.archivedAt && !(activity.type === 'task' && completedTaskById.has(activity.id)))
+  const completedTasks = activities
+    .filter((activity) => activity.type === 'task' && completedTaskById.has(activity.id))
+    .sort((left, right) => completedTaskById.get(right.id)!.occurredOn.localeCompare(completedTaskById.get(left.id)!.occurredOn))
   const archivedActivities = activities.filter((activity) => Boolean(activity.archivedAt))
 
   async function toggleNotifications() {
@@ -1587,6 +1682,17 @@ function SettingsPage({
             </div>
           </div>
         ))}
+        {completedTasks.length > 0 && (
+          <details className="archive-section completed-task-section">
+            <summary>已完成任务（{completedTasks.length}）</summary>
+            <div className="archive-list">
+              {completedTasks.map((activity) => {
+                const completion = completedTaskById.get(activity.id)!
+                return <div className="manage-row archived-row" key={activity.id}><div><strong>{activity.title}</strong><span>{formatShortDate(completion.occurredOn)} 完成{completion.occurredOn === today ? ' · 今天仍可取消' : ''}</span></div><Check aria-hidden="true" /></div>
+              })}
+            </div>
+          </details>
+        )}
         {archivedActivities.length > 0 && (
           <details className="archive-section">
             <summary>已归档（{archivedActivities.length}）</summary>
@@ -1614,12 +1720,12 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.5.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.6.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
 
-function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCreate: (activity: NewActivity) => void }) {
+function CreateActivityModal({ today, onClose, onCreate }: { today: string; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const [type, setType] = useState<'habit' | 'task'>('habit')
   const [title, setTitle] = useState('')
   const [attribute, setAttribute] = useState<Attribute>('体魄')
@@ -1628,7 +1734,7 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
   const [weeklyTimes, setWeeklyTimes] = useState(3)
   const [goalMode, setGoalMode] = useState<'single' | 'tiered'>('single')
   const [tierDraft, setTierDraft] = useState<TierGoalDraft>(defaultTierGoalDraft)
-  const [plannedOn, setPlannedOn] = useState(localDate())
+  const [plannedOn, setPlannedOn] = useState(today)
   const [isKey, setIsKey] = useState(false)
 
   function submit(event: FormEvent) {
@@ -1668,7 +1774,7 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
               <span>目标类型</span>
               <div className="segmented-control" aria-label="目标类型">
                 <button type="button" className={goalMode === 'single' ? 'selected' : ''} onClick={() => setGoalMode('single')}>单次完成</button>
-                <button type="button" className={goalMode === 'tiered' ? 'selected' : ''} onClick={() => setGoalMode('tiered')}>三层目标</button>
+                <button type="button" className={goalMode === 'tiered' ? 'selected' : ''} onClick={() => setGoalMode('tiered')}>分层目标</button>
               </div>
             </div>
             {goalMode === 'tiered' && (
@@ -1693,8 +1799,16 @@ function CreateActivityModal({ onClose, onCreate }: { onClose: () => void; onCre
 
 function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (value: TierGoalDraft) => void }) {
   const set = (next: Partial<TierGoalDraft>) => onChange({ ...value, ...next })
+  const levels = tierLevels.slice(0, value.tierCount)
   return (
     <div className="tier-goal-fields">
+      <div className="goal-type-block">
+        <span>层次数量</span>
+        <div className="segmented-control" aria-label="层次数量">
+          <button type="button" className={value.tierCount === 2 ? 'selected' : ''} onClick={() => set({ tierCount: 2 })}>两层</button>
+          <button type="button" className={value.tierCount === 3 ? 'selected' : ''} onClick={() => set({ tierCount: 3 })}>三层</button>
+        </div>
+      </div>
       <label className="advanced-toggle">
         <span><strong>高级设置</strong><small>组合次数和时间</small></span>
         <input type="checkbox" role="switch" checked={value.advanced} onChange={(event) => set({ advanced: event.target.checked })} />
@@ -1715,8 +1829,8 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
                 seconds={value.durationSeconds}
                 onChange={(timeUnit) => set({ timeUnit })}
               />
-              <div className="tier-threshold-grid">
-                {tierLevels.map((tier, index) => (
+              <div className={`tier-threshold-grid tiers-${value.tierCount}`}>
+                {levels.map((tier, index) => (
                   <label key={tier}>{tierLabels[tier]}层（{value.timeUnit}）
                     <input
                       type="number"
@@ -1738,8 +1852,8 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
           ) : (
             <>
               <label className="full-field">次数单位<input required maxLength={12} value={value.countUnit} onChange={(event) => set({ countUnit: event.target.value })} /></label>
-              <div className="tier-threshold-grid">
-                {tierLevels.map((tier, index) => (
+              <div className={`tier-threshold-grid tiers-${value.tierCount}`}>
+                {levels.map((tier, index) => (
                   <label key={tier}>{tierLabels[tier]}层（{value.countUnit || '单位'}）
                     <input
                       type="number"
@@ -1759,7 +1873,7 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
               </div>
             </>
           )}
-          <span className="field-hint">基础、标准、突破必须依次增加</span>
+          <span className="field-hint">{value.tierCount === 2 ? '基础、标准必须依次增加' : '基础、标准、突破必须依次增加'}</span>
         </>
       ) : (
         <>
@@ -1777,7 +1891,7 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
             onChange={(combinedTimeUnit) => set({ combinedTimeUnit })}
           />
           <div className="combined-tier-list">
-            {tierLevels.map((tier, index) => (
+            {levels.map((tier, index) => (
               <div className="combined-tier-row" key={tier}>
                 <strong>{tierLabels[tier]}层</strong>
                 <label>{value.combinedMode === 'per_occurrence' ? '次数' : '总次数'}
@@ -1851,14 +1965,16 @@ function TierPickerModal({
   const currentTier = completion?.tier
   const goal = completion ? getCompletionTierGoal(completion, activity) : activity.goal
   if (!goal) return null
-  const currentXp = currentTier ? getTierReward(activity.difficulty, currentTier).xp : 0
+  const levels = getTierLevels(goal)
+  const tierCount = getTierCount(goal)
+  const currentXp = currentTier ? getTierReward(activity.difficulty, currentTier, tierCount).xp : 0
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal compact-modal" aria-labelledby="tier-title">
         <div className="modal-header"><div><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span><h2 id="tier-title">{currentTier ? '升级层次' : activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <div className="tier-choice-list">
-          {tierLevels.filter((tier) => !currentTier || tier > currentTier).map((tier) => {
-            const reward = getTierReward(activity.difficulty, tier)
+          {levels.filter((tier) => !currentTier || tier > currentTier).map((tier) => {
+            const reward = getTierReward(activity.difficulty, tier, tierCount)
             return (
               <button key={tier} type="button" className={`tier-choice tier-choice-${tier}`} onClick={() => onComplete(tier)} aria-label={`${currentTier ? '升级到' : '选择'} ${tierLabels[tier]}层`}>
                 <span><b>{tierLabels[tier]}层</b><small>{formatTierGoalValue(goal, tier)}</small></span>
@@ -1918,7 +2034,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         <div className="segmented-control" aria-label="目标设置">
           {legacy && <button type="button" className={mode === 'legacy' ? 'selected' : ''} onClick={() => setMode('legacy')}>保留原目标</button>}
           <button type="button" className={mode === 'single' ? 'selected' : ''} onClick={() => setMode('single')}>单次完成</button>
-          <button type="button" className={mode === 'tiered' ? 'selected' : ''} onClick={() => setMode('tiered')}>三层目标</button>
+          <button type="button" className={mode === 'tiered' ? 'selected' : ''} onClick={() => setMode('tiered')}>分层目标</button>
         </div>
         {mode === 'legacy' && activity.goal.kind !== 'tiered' && <p className="legacy-goal">当前目标：{activity.goal.count}{activity.goal.unit}</p>}
         {mode === 'tiered' && (
@@ -1948,9 +2064,11 @@ function CompletionActionsModal({
   const difficulty = completion.difficultySnapshot ?? activity.difficulty
   const goal = getCompletionTierGoal(completion, activity)
   const currentTier = completion.tier
-  const canUpgrade = Boolean(currentTier && currentTier < 3 && goal)
-  const canCancel = completion.occurredOn === localDate()
-  const currentReward = currentTier ? getTierReward(difficulty, currentTier) : rewardTable[difficulty]
+  const levels = goal ? getTierLevels(goal) : []
+  const tierCount = goal ? getTierCount(goal) : 3
+  const canUpgrade = Boolean(currentTier && goal && currentTier < tierCount)
+  const canCancel = true
+  const currentReward = currentTier ? getTierReward(difficulty, currentTier, tierCount) : rewardTable[difficulty]
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -1967,8 +2085,8 @@ function CompletionActionsModal({
           <div className="completion-upgrades">
             <span className="form-section-label">升级到更高层</span>
             <div className="tier-choice-list">
-              {tierLevels.filter((tier) => tier > currentTier!).map((tier) => {
-                const reward = getTierReward(difficulty, tier)
+              {levels.filter((tier) => tier > currentTier!).map((tier) => {
+                const reward = getTierReward(difficulty, tier, tierCount)
                 return (
                   <button key={tier} type="button" className={`tier-choice tier-choice-${tier}`} onClick={() => onUpgrade(tier)} aria-label={`升级到 ${tierLabels[tier]}层`}>
                     <span><b>{tierLabels[tier]}层</b><small>{formatTierGoalValue(goal!, tier)}</small></span>
@@ -2102,7 +2220,7 @@ function SettingToggle({ icon, label, checked, onChange }: { icon: React.ReactNo
 function scheduleLabel(activity: Activity) {
   const goal = activity.goal
   if (goal.kind === 'tiered') {
-    const tiers = tierLevels.map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(goal, tier)}`).join(' · ')
+    const tiers = getTierLevels(goal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(goal, tier)}`).join(' · ')
     return activity.schedule.kind === 'weekly' ? `每周 ${activity.schedule.times} 次 · ${tiers}` : `每天 · ${tiers}`
   }
   const duration = goal.kind === 'duration' || goal.unit === '分钟'

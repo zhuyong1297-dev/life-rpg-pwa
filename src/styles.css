@@ -61,6 +61,8 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .page-header { min-height: 74px; display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
 .page-header h1 { margin: 4px 0 0; font-size: 30px; line-height: 1.12; letter-spacing: 0; }
 .page-header p { margin: 0; }
+.game-day-note { margin-top: 10px !important; display: flex; align-items: center; gap: 6px; color: var(--blue); font-size: 12px; font-weight: 700; }
+.game-day-note svg { width: 15px; height: 15px; }
 .eyebrow { color: var(--forest); font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .page-lead { max-width: 520px; margin-top: 8px !important; color: var(--muted); font-size: 14px; line-height: 1.55; }
 .header-icon { width: 34px; height: 34px; color: var(--forest); }
@@ -265,6 +267,41 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .journey-chapter summary strong, .journey-chapter summary b { overflow-wrap: anywhere; }
 .journey-chapter summary b { color: var(--forest); }
 .journey-chapter summary small { color: var(--muted); font-size: 11px; }
+.action-log-modal { max-height: min(94vh, 860px); }
+.month-switcher { min-height: 48px; display: grid; grid-template-columns: 44px minmax(120px, auto) 44px 1fr; align-items: center; gap: 6px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.month-switcher > strong { text-align: center; }
+.month-switcher .text-action { justify-self: end; }
+.journey-summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--line); }
+.journey-summary-grid span { min-width: 0; padding: 9px 7px; display: grid; gap: 3px; color: var(--muted); background: var(--surface-soft); font-size: 10px; }
+.journey-summary-grid b { color: var(--ink); font-size: 14px; overflow-wrap: anywhere; }
+.journey-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.journey-calendar .calendar-weekday { height: 24px; display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+.journey-calendar button, .journey-calendar .calendar-empty { min-width: 0; height: 52px; }
+.journey-calendar button { position: relative; padding: 5px 2px; display: grid; align-content: center; justify-items: center; gap: 3px; border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; }
+.journey-calendar button.has-entry { border-color: #afc9be; color: var(--ink); background: var(--forest-soft); cursor: pointer; }
+.journey-calendar button.selected { border-color: var(--forest); box-shadow: inset 0 0 0 1px var(--forest); }
+.journey-calendar button:disabled { opacity: 1; }
+.journey-calendar button small { display: flex; align-items: center; gap: 3px; color: var(--forest); font-size: 9px; }
+.journey-calendar button i { width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+.journey-timeline { margin-top: 18px; display: grid; gap: 18px; }
+.journey-day { scroll-margin-top: 12px; padding: 0 10px 8px; border-left: 2px solid var(--line); transition: border-color 160ms ease, background-color 160ms ease; }
+.journey-day.highlighted { border-color: var(--gold); background: #fffaf0; }
+.journey-day-heading { min-height: 34px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.journey-day-heading span { color: var(--muted); font-size: 11px; }
+.journey-entry, .journey-milestone { display: block; border-top: 1px solid var(--line); }
+.journey-entry > summary { list-style: none; cursor: pointer; }
+.journey-entry > summary::-webkit-details-marker { display: none; }
+.journey-entry-main { min-height: 60px; padding: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.journey-entry-main > div { min-width: 0; display: grid; gap: 3px; }
+.journey-entry-main strong { overflow-wrap: anywhere; }
+.journey-entry-main span { color: var(--muted); font-size: 11px; }
+.journey-entry-main > b { flex: 0 0 auto; color: var(--forest); font-size: 12px; }
+.journey-entry-details { padding: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.journey-entry-details p { margin: 4px 0; overflow-wrap: anywhere; }
+.journey-milestone { min-height: 60px; padding: 8px 0; display: flex; align-items: center; gap: 10px; color: #9b6a08; }
+.journey-milestone svg { flex: 0 0 auto; }
+.journey-milestone > div { display: grid; gap: 3px; }
+.journey-milestone span { font-size: 11px; }
 .chapter-stats { padding: 10px; display: flex; flex-wrap: wrap; gap: 8px 18px; background: var(--surface-soft); color: var(--muted); font-size: 12px; }
 .chapter-stats b { color: var(--ink); }
 .chapter-more { width: 100%; }
@@ -393,6 +430,7 @@ label textarea { min-height: 84px; resize: vertical; }
 .advanced-toggle input:checked { border-color: var(--forest); background: var(--forest); }
 .advanced-toggle input:checked::before { transform: translateX(20px); }
 .tier-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.tier-threshold-grid.tiers-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .combined-tier-list { margin-top: 14px; display: grid; gap: 10px; }
 .combined-tier-row { display: grid; grid-template-columns: 58px repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; padding: 10px; background: var(--surface-soft); border-radius: 6px; }
 .combined-tier-row > strong { align-self: center; color: var(--forest); font-size: 13px; }
@@ -504,9 +542,16 @@ label textarea { min-height: 84px; resize: vertical; }
   .shop-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .journey-chapter > summary { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .journey-chapter > summary > span:last-child { grid-template-columns: auto 1fr; align-items: baseline; gap: 8px; text-align: left; }
+  .month-switcher { grid-template-columns: 44px minmax(110px, 1fr) 44px; }
+  .month-switcher .text-action { grid-column: 1 / -1; justify-self: center; min-height: 36px; }
+  .journey-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journey-summary-grid span:last-child { grid-column: 1 / -1; }
+  .journey-calendar { gap: 2px; }
+  .journey-calendar button, .journey-calendar .calendar-empty { height: 46px; }
+  .journey-entry-main { align-items: flex-start; flex-direction: column; gap: 4px; }
   .review-fields, .field-grid { grid-template-columns: 1fr; }
   .data-actions { grid-template-columns: 1fr; }
-  .tier-threshold-grid { grid-template-columns: 1fr; }
+  .tier-threshold-grid, .tier-threshold-grid.tiers-2 { grid-template-columns: 1fr; }
   .combined-tier-row { grid-template-columns: 1fr; }
   .tier-choice { align-items: flex-start; }
   .manage-row { align-items: flex-start; padding: 9px 0; }

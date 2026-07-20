@@ -2,7 +2,7 @@
 
 地球 Online 是一个手机优先、本地离线的人生游戏 PWA。它把现实行动即时转换为经验、金币和属性成长，但 14 天试运行的核心指标始终是最多三项关键行为的坚持率。
 
-V2.5.0 预览版在“现代冒险日志”上增加成长报告、等级奖励路线和阶段礼券，手机端使用五栏底部导航，并修复 Android Web Audio 完成声音。计分规则和 IndexedDB 六张表不变，完整备份升级为 schema 5。
+V2.6.0 预览版将游戏日改为凌晨四点分界，支持两层或三层习惯目标，并用月历行动日志展示最终有效成长。计分上限、IndexedDB 六张表和 schema 5 备份保持兼容，正式入口仍运行 V2.5.0。
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 

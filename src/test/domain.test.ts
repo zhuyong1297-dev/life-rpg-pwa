@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, formatDurationSeconds, formatTierGoalValue, getCharacterStage, getCharacterStageName, getJourneyChapters, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -24,6 +24,34 @@ describe('领域规则', () => {
       [{ xp: 30, coins: 25 }, { xp: 40, coins: 25 }, { xp: 50, coins: 25 }],
     ])
     expect(getTierUpgradeXp('普通', 1, 3)).toBe(4)
+  })
+
+  it('两层习惯使用 60% 和 100% XP，金币仍只是一份完整预算', () => {
+    expect(getTierReward('普通', 1, 2)).toEqual({ xp: 6, coins: 5 })
+    expect(getTierReward('普通', 2, 2)).toEqual({ xp: 10, coins: 5 })
+    expect(getTierUpgradeXp('普通', 1, 2, 2)).toBe(4)
+  })
+
+  it('四种分层目标都接受两层阈值', () => {
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3] }).thresholds).toHaveLength(2)
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '秒', thresholds: [30, 90] }).thresholds).toHaveLength(2)
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'combined', mode: 'per_occurrence', countUnit: '次', inputUnit: '秒', thresholds: [{ count: 1, durationSeconds: 30 }, { count: 3, durationSeconds: 30 }] }).thresholds).toHaveLength(2)
+    expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'combined', mode: 'total', countUnit: '次', inputUnit: '分钟', thresholds: [{ count: 1, durationSeconds: 60 }, { count: 2, durationSeconds: 180 }] }).thresholds).toHaveLength(2)
+  })
+
+  it('凌晨四点切换游戏日且启用前继续使用自然日', () => {
+    const before = new Date(2026, 6, 20, 3, 59, 59)
+    const boundary = new Date(2026, 6, 20, 4, 0, 0)
+    expect(gameDate(before)).toBe('2026-07-19')
+    expect(gameDate(boundary)).toBe('2026-07-20')
+    expect(effectiveGameDate(before, boundary.toISOString())).toBe('2026-07-20')
+    expect(effectiveGameDate(boundary, boundary.toISOString())).toBe('2026-07-20')
+  })
+
+  it('游戏日在跨月、跨年和闰日凌晨仍归属前一天', () => {
+    expect(gameDate(new Date(2027, 0, 1, 3, 0))).toBe('2026-12-31')
+    expect(gameDate(new Date(2028, 2, 1, 3, 0))).toBe('2028-02-29')
+    expect(gameDate(new Date(2028, 2, 1, 4, 0))).toBe('2028-03-01')
   })
 
   it('三层时间或次数阈值必须严格递增', () => {
@@ -146,19 +174,22 @@ describe('领域规则', () => {
     })
   })
 
-  it('旅程档案按月压缩并合并同一次完成的层次升级', () => {
-    const events: LedgerEvent[] = [
-      { id: 'jan-base', kind: 'reward', sourceId: 'completion-1', occurredOn: '2026-01-05', title: '示例习惯', attribute: '专注', xpDelta: 6, coinDelta: 5, createdAt: '2026-01-05T08:00:00.000Z' },
-      { id: 'jan-tier', kind: 'reward', sourceId: 'completion-1', occurredOn: '2026-01-05', title: '层次升级：示例习惯', attribute: '专注', xpDelta: 2, coinDelta: 0, createdAt: '2026-01-05T09:00:00.000Z' },
-      { id: 'jan-undone', kind: 'reward', sourceId: 'completion-2', occurredOn: '2026-01-06', title: '撤销示例', attribute: '体魄', xpDelta: 5, coinDelta: 2, createdAt: '2026-01-06T08:00:00.000Z' },
-      { id: 'jan-correction', kind: 'correction', sourceId: 'jan-undone', occurredOn: '2026-01-06', title: '撤销：撤销示例', attribute: '体魄', xpDelta: -5, coinDelta: -2, createdAt: '2026-01-06T08:01:00.000Z' },
-      { id: 'feb-base', kind: 'reward', sourceId: 'completion-3', occurredOn: '2026-02-02', title: '二月行动', attribute: '智识', xpDelta: 10, coinDelta: 5, createdAt: '2026-02-02T08:00:00.000Z' },
+  it('有效行动日志合并层次升级并完全隐藏撤销与修正', () => {
+    const completions: Completion[] = [
+      { id: 'c1', activityId: 'a1', occurredOn: '2026-01-05', status: 'active', tier: 2, tierGoalSnapshot: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3] }, titleSnapshot: '有效行动', attributeSnapshot: '专注', difficultySnapshot: '普通', activityRevision: 1, createdAt: '2026-01-05T08:00:00.000Z' },
+      { id: 'c2', activityId: 'a2', occurredOn: '2026-01-06', status: 'undone', titleSnapshot: '已撤销行动', attributeSnapshot: '体魄', difficultySnapshot: '简单', activityRevision: 1, createdAt: '2026-01-06T08:00:00.000Z', undoneAt: '2026-01-06T09:00:00.000Z' },
     ]
-
-    const chapters = getJourneyChapters(events)
-    expect(chapters.map((chapter) => chapter.month)).toEqual(['2026-02', '2026-01'])
-    expect(chapters[1]).toMatchObject({ activeDays: 1, completionCount: 1, netXp: 8, netCoins: 5, strongestAttribute: '专注' })
-    expect(chapters[0]).toMatchObject({ activeDays: 1, completionCount: 1, netXp: 10, netCoins: 5, strongestAttribute: '智识' })
+    const events: LedgerEvent[] = [
+      { id: 'r1', kind: 'reward', sourceId: 'c1', occurredOn: '2026-01-05', title: '有效行动', attribute: '专注', xpDelta: 6, coinDelta: 5, createdAt: '2026-01-05T08:00:00.000Z' },
+      { id: 'r2', kind: 'reward', sourceId: 'c1', occurredOn: '2026-01-05', title: '层次升级：有效行动（标准）', attribute: '专注', xpDelta: 4, coinDelta: 0, createdAt: '2026-01-05T08:10:00.000Z' },
+      { id: 'r3', kind: 'reward', sourceId: 'c2', occurredOn: '2026-01-06', title: '已撤销行动', attribute: '体魄', xpDelta: 5, coinDelta: 2, createdAt: '2026-01-06T08:00:00.000Z' },
+      { id: 'x3', kind: 'correction', sourceId: 'r3', occurredOn: '2026-01-06', title: '撤销：已撤销行动', attribute: '体魄', xpDelta: -5, coinDelta: -2, createdAt: '2026-01-06T09:00:00.000Z' },
+    ]
+    const months = getJourneyMonths(completions, events)
+    expect(months).toHaveLength(1)
+    expect(months[0]).toMatchObject({ activeDays: 1, actionCount: 1, xp: 10, coins: 5, strongestAttribute: '专注' })
+    expect(months[0].days[0].entries).toHaveLength(1)
+    expect(months[0].days[0].entries[0]).toMatchObject({ title: '有效行动', tier: 2, xp: 10, coins: 5 })
   })
 
   it('完全从追加式流水派生角色数值', () => {

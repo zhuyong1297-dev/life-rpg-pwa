@@ -23,15 +23,16 @@ export const rewardTable: Record<Difficulty, { xp: number; coins: number }> = {
   Boss: { xp: 50, coins: 25 },
 }
 
-const tierXpRates: Record<TierLevel, number> = { 1: 0.6, 2: 0.8, 3: 1 }
+const threeTierXpRates: Record<TierLevel, number> = { 1: 0.6, 2: 0.8, 3: 1 }
 
-export function getTierReward(difficulty: Difficulty, tier: TierLevel) {
+export function getTierReward(difficulty: Difficulty, tier: TierLevel, tierCount: 2 | 3 = 3) {
   const reward = rewardTable[difficulty]
-  return { xp: Math.round(reward.xp * tierXpRates[tier]), coins: reward.coins }
+  const rate = tierCount === 2 && tier === 2 ? 1 : threeTierXpRates[tier]
+  return { xp: Math.round(reward.xp * rate), coins: reward.coins }
 }
 
-export function getTierUpgradeXp(difficulty: Difficulty, from: TierLevel, to: TierLevel) {
-  return Math.max(0, getTierReward(difficulty, to).xp - getTierReward(difficulty, from).xp)
+export function getTierUpgradeXp(difficulty: Difficulty, from: TierLevel, to: TierLevel, tierCount: 2 | 3 = 3) {
+  return Math.max(0, getTierReward(difficulty, to, tierCount).xp - getTierReward(difficulty, from, tierCount).xp)
 }
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
@@ -52,18 +53,17 @@ const LegacyGoalSchema = z.object({
 
 export type LegacyGoal = z.infer<typeof LegacyGoalSchema>
 
-const ScalarThresholdsSchema = z.tuple([
-  z.number().int().positive(),
-  z.number().int().positive(),
-  z.number().int().positive(),
+const ScalarThresholdsSchema = z.union([
+  z.tuple([z.number().int().positive(), z.number().int().positive()]),
+  z.tuple([z.number().int().positive(), z.number().int().positive(), z.number().int().positive()]),
 ])
 
-function validateScalarThresholds(thresholds: [number, number, number], maximum: number, context: z.RefinementCtx) {
+function validateScalarThresholds(thresholds: readonly number[], maximum: number, context: z.RefinementCtx) {
   thresholds.forEach((value, index) => {
     if (value > maximum) context.addIssue({ code: 'custom', path: ['thresholds', index], message: `目标不能超过 ${maximum}` })
   })
-  if (!(thresholds[0] < thresholds[1] && thresholds[1] < thresholds[2])) {
-    context.addIssue({ code: 'custom', path: ['thresholds'], message: '三层目标必须按基础、标准、突破严格递增' })
+  if (thresholds.some((value, index) => index > 0 && value <= thresholds[index - 1])) {
+    context.addIssue({ code: 'custom', path: ['thresholds'], message: '分层目标必须按基础、标准、突破严格递增' })
   }
 }
 
@@ -112,7 +112,10 @@ const CombinedTieredGoalSchema = z
     mode: z.enum(combinedModes),
     countUnit: z.string().trim().min(1).max(12),
     inputUnit: z.enum(timeInputUnits),
-    thresholds: z.tuple([CombinedThresholdSchema, CombinedThresholdSchema, CombinedThresholdSchema]),
+    thresholds: z.union([
+      z.tuple([CombinedThresholdSchema, CombinedThresholdSchema]),
+      z.tuple([CombinedThresholdSchema, CombinedThresholdSchema, CombinedThresholdSchema]),
+    ]),
   })
   .superRefine((goal, context) => {
     if (goal.inputUnit === '分钟' && goal.thresholds.some((value) => value.durationSeconds % 60 !== 0)) {
@@ -167,7 +170,7 @@ export const ActivitySchema = z
       context.addIssue({ code: 'custom', path: ['schedule'], message: '一次性任务必须使用单次计划' })
     }
     if (activity.type === 'task' && activity.goal.kind === 'tiered') {
-      context.addIssue({ code: 'custom', path: ['goal'], message: '三层目标只能用于习惯' })
+      context.addIssue({ code: 'custom', path: ['goal'], message: '分层目标只能用于习惯' })
     }
     if (activity.archivedAt && (activity.enabled || activity.isKey)) {
       context.addIssue({ code: 'custom', path: ['archivedAt'], message: '已归档活动不能启用或设为关键行为' })
@@ -190,7 +193,7 @@ export const CompletionSchema = z
     tier: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
     tierMetric: z.enum(['duration', 'count']).optional(),
     tierUnit: z.string().trim().min(1).max(12).optional(),
-    tierThresholds: z.tuple([z.number().int().positive(), z.number().int().positive(), z.number().int().positive()]).optional(),
+    tierThresholds: ScalarThresholdsSchema.optional(),
     achievedValue: z.number().int().positive().optional(),
     tierGoalSnapshot: TieredGoalSchema.optional(),
     activityRevision: z.number().int().positive().optional(),
@@ -203,11 +206,11 @@ export const CompletionSchema = z
   .superRefine((completion, context) => {
     const legacyValues = [completion.tierMetric, completion.tierUnit, completion.tierThresholds, completion.achievedValue]
     if (legacyValues.some((value) => value !== undefined) && legacyValues.some((value) => value === undefined)) {
-      context.addIssue({ code: 'custom', path: ['tier'], message: '三层完成快照字段不完整' })
+      context.addIssue({ code: 'custom', path: ['tier'], message: '分层完成快照字段不完整' })
       return
     }
     if (completion.tier && !completion.tierGoalSnapshot && legacyValues.every((value) => value === undefined)) {
-      context.addIssue({ code: 'custom', path: ['tier'], message: '三层完成必须保存目标快照' })
+      context.addIssue({ code: 'custom', path: ['tier'], message: '分层完成必须保存目标快照' })
     }
     if (!completion.tier && (completion.tierGoalSnapshot || legacyValues.some((value) => value !== undefined))) {
       context.addIssue({ code: 'custom', path: ['tier'], message: '目标快照缺少完成层次' })
@@ -261,7 +264,10 @@ export const ReviewItemSchema = z.object({
   note: z.string().max(280).optional(),
   actualDurationMinutes: z.number().int().nonnegative().optional(),
   plannedDurationMinutes: z.number().int().positive().optional(),
-  tierCounts: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
+  tierCounts: z.union([
+    z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]),
+    z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.number().int().nonnegative()]),
+  ]).optional(),
   achievedTotal: z.number().int().nonnegative().optional(),
   achievedUnit: z.string().trim().min(1).max(12).optional(),
   achievedCountTotal: z.number().int().nonnegative().optional(),
@@ -340,6 +346,7 @@ export const MetaSchema = z.object({
   migrationImportedAt: timestamp.optional(),
   levelSystem: LevelSystemSchema.optional(),
   targetRewardId: z.string().min(1).optional(),
+  gameDayBoundaryActivatedAt: timestamp.optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [
@@ -451,49 +458,126 @@ export function getLevelReport(events: LedgerEvent[], milestone: LevelMilestone,
   }
 }
 
-export interface JourneyChapter {
+export interface JourneyEntry {
+  id: string
+  kind: 'action' | 'level' | 'voucher'
+  occurredOn: string
+  createdAt: string
+  title: string
+  attribute?: Attribute
+  xp: number
+  coins: number
+  tier?: TierLevel
+  note?: string
+  durationMinutes?: number
+  tierGoalSnapshot?: TieredGoal
+  level?: number
+}
+
+export interface JourneyDay {
+  date: string
+  entries: JourneyEntry[]
+  actionCount: number
+  hasMilestone: boolean
+}
+
+export interface JourneyMonth {
   month: string
   label: string
   activeDays: number
-  completionCount: number
-  netXp: number
-  netCoins: number
+  actionCount: number
+  xp: number
+  coins: number
   strongestAttribute?: Attribute
-  startLevel: number
-  endLevel: number
-  events: LedgerEvent[]
+  days: JourneyDay[]
 }
 
-export function getJourneyChapters(events: LedgerEvent[]): JourneyChapter[] {
-  const months = [...new Set(events.map((event) => event.occurredOn.slice(0, 7)))].sort().reverse()
+export function getJourneyMonths(completions: Completion[], events: LedgerEvent[], levelSystem?: LevelSystem): JourneyMonth[] {
   const correctedRewards = new Set(events.filter((event) => event.kind === 'correction').map((event) => event.sourceId))
-  return months.map((month) => {
-    const monthEvents = events
-      .filter((event) => event.occurredOn.startsWith(month))
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    const monthStats = calculateStats(monthEvents)
-    const completions = new Map<string, string>()
-    monthEvents
-      .filter((event) => event.kind === 'reward' && !correctedRewards.has(event.id))
-      .forEach((event) => completions.set(event.sourceId, event.occurredOn))
-    const beforeXp = calculateStats(events.filter((event) => event.occurredOn < `${month}-01`)).totalXp
-    const strongestAttribute = [...attributes]
-      .sort((left, right) => monthStats.attributeXp[right] - monthStats.attributeXp[left])
-      .find((attribute) => monthStats.attributeXp[attribute] > 0)
-    const [year, monthNumber] = month.split('-')
-    return {
-      month,
-      label: `${year} 年 ${Number(monthNumber)} 月`,
-      activeDays: new Set(completions.values()).size,
-      completionCount: completions.size,
-      netXp: monthStats.totalXp,
-      netCoins: monthStats.coins,
-      strongestAttribute,
-      startLevel: getLevel(beforeXp).level,
-      endLevel: getLevel(beforeXp + monthStats.totalXp).level,
-      events: monthEvents,
+  const rewardsByCompletion = new Map<string, LedgerEvent[]>()
+  events
+    .filter((event) => event.kind === 'reward' && !correctedRewards.has(event.id))
+    .forEach((event) => rewardsByCompletion.set(event.sourceId, [...(rewardsByCompletion.get(event.sourceId) ?? []), event]))
+
+  const entries: JourneyEntry[] = completions
+    .filter((completion) => completion.status === 'active')
+    .flatMap((completion) => {
+      const rewards = rewardsByCompletion.get(completion.id) ?? []
+      if (rewards.length === 0) return []
+      const first = [...rewards].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0]
+      return [{
+        id: `action:${completion.id}`,
+        kind: 'action' as const,
+        occurredOn: completion.occurredOn,
+        createdAt: first.createdAt,
+        title: completion.titleSnapshot ?? first.title.replace(/^层次升级：/, '').replace(/（(?:标准|突破)）$/, ''),
+        attribute: completion.attributeSnapshot ?? first.attribute,
+        xp: rewards.reduce((total, event) => total + event.xpDelta, 0),
+        coins: rewards.reduce((total, event) => total + event.coinDelta, 0),
+        tier: completion.tier,
+        note: completion.note,
+        durationMinutes: completion.durationMinutes,
+        tierGoalSnapshot: completion.tierGoalSnapshot,
+      }]
+    })
+
+  const eventById = new Map(events.map((event) => [event.id, event]))
+  for (const milestone of levelSystem?.milestones ?? []) {
+    const source = eventById.get(milestone.sourceEventId)
+    if (source) {
+      entries.push({
+        id: `level:${milestone.level}`,
+        kind: 'level',
+        occurredOn: source.occurredOn,
+        createdAt: milestone.reachedAt,
+        title: `达到 Lv.${milestone.level} · ${getCharacterStageName(milestone.level)}`,
+        xp: 0,
+        coins: 0,
+        level: milestone.level,
+      })
     }
+  }
+  events.filter((event) => event.kind === 'milestone').forEach((event) => entries.push({
+    id: event.id,
+    kind: 'voucher',
+    occurredOn: event.occurredOn,
+    createdAt: event.createdAt,
+    title: event.title,
+    xp: 0,
+    coins: 0,
+  }))
+
+  const months = new Map<string, JourneyEntry[]>()
+  entries.forEach((entry) => {
+    const month = entry.occurredOn.slice(0, 7)
+    months.set(month, [...(months.get(month) ?? []), entry])
   })
+  return [...months.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([month, monthEntries]) => {
+      const dayMap = new Map<string, JourneyEntry[]>()
+      monthEntries.forEach((entry) => dayMap.set(entry.occurredOn, [...(dayMap.get(entry.occurredOn) ?? []), entry]))
+      const actions = monthEntries.filter((entry) => entry.kind === 'action')
+      const attributeXp = Object.fromEntries(attributes.map((attribute) => [attribute, 0])) as Record<Attribute, number>
+      actions.forEach((entry) => { if (entry.attribute) attributeXp[entry.attribute] += entry.xp })
+      const strongestAttribute = [...attributes].sort((left, right) => attributeXp[right] - attributeXp[left]).find((attribute) => attributeXp[attribute] > 0)
+      const [year, monthNumber] = month.split('-')
+      return {
+        month,
+        label: `${year} 年 ${Number(monthNumber)} 月`,
+        activeDays: new Set(actions.map((entry) => entry.occurredOn)).size,
+        actionCount: actions.length,
+        xp: actions.reduce((total, entry) => total + entry.xp, 0),
+        coins: actions.reduce((total, entry) => total + entry.coins, 0),
+        strongestAttribute,
+        days: [...dayMap.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([date, dayEntries]) => ({
+          date,
+          entries: dayEntries.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+          actionCount: dayEntries.filter((entry) => entry.kind === 'action').length,
+          hasMilestone: dayEntries.some((entry) => entry.kind !== 'action'),
+        })),
+      }
+    })
 }
 
 export function calculateStats(events: LedgerEvent[]): CharacterStats {
@@ -513,6 +597,28 @@ export function localDate(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+export function gameDate(date = new Date()) {
+  const shifted = new Date(date)
+  shifted.setHours(shifted.getHours() - 4)
+  return localDate(shifted)
+}
+
+export function effectiveGameDate(date = new Date(), activatedAt?: string) {
+  if (!activatedAt || date.getTime() < new Date(activatedAt).getTime()) return localDate(date)
+  return gameDate(date)
+}
+
+export function getGameDayActivation(date = new Date()) {
+  if (date.getHours() >= 4) return date.toISOString()
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 4).toISOString()
+}
+
+export function nextGameDayBoundary(date = new Date()) {
+  const boundary = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 4)
+  if (date.getTime() >= boundary.getTime()) boundary.setDate(boundary.getDate() + 1)
+  return boundary
 }
 
 export function startOfWeek(date = new Date()) {
@@ -538,6 +644,14 @@ export function isDurationGoal(activity: Activity): activity is Activity & { goa
 
 export function isTieredGoal(activity: Activity): activity is Activity & { goal: TieredGoal } {
   return activity.goal.kind === 'tiered'
+}
+
+export function getTierLevels(goal: TieredGoal): TierLevel[] {
+  return tierLevels.slice(0, goal.thresholds.length)
+}
+
+export function getTierCount(goal: TieredGoal): 2 | 3 {
+  return goal.thresholds.length
 }
 
 export function formatGoalValue(value: number, metric: TierMetric, unit: string) {
