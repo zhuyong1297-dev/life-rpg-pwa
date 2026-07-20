@@ -45,8 +45,10 @@ import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
   archiveActivity as archiveActivityDefinition,
   cancelTodayCompletion,
+  completeSeason,
   completeActivity,
   createActivity,
+  createSeason,
   createReward,
   db,
   getSnapshot,
@@ -54,11 +56,13 @@ import {
   acknowledgeLevelMilestone,
   claimMilestoneReward,
   redeemReward,
+  respondToSeasonSuggestion,
   permanentlyDeleteActivity,
   saveWeeklyReview,
   setActivityEnabled,
   setActivityKey,
   setRewardEnabled,
+  setSeasonDailyFocus,
   setTargetReward,
   undoCompletion,
   updateHabit,
@@ -122,6 +126,7 @@ import {
   type JourneyMonth,
 } from './domain'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from './feedback'
+import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from './SeasonExperience'
 
 type Page = 'today' | 'character' | 'review' | 'settings'
 type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
@@ -132,6 +137,7 @@ const emptySnapshot: Snapshot = {
   ledgerEvents: [],
   rewards: [],
   weeklyReviews: [],
+  seasons: [],
   settings: [],
 }
 
@@ -283,6 +289,7 @@ function App() {
   const [archiveActivity, setArchiveActivity] = useState<Activity | null>(null)
   const [deleteActivity, setDeleteActivity] = useState<Activity | null>(null)
   const [activityManagerOpen, setActivityManagerOpen] = useState(false)
+  const [seasonHubOpen, setSeasonHubOpen] = useState(false)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
   const [clock, setClock] = useState(() => new Date())
 
@@ -328,6 +335,7 @@ function App() {
   const targetRewardId = metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined
   const gameDayBoundaryActivatedAt = metaSetting?.key === 'meta' ? metaSetting.value.gameDayBoundaryActivatedAt : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
+  const activeSeason = snapshot.seasons.find((season) => season.status === 'active')
   const characterNeedsAttention = Boolean(levelSystem?.milestones.some(
     (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
   ))
@@ -365,6 +373,11 @@ function App() {
   const keyActivities = enabledActivities.filter((activity) => activity.isKey && isDue(activity))
   const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
   const tasks = enabledActivities.filter((activity) => activity.type === 'task' && !activity.isKey && isDue(activity))
+  const reviewActivities = activeSeason
+    ? activeSeason.focusActivities
+        .map((focus) => snapshot.activities.find((activity) => activity.id === focus.activityId))
+        .filter((activity): activity is Activity => Boolean(activity))
+    : keyActivities
 
   async function finishActivity(activity: Activity, details?: CompletionDetails) {
     const preparedAudio = preferences.sound ? prepareCompletionAudio() : undefined
@@ -484,10 +497,14 @@ function App() {
             keyActivities={keyActivities}
             otherHabits={otherHabits}
             tasks={tasks}
+            season={activeSeason}
+            activities={snapshot.activities}
+            completions={snapshot.completions}
             activeCompletion={activeCompletion}
             onComplete={requestCompletion}
             onCompleted={setCompletionActivity}
             onCreate={() => setCreateOpen(true)}
+            onOpenSeason={() => setSeasonHubOpen(true)}
           />
         )}
         {page === 'character' && (
@@ -569,17 +586,22 @@ function App() {
         )}
         {page === 'review' && (
           <ReviewPage
-            activities={keyActivities}
+            activities={reviewActivities}
             completions={snapshot.completions}
             reviews={snapshot.weeklyReviews}
             today={today}
+            season={activeSeason}
+            onOpenSeason={() => setSeasonHubOpen(true)}
             onSave={async (review) => {
               try {
-                await saveWeeklyReview(review)
+                const result = await saveWeeklyReview(review)
                 await refresh()
-                setNotice('本周复盘已保存，请导出 JSON 备份与 Markdown 账本')
+                setNotice(result.suggestions.length > 0
+                  ? `本周复盘已保存，生成 ${result.suggestions.length} 条透明建议`
+                  : '本周复盘已保存，请导出 JSON 备份与 Markdown 账本')
               } catch (error) {
                 setNotice(errorMessage(error))
+                throw error
               }
             }}
           />
@@ -729,6 +751,56 @@ function App() {
           }}
         />
       )}
+      {seasonHubOpen && (
+        <SeasonHubModal
+          seasons={snapshot.seasons}
+          activities={snapshot.activities}
+          completions={snapshot.completions}
+          reviews={snapshot.weeklyReviews}
+          today={today}
+          onClose={() => setSeasonHubOpen(false)}
+          onCreate={async (input) => {
+            try {
+              await createSeason(input, today)
+              await refresh()
+              setNotice('28 天成长赛季已开始，现实结果是唯一成功标准')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
+          onSetDailyFocus={async (seasonId, activityIds) => {
+            try {
+              await setSeasonDailyFocus(seasonId, activityIds, today)
+              await refresh()
+              setNotice('今日重点已更新，不会修改赛季核心行为')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
+          onRespond={async (seasonId, suggestionId, status, note) => {
+            try {
+              await respondToSeasonSuggestion(seasonId, suggestionId, status, note)
+              await refresh()
+              setNotice(status === 'ignored' ? '建议已忽略，活动没有改变' : '建议已记录，活动仍需由你手动调整')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
+          onComplete={async (seasonId, result, evidence) => {
+            try {
+              await completeSeason(seasonId, result, evidence, today)
+              await refresh()
+              setNotice('赛季结论已进入个人策略库')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
+        />
+      )}
       {feedback && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
     </div>
   )
@@ -793,10 +865,14 @@ function TodayPage({
   keyActivities,
   otherHabits,
   tasks,
+  season,
+  activities,
+  completions,
   activeCompletion,
   onComplete,
   onCompleted,
   onCreate,
+  onOpenSeason,
 }: {
   today: string
   totalXp: number
@@ -806,10 +882,14 @@ function TodayPage({
   keyActivities: Activity[]
   otherHabits: Activity[]
   tasks: Activity[]
+  season?: Snapshot['seasons'][number]
+  activities: Activity[]
+  completions: Completion[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
   onCompleted: (activity: Activity) => void
   onCreate: () => void
+  onOpenSeason: () => void
 }) {
   const stage = getCharacterStage(level.level)
   const completedKeys = keyActivities.filter((activity) => Boolean(activeCompletion(activity))).length
@@ -825,6 +905,7 @@ function TodayPage({
               <p className="game-day-note"><CalendarDays aria-hidden="true" />本日结算至 {formatShortDate(addDays(today, 1))} 04:00</p>
             </div>
           </header>
+          <SeasonTodaySummary season={season} today={today} activities={activities} completions={completions} onOpen={onOpenSeason} />
           <div className="mobile-status">
             <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} />
           </div>
@@ -1368,13 +1449,17 @@ function ReviewPage({
   completions,
   reviews,
   today,
+  season,
+  onOpenSeason,
   onSave,
 }: {
   activities: Activity[]
   completions: Snapshot['completions']
   reviews: Snapshot['weeklyReviews']
   today: string
-  onSave: (review: WeeklyReview) => void
+  season?: Snapshot['seasons'][number]
+  onOpenSeason: () => void
+  onSave: (review: WeeklyReview) => Promise<void>
 }) {
   const weekStart = startOfWeek(new Date(`${today}T12:00:00`))
   const weekEnd = addDays(weekStart, 6)
@@ -1431,7 +1516,7 @@ function ReviewPage({
   function submit(event: FormEvent) {
     event.preventDefault()
     if (progress.length === 0) return
-    onSave({
+    void onSave({
       id: `review:${weekStart}`,
       weekStart,
       items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }) => ({
@@ -1453,12 +1538,13 @@ function ReviewPage({
         achievedCountUnit: isTieredGoal(activity) && achievement.count > 0 ? achievement.countUnit : undefined,
       })),
       createdAt: new Date().toISOString(),
-    })
+    }).catch(() => undefined)
   }
 
   return (
     <div className="review-page">
       <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div></header>
+      <CoachSuggestionSummary season={season} onOpen={onOpenSeason} />
       {activities.length === 0 ? (
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
       ) : (
@@ -1697,7 +1783,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V2.7.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V3.2.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }

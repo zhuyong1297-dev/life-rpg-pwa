@@ -146,6 +146,8 @@ export const TieredGoalSchema = z.union([
 
 export type TieredGoal = z.infer<typeof TieredGoalSchema>
 
+export const ActivityGoalSchema = z.union([LegacyGoalSchema, TieredGoalSchema])
+
 export const ActivitySchema = z
   .object({
     id: z.string().min(1),
@@ -153,7 +155,7 @@ export const ActivitySchema = z
     type: z.enum(['habit', 'task']),
     attribute: z.enum(attributes),
     difficulty: z.enum(difficulties),
-    goal: z.union([LegacyGoalSchema, TieredGoalSchema]),
+    goal: ActivityGoalSchema,
     schedule: ScheduleSchema,
     plannedOn: dateString.optional(),
     isKey: z.boolean(),

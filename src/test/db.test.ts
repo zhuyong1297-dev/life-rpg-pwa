@@ -5,8 +5,10 @@ import {
   acknowledgeLevelMilestone,
   archiveActivity,
   cancelTodayCompletion,
+  completeSeason,
   completeActivity,
   createActivity,
+  createSeason,
   createReward,
   currentGameDate,
   getSnapshot,
@@ -14,8 +16,11 @@ import {
   permanentlyDeleteActivity,
   claimMilestoneReward,
   redeemReward,
+  respondToSeasonSuggestion,
   restoreActivity,
+  saveWeeklyReview,
   setRewardEnabled,
+  setSeasonDailyFocus,
   setTargetReward,
   syncLevelMilestones,
   undoCompletion,
@@ -355,6 +360,62 @@ describe('IndexedDB 事务', () => {
     expect(await database.completions.where('activityId').equals(task.id).count()).toBe(1)
   })
 
+  it('赛季只能有一个且删除活动定义不会破坏赛季快照', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    const season = await createSeason({
+      title: '专注重建',
+      successCriterion: '完成四周稳定练习',
+      baseline: '目前不够稳定',
+      targetOutcome: '形成稳定节奏',
+      focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    expect(season).toMatchObject({ startsOn: '2026-01-05', endsOn: '2026-02-01', status: 'active' })
+    await expect(createSeason({
+      title: '第二赛季', successCriterion: '不能创建', baseline: '已有赛季', targetOutcome: '无', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)).rejects.toThrow('只能进行一个')
+
+    await archiveActivity(activity.id, database)
+    await permanentlyDeleteActivity(activity.id, '2026-01-06', database)
+    expect(await database.activities.get(activity.id)).toBeUndefined()
+    expect((await database.seasons.get(season.id))?.focusActivities[0]).toMatchObject({ title: activity.title, attribute: activity.attribute })
+  })
+
+  it('周复盘生成本地建议，响应建议不会自动修改活动', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    const season = await createSeason({
+      title: '专注重建', successCriterion: '完成四周稳定练习', baseline: '目前不够稳定', targetOutcome: '形成稳定节奏', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    const result = await saveWeeklyReview({
+      id: 'review:2026-01-05', weekStart: '2026-01-05', createdAt: '2026-01-11T12:00:00.000Z',
+      items: [{ activityId: activity.id, adherence: 0.4, completed: 3, planned: 7, impact: 5, friction: 4, decision: '调整' }],
+    }, database)
+    expect(result.suggestions).toMatchObject([{ kind: 'adjust', status: 'pending' }])
+    const before = await database.activities.get(activity.id)
+    await respondToSeasonSuggestion(season.id, result.suggestions[0].id, 'accepted', undefined, database)
+    expect(await database.activities.get(activity.id)).toEqual(before)
+    expect((await database.seasons.get(season.id))?.suggestions[0]).toMatchObject({ status: 'accepted' })
+  })
+
+  it('今日重点可替换，赛季结束要求到期、现实证据和已响应建议', async () => {
+    const first = await createActivity({ ...dailyHabit, title: '行动一', isKey: false }, database)
+    const second = await createActivity({ ...dailyHabit, title: '行动二', isKey: false }, database)
+    const season = await createSeason({
+      title: '行动赛季', successCriterion: '完成现实目标', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [first.id],
+    }, '2026-01-05', database)
+    await setSeasonDailyFocus(season.id, [second.id], '2026-01-06', database)
+    expect((await database.seasons.get(season.id))?.dailyPlans).toEqual([{ date: '2026-01-06', activityIds: [second.id] }])
+    await expect(completeSeason(season.id, '达成', '现实证据', '2026-01-20', database)).rejects.toThrow('2026-02-01')
+
+    const reviewResult = await saveWeeklyReview({
+      id: 'review:2026-01-05', weekStart: '2026-01-05', createdAt: '2026-01-11T12:00:00.000Z',
+      items: [{ activityId: first.id, adherence: 0.8, completed: 6, planned: 7, impact: 4, friction: 2, decision: '保留' }],
+    }, database)
+    await expect(completeSeason(season.id, '达成', '现实证据', '2026-02-01', database)).rejects.toThrow('至少接受')
+    await expect(respondToSeasonSuggestion(season.id, reviewResult.suggestions[0].id, 'modified', '', database)).rejects.toThrow('说明你的调整')
+    await respondToSeasonSuggestion(season.id, reviewResult.suggestions[0].id, 'modified', '把执行时间调整到早上', database)
+    expect(await completeSeason(season.id, '部分达成', '坚持率提升，并形成了更稳定的开始时间', '2026-02-01', database)).toMatchObject({ status: 'completed', finalResult: '部分达成' })
+  })
+
   it('只能持久取消今天的完成，重复取消幂等且之后可重做', async () => {
     const activity = await createActivity(tieredHabit, database)
     const first = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
@@ -504,10 +565,16 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 5 备份完整保存等级系统', async () => {
+  it('schema 6 备份保存赛季并兼容缺少赛季的 schema 5', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    const season = await createSeason({
+      title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 5, appVersion: '2.7.0' })
-    await restoreBackup({ ...current, appVersion: '2.6.0' }, database)
+    expect(current).toMatchObject({ schemaVersion: 6, appVersion: '3.2.0', seasons: [{ id: season.id }] })
+    await expect(restoreBackup({ ...current, seasons: [...current.seasons, { ...season, id: 'duplicate-active-season' }] }, database)).rejects.toThrow('只能存在一个')
+    const { seasons: _seasons, ...legacy } = current
+    await restoreBackup({ ...legacy, schemaVersion: 5, appVersion: '2.6.0' }, database)
     await restoreBackup(current, database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)

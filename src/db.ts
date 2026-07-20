@@ -33,6 +33,14 @@ import {
   startOfWeek,
   LevelSystemSchema,
 } from './domain'
+import {
+  SeasonSchema,
+  generateCoachSuggestions,
+  snapshotSeasonActivity,
+  type Season,
+  type SeasonResult,
+  type SuggestionStatus,
+} from './season'
 
 export class LifeRpgDatabase extends Dexie {
   activities!: EntityTable<Activity, 'id'>
@@ -40,6 +48,7 @@ export class LifeRpgDatabase extends Dexie {
   ledgerEvents!: EntityTable<LedgerEvent, 'id'>
   rewards!: EntityTable<Reward, 'id'>
   weeklyReviews!: EntityTable<WeeklyReview, 'id'>
+  seasons!: EntityTable<Season, 'id'>
   settings!: EntityTable<Setting, 'key'>
 
   constructor(name = 'earth-online-v2') {
@@ -50,6 +59,15 @@ export class LifeRpgDatabase extends Dexie {
       ledgerEvents: 'id, kind, sourceId, occurredOn',
       rewards: 'id',
       weeklyReviews: 'id, weekStart',
+      settings: 'key',
+    })
+    this.version(2).stores({
+      activities: 'id, type, plannedOn',
+      completions: 'id, activityId, occurredOn, status, [activityId+occurredOn]',
+      ledgerEvents: 'id, kind, sourceId, occurredOn',
+      rewards: 'id',
+      weeklyReviews: 'id, weekStart',
+      seasons: 'id, status, startsOn, endsOn',
       settings: 'key',
     })
   }
@@ -103,6 +121,114 @@ export async function currentGameDate(database = db, now = new Date()) {
   const storedMeta = await database.settings.get('meta')
   const activatedAt = storedMeta?.key === 'meta' ? storedMeta.value.gameDayBoundaryActivatedAt : undefined
   return effectiveGameDate(now, activatedAt)
+}
+
+export interface CreateSeasonInput {
+  title: string
+  successCriterion: string
+  baseline: string
+  targetOutcome: string
+  focusActivityIds: string[]
+}
+
+export async function createSeason(input: CreateSeasonInput, startsOn: string | undefined = undefined, database = db) {
+  const eventDate = startsOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, database.activities, async () => {
+    if (await database.seasons.where('status').equals('active').count()) throw new Error('同一时间只能进行一个成长赛季')
+    const uniqueIds = [...new Set(input.focusActivityIds)]
+    if (uniqueIds.length < 1 || uniqueIds.length > 3) throw new Error('成长赛季需要选择 1 至 3 项核心行为')
+    const activities = await database.activities.bulkGet(uniqueIds)
+    if (activities.some((activity) => !activity || !activity.enabled || activity.archivedAt)) throw new Error('核心行为必须存在且处于启用状态')
+    const createdAt = new Date().toISOString()
+    const season = SeasonSchema.parse({
+      id: crypto.randomUUID(),
+      title: input.title,
+      successCriterion: input.successCriterion,
+      baseline: input.baseline,
+      targetOutcome: input.targetOutcome,
+      startsOn: eventDate,
+      endsOn: addDays(eventDate, 27),
+      focusActivities: activities.map((activity) => snapshotSeasonActivity(activity!)),
+      dailyPlans: [],
+      suggestions: [],
+      status: 'active',
+      createdAt,
+    })
+    await database.seasons.add(season)
+    return season
+  })
+}
+
+export async function setSeasonDailyFocus(seasonId: string, activityIds: string[], occurredOn: string | undefined = undefined, database = db) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, database.activities, async () => {
+    const season = await database.seasons.get(seasonId)
+    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    if (eventDate < season.startsOn || eventDate > season.endsOn) throw new Error('今日重点必须位于当前赛季内')
+    const uniqueIds = [...new Set(activityIds)]
+    if (uniqueIds.length < 1 || uniqueIds.length > 3) throw new Error('今日重点需要选择 1 至 3 项行动')
+    const activities = await database.activities.bulkGet(uniqueIds)
+    if (activities.some((activity) => !activity || !activity.enabled || activity.archivedAt)) throw new Error('今日重点必须存在且处于启用状态')
+    const next = SeasonSchema.parse({
+      ...season,
+      dailyPlans: [...season.dailyPlans.filter((plan) => plan.date !== eventDate), { date: eventDate, activityIds: uniqueIds }],
+    })
+    await database.seasons.put(next)
+    return next
+  })
+}
+
+export async function respondToSeasonSuggestion(
+  seasonId: string,
+  suggestionId: string,
+  status: Exclude<SuggestionStatus, 'pending'>,
+  responseNote?: string,
+  database = db,
+) {
+  return database.transaction('rw', database.seasons, async () => {
+    const season = await database.seasons.get(seasonId)
+    if (!season) throw new Error('找不到这个成长赛季')
+    const suggestion = season.suggestions.find((item) => item.id === suggestionId)
+    if (!suggestion) throw new Error('找不到这条成长建议')
+    if (suggestion.status !== 'pending') return season
+    if (status === 'modified' && !responseNote?.trim()) throw new Error('修改后接受时请说明你的调整')
+    const respondedAt = new Date().toISOString()
+    const next = SeasonSchema.parse({
+      ...season,
+      suggestions: season.suggestions.map((item) => item.id === suggestionId
+        ? { ...item, status, responseNote: responseNote?.trim() || undefined, respondedAt }
+        : item),
+    })
+    await database.seasons.put(next)
+    return next
+  })
+}
+
+export async function completeSeason(
+  seasonId: string,
+  result: SeasonResult,
+  evidence: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, async () => {
+    const season = await database.seasons.get(seasonId)
+    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    if (eventDate < season.endsOn) throw new Error(`赛季将在 ${season.endsOn} 游戏日结束`)
+    if (!season.suggestions.some((suggestion) => suggestion.status === 'accepted' || suggestion.status === 'modified')) {
+      throw new Error('结束赛季前至少接受或调整一条成长建议')
+    }
+    const next = SeasonSchema.parse({
+      ...season,
+      status: 'completed',
+      finalResult: result,
+      finalEvidence: evidence,
+      completedAt: new Date().toISOString(),
+    })
+    await database.seasons.put(next)
+    return next
+  })
 }
 
 export type NewActivity = Omit<Activity, 'id' | 'createdAt'>
@@ -631,7 +757,7 @@ export async function claimMilestoneReward(level: number, rewardId: string, data
 }
 
 export async function saveWeeklyReview(review: WeeklyReview, database = db) {
-  await database.transaction('rw', database.weeklyReviews, database.activities, async () => {
+  return database.transaction('rw', database.weeklyReviews, database.activities, database.seasons, async () => {
     const activities = await database.activities.bulkGet(review.items.map((item) => item.activityId))
     const savedReview = WeeklyReviewSchema.parse({
       ...review,
@@ -645,17 +771,33 @@ export async function saveWeeklyReview(review: WeeklyReview, database = db) {
     for (const item of savedReview.items) {
       if (item.decision === '暂停') await database.activities.update(item.activityId, { enabled: false })
     }
+    const activeSeason = await database.seasons.where('status').equals('active').first()
+    if (!activeSeason || review.weekStart > activeSeason.endsOn || addDays(review.weekStart, 6) < activeSeason.startsOn) {
+      return { review: savedReview, suggestions: [] }
+    }
+    const reviews = await database.weeklyReviews.toArray()
+    const suggestions = generateCoachSuggestions(activeSeason, savedReview, reviews.filter(
+      (item) => item.id !== savedReview.id && item.weekStart <= activeSeason.endsOn && addDays(item.weekStart, 6) >= activeSeason.startsOn,
+    ))
+    const suggestionIds = new Set(suggestions.map((suggestion) => suggestion.id))
+    const nextSeason = SeasonSchema.parse({
+      ...activeSeason,
+      suggestions: [...activeSeason.suggestions.filter((suggestion) => !suggestionIds.has(suggestion.id)), ...suggestions],
+    })
+    await database.seasons.put(nextSeason)
+    return { review: savedReview, suggestions }
   })
 }
 
 export async function getSnapshot(database = db) {
-  const [activities, completions, ledgerEvents, rewards, weeklyReviews, settings] = await Promise.all([
+  const [activities, completions, ledgerEvents, rewards, weeklyReviews, seasons, settings] = await Promise.all([
     database.activities.toArray(),
     database.completions.toArray(),
     database.ledgerEvents.toArray(),
     database.rewards.toArray(),
     database.weeklyReviews.toArray(),
+    database.seasons.toArray(),
     database.settings.toArray(),
   ])
-  return { activities, completions, ledgerEvents, rewards, weeklyReviews, settings }
+  return { activities, completions, ledgerEvents, rewards, weeklyReviews, seasons, settings }
 }

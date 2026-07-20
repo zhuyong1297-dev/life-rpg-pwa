@@ -1,13 +1,14 @@
 import { z } from 'zod'
 import { ActivitySchema, CompletionSchema, LedgerEventSchema, RewardSchema, SettingSchema, WeeklyReviewSchema, calculateStats, createLevelSystem, getGameDayActivation } from './domain'
 import { db, getSnapshot, type LifeRpgDatabase } from './db'
+import { SeasonSchema } from './season'
 
 const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().int() })
 
 export const BackupSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0')]),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6)]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
@@ -15,6 +16,7 @@ export const BackupSchema = z
     ledgerEvents: z.array(LedgerEventSchema),
     rewards: z.array(RewardSchema),
     weeklyReviews: z.array(WeeklyReviewSchema),
+    seasons: z.array(SeasonSchema).default([]),
     settings: z.array(SettingSchema),
   })
   .superRefine((backup, context) => {
@@ -24,6 +26,7 @@ export const BackupSchema = z
       3: ['2.2.0'],
       4: ['2.3.0', '2.4.0'],
       5: ['2.5.0', '2.6.0', '2.7.0'],
+      6: ['3.2.0'],
     }
     if (!compatibleAppVersions[backup.schemaVersion].includes(backup.appVersion)) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
@@ -34,6 +37,7 @@ export const BackupSchema = z
       ['ledgerEvents', backup.ledgerEvents],
       ['rewards', backup.rewards],
       ['weeklyReviews', backup.weeklyReviews],
+      ['seasons', backup.seasons],
       ['settings', backup.settings],
     ] as const) {
       const keys = rows.map((row) => ('id' in row ? row.id : row.key))
@@ -47,6 +51,9 @@ export const BackupSchema = z
     if (targetRewardId && !backup.rewards.some((reward) => reward.id === targetRewardId && reward.enabled)) {
       context.addIssue({ code: 'custom', path: ['settings'], message: '当前奖励目标不存在或已停用' })
     }
+    if (backup.seasons.filter((season) => season.status === 'active').length > 1) {
+      context.addIssue({ code: 'custom', path: ['seasons'], message: '备份中只能存在一个进行中的成长赛季' })
+    }
     const stats = calculateStats(backup.ledgerEvents)
     if (stats.totalXp !== backup.summary.totalXp || stats.coins !== backup.summary.coins) {
       context.addIssue({ code: 'custom', path: ['summary'], message: '备份汇总与账本不一致' })
@@ -59,8 +66,8 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
   const snapshot = await getSnapshot(database)
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
-    schemaVersion: 5,
-    appVersion: '2.7.0',
+    schemaVersion: 6,
+    appVersion: '3.2.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,
@@ -92,6 +99,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
       database.ledgerEvents,
       database.rewards,
       database.weeklyReviews,
+      database.seasons,
       database.settings,
     ],
     async () => {
@@ -101,6 +109,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
         database.ledgerEvents.clear(),
         database.rewards.clear(),
         database.weeklyReviews.clear(),
+        database.seasons.clear(),
         database.settings.clear(),
       ])
       await database.activities.bulkAdd(backup.activities)
@@ -108,6 +117,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
       await database.ledgerEvents.bulkAdd(backup.ledgerEvents)
       await database.rewards.bulkAdd(backup.rewards)
       await database.weeklyReviews.bulkAdd(backup.weeklyReviews)
+      await database.seasons.bulkAdd(backup.seasons)
       await database.settings.bulkAdd(settings)
     },
   )

@@ -124,6 +124,92 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .secondary-action { min-height: 44px; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--forest); font-weight: 800; cursor: pointer; }
 .secondary-action svg { width: 17px; height: 17px; }
 
+.season-summary { width: 100%; min-height: 78px; margin: 0 0 20px; padding: 11px 12px; display: grid; grid-template-columns: 40px minmax(0, 1fr) 20px; align-items: center; gap: 11px; border: 1px solid #adcabd; border-radius: 8px; background: #f8fbf9; color: var(--ink); text-align: left; cursor: pointer; }
+.season-summary:hover { border-color: var(--forest); background: var(--forest-soft); }
+.season-summary-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 6px; color: var(--forest); background: var(--forest-soft); }
+.season-summary-icon svg { width: 21px; height: 21px; }
+.season-summary > span:nth-child(2), .season-summary-copy { min-width: 0; display: grid; gap: 2px; }
+.season-summary small { color: var(--forest); font-size: 10px; font-weight: 800; }
+.season-summary strong { overflow-wrap: anywhere; font-size: 14px; }
+.season-summary b { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.35; }
+.season-summary > svg { width: 18px; color: var(--muted); }
+.season-summary-empty { border-style: dashed; }
+
+.coach-summary { margin: 0 0 18px; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; border: 1px solid #b8cfe2; border-radius: 8px; background: var(--blue-soft); }
+.coach-summary > div { min-width: 0; display: flex; align-items: center; gap: 9px; }
+.coach-summary > div > svg { color: var(--blue); }
+.coach-summary > div > span { min-width: 0; display: grid; gap: 2px; }
+.coach-summary small { color: var(--blue); font-size: 10px; font-weight: 800; }
+.coach-summary strong { overflow-wrap: anywhere; font-size: 13px; }
+.coach-summary p { margin: 0; color: var(--muted); font-size: 12px; }
+
+.season-hub-modal { max-height: min(94vh, 900px); }
+.season-overview { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.season-progress-line { display: flex; justify-content: space-between; gap: 12px; color: var(--forest); font-size: 12px; font-weight: 800; }
+.season-progress-track { height: 8px; margin: 7px 0 14px; overflow: hidden; border-radius: 4px; background: #d7e1dc; }
+.season-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--forest); }
+.season-overview dl { margin: 0; display: grid; gap: 9px; }
+.season-overview dl > div { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 9px; }
+.season-overview dt { color: var(--muted); font-size: 11px; font-weight: 800; }
+.season-overview dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.season-focus-snapshots { margin: 12px 0 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+.season-focus-snapshots span { padding: 4px 7px; border-radius: 4px; color: var(--forest); background: var(--forest-soft); font-size: 11px; font-weight: 800; }
+.season-overview > small { color: var(--muted); font-size: 10px; }
+.season-hub-actions { margin: 10px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.season-hub-actions button, .suggestion-actions button, .suggestion-response button { min-height: 44px; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--forest); font-weight: 800; cursor: pointer; }
+.season-hub-actions svg { width: 16px; height: 16px; }
+.season-form, .season-inline-editor { display: grid; gap: 12px; }
+.season-form label, .season-inline-editor label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.season-form input, .season-form textarea, .season-inline-editor textarea { margin-top: 5px; }
+.season-form textarea { min-height: 78px; }
+.season-template-note { margin: 0; padding: 10px; display: flex; align-items: flex-start; gap: 8px; border-radius: 6px; color: var(--blue); background: var(--blue-soft); font-size: 12px; line-height: 1.5; }
+.season-template-note svg { width: 17px; height: 17px; }
+.season-focus-picker { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; }
+.season-focus-picker legend { color: var(--ink); font-size: 13px; font-weight: 800; }
+.season-focus-picker > p { margin: 0 0 7px; color: var(--muted); font-size: 11px; }
+.season-focus-picker > label { min-height: 48px; padding: 6px 0; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.season-focus-picker > label:last-child { border-bottom: 0; }
+.season-focus-picker input { width: 20px; height: 20px; margin: 0; accent-color: var(--forest); }
+.season-focus-picker label > span { min-width: 0; display: grid; gap: 2px; }
+.season-focus-picker strong { overflow-wrap: anywhere; color: var(--ink); }
+.season-focus-picker small { color: var(--muted); font-weight: 500; }
+.season-inline-editor { margin: 12px 0; padding: 13px; border: 1px solid #b8cfe2; border-radius: 7px; background: var(--blue-soft); }
+.season-inline-editor h3 { margin: 0; font-size: 15px; }
+.season-inline-editor p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.daily-focus-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.daily-focus-options label { min-height: 44px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; border: 1px solid #b8cfe2; border-radius: 6px; background: white; overflow-wrap: anywhere; cursor: pointer; }
+.daily-focus-options input { width: 18px; height: 18px; margin: 0; accent-color: var(--forest); }
+.season-suggestions, .strategy-library { margin-top: 22px; }
+.season-suggestions .section-heading h3, .strategy-library .section-heading h3 { margin: 0; display: flex; align-items: center; gap: 7px; font-size: 17px; }
+.season-suggestions .section-heading h3 svg, .strategy-library .section-heading h3 svg { width: 18px; height: 18px; color: var(--gold); }
+.suggestion-card { margin-top: 8px; padding: 12px; border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 7px; background: white; }
+.suggestion-card > div:first-child { display: grid; gap: 3px; }
+.suggestion-card > div:first-child span { color: var(--blue); font-size: 10px; font-weight: 800; }
+.suggestion-card strong { overflow-wrap: anywhere; }
+.suggestion-card > p { margin: 8px 0 4px; font-size: 12px; line-height: 1.55; }
+.suggestion-card > small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.suggestion-pause { border-left-color: var(--coral); }
+.suggestion-keep { border-left-color: var(--forest); }
+.suggestion-observe { border-left-color: var(--gold); }
+.suggestion-actions { margin-top: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.suggestion-actions button { min-width: 0; font-size: 11px; }
+.suggestion-response { margin-top: 10px; display: grid; gap: 7px; }
+.suggestion-response textarea { min-height: 66px; }
+.suggestion-status { display: block; margin-top: 9px; color: var(--forest); font-size: 11px; overflow-wrap: anywhere; }
+.strategy-pattern { margin: 0 0 8px; padding: 9px 10px; border-radius: 6px; color: var(--forest); background: var(--forest-soft); font-size: 11px; line-height: 1.5; }
+.strategy-card { border-bottom: 1px solid var(--line); }
+.strategy-card summary { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; list-style: none; }
+.strategy-card summary::-webkit-details-marker { display: none; }
+.strategy-card summary > span { min-width: 0; display: grid; gap: 3px; }
+.strategy-card summary strong, .strategy-card summary small { overflow-wrap: anywhere; }
+.strategy-card summary small { color: var(--muted); font-size: 11px; }
+.strategy-card summary > svg { width: 18px; color: var(--muted); transition: transform 150ms ease; }
+.strategy-card[open] summary > svg { transform: rotate(90deg); }
+.strategy-card > div { padding: 2px 0 14px; }
+.strategy-card p { margin: 5px 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.strategy-card p b { color: var(--ink); }
+.strategy-card .secondary-action { margin-top: 8px; }
+
 .mission-list { display: grid; gap: 10px; }
 .mission-card { min-height: 112px; padding: 14px; display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--forest); border-radius: 8px; box-shadow: 0 5px 14px rgba(28, 45, 38, 0.06); }
 .mission-card.complete { border-left-color: #8da39a; background: #f7f9f8; }
@@ -540,6 +626,7 @@ label textarea { min-height: 84px; resize: vertical; }
   .modal-backdrop { place-items: center; padding: 24px; }
   .modal { width: min(100%, 540px); border-radius: 8px; padding: 22px; }
   .feature-modal { width: min(100%, 680px); }
+  .season-hub-modal { width: min(100%, 720px); }
   .activity-manager-modal { width: min(100%, 680px); }
   .feedback-overlay { left: auto; right: 24px; bottom: 24px; width: min(600px, calc(100vw - 292px)); }
 }
@@ -549,6 +636,12 @@ label textarea { min-height: 84px; resize: vertical; }
   .page-header { margin-bottom: 16px; }
   .page-header h1 { font-size: 27px; }
   .page-lead { font-size: 13px; }
+  .coach-summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .coach-summary p { grid-column: 1 / -1; margin-top: -4px; }
+  .coach-summary .secondary-action { padding-inline: 9px; }
+  .season-overview dl > div { grid-template-columns: 66px minmax(0, 1fr); }
+  .season-form .confirmation-actions .primary-action { width: auto; margin-top: 0; }
+  .suggestion-actions { grid-template-columns: 1fr; }
   .status-panel { padding: 12px; }
   .portrait-frame { width: 62px; height: 62px; }
   .mission-card { min-height: 106px; padding: 12px 10px; gap: 10px; }
@@ -610,6 +703,7 @@ label textarea { min-height: 84px; resize: vertical; }
 }
 
 @media (max-width: 350px) {
+  .daily-focus-options { grid-template-columns: 1fr; }
   .navigation { padding-left: 4px; padding-right: 4px; }
   .nav-item { font-size: 11px; }
   .character-hero { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 10px; }
