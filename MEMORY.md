@@ -50,3 +50,4 @@
 - `2026-07-19`：GitHub Pages 环境的自定义部署分支白名单必须同时包含 `main` 和 `ui-redesign`；只让工作流监听预览分支仍会在 deploy job 被环境保护拒绝。
 - `2026-07-19`：本地 Playwright 服务固定读取正式基础路径；若 `dist` 最近由 `pnpm build:preview` 生成，必须先执行 `pnpm build` 再运行 `pnpm test:e2e`，否则会因资源基础路径不一致出现空白页与超时误报。
 - `2026-07-19`：V2.5.0 预览 tree `3a1938f` 由 Actions `29690893475` 部署；线上 Pixel 7 已验证版本、声音试听、奖励路线、五栏导航、独立预览数据库与 Service Worker、无横向溢出和离线刷新，正式根路径仍为 V2.4.0。
+- `2026-07-20`：V2.6.0 功能 tree `c0d29a2` 以提交 `0046321` 快进进入 `main`，Actions `29711397376` 成功部署正式站点；线上 Pixel 7 验证 V2.6.0、04:00 游戏日、正式 Service Worker scope 和离线刷新。不可变 Release `v2.6.0` 指向同一功能提交。
