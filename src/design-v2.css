@@ -1127,6 +1127,321 @@ label textarea:focus-visible {
   .attribute-grid { gap: 0 8px; }
 }
 
+/*
+ * V3 mobile command deck
+ * Structural contrast for the viewport people use most: immersive header,
+ * overlapping season dossier, continuous quest ledger and dark navigation dock.
+ */
+@media (max-width: 759px) {
+  .main-content {
+    width: 100%;
+    padding: 0 16px 154px;
+  }
+
+  .page-header {
+    position: relative;
+    isolation: isolate;
+    width: calc(100% + 32px);
+    min-height: 232px;
+    margin: 0 -16px;
+    padding: 52px 20px 78px;
+    overflow: hidden;
+    color: var(--white);
+    background: var(--forest-deep);
+    border: 0;
+    border-bottom: 4px solid var(--gold);
+  }
+
+  .page-header::before {
+    content: 'EARTH ONLINE  /  LOCAL GROWTH SYSTEM';
+    position: absolute;
+    z-index: 1;
+    top: 20px;
+    left: 20px;
+    color: var(--white-muted);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .page-header::after {
+    content: '';
+    position: absolute;
+    z-index: 0;
+    right: -30px;
+    bottom: -50px;
+    width: 170px;
+    height: 170px;
+    border: 28px solid var(--white-line);
+    border-radius: 50%;
+  }
+
+  .page-header > * { position: relative; z-index: 1; }
+  .page-header .eyebrow { color: var(--gold-soft); font-family: var(--font-mono); letter-spacing: 0.08em; }
+  .page-header h1 { color: var(--white); font-size: clamp(42px, 12vw, 58px); letter-spacing: -0.065em; }
+  .page-header .page-lead { max-width: 430px; color: var(--white-muted); font-size: 14px; }
+  .page-header .game-day-note {
+    width: fit-content;
+    min-height: 30px;
+    margin-top: 15px;
+    padding: 6px 9px;
+    color: var(--gold-soft);
+    background: var(--white-wash);
+    border-color: var(--white-line);
+  }
+
+  .page-folio {
+    position: absolute;
+    top: 52px;
+    right: 20px;
+    min-width: 70px;
+    padding-left: 12px;
+    display: block;
+    color: var(--gold-soft);
+    border-left-color: var(--gold);
+  }
+
+  .settings-folio svg { color: var(--gold-soft); }
+
+  .season-summary {
+    position: relative;
+    z-index: 2;
+    min-height: 108px;
+    margin: -50px 0 34px;
+    padding: 16px 14px;
+    grid-template-columns: 48px minmax(0, 1fr) 18px;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--forest-deep);
+    border-left: 7px solid var(--gold);
+    box-shadow: 6px 6px 0 var(--forest-deep);
+  }
+
+  .season-summary-icon {
+    width: 46px;
+    height: 46px;
+    color: var(--gold-soft);
+    background: var(--forest-deep);
+    border-color: var(--forest-deep);
+    border-radius: 2px;
+  }
+
+  .season-summary strong { color: var(--forest-deep); font-size: 16px; }
+  .season-summary > svg { color: var(--forest-deep); }
+
+  .today-actions > .activity-section-key {
+    margin: 0 0 34px;
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--forest-deep);
+  }
+
+  .activity-section-key .section-heading {
+    min-height: 76px;
+    margin: 0;
+    padding: 13px 15px;
+    color: var(--white);
+    background: var(--forest-deep);
+    border: 0;
+  }
+
+  .activity-section-key .section-heading h2 { color: var(--white); }
+  .activity-section-key .section-heading > div > span { color: var(--gold-soft); }
+  .activity-section-key .section-heading > span {
+    min-width: 32px;
+    min-height: 32px;
+    display: grid;
+    place-items: center;
+    color: var(--forest-deep);
+    background: var(--gold-soft);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .mission-list { gap: 0; }
+  .mission-card {
+    min-height: 126px;
+    margin: 0;
+    padding: 15px 13px;
+    grid-template-columns: 32px minmax(0, 1fr) 50px;
+    gap: 12px;
+    background: var(--surface);
+    border: 0;
+    border-bottom: 1px solid var(--line-strong);
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .mission-card:last-child { border-bottom: 0; }
+  .mission-index {
+    align-self: stretch;
+    padding-top: 4px;
+    color: var(--gold-strong);
+    border-right: 1px solid var(--line);
+    font-size: 10px;
+    font-weight: 800;
+  }
+
+  .mission-card .activity-title-line strong { color: var(--forest-deep); font-size: 17px; }
+  .mission-card .complete-button {
+    width: 50px;
+    height: 50px;
+    color: var(--forest-deep);
+    background: var(--gold-soft);
+    border: 1px solid var(--forest-deep);
+    border-radius: 2px;
+  }
+
+  .mission-card.complete .complete-button { color: var(--white); background: var(--forest); }
+
+  .mobile-status { margin-bottom: 34px; }
+  .mobile-status .status-panel {
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--forest-deep);
+    border-top: 6px solid var(--gold);
+    border-radius: 0;
+  }
+
+  .mobile-status .status-panel::before { color: var(--forest); }
+  .mobile-status .status-identity span,
+  .mobile-status .status-identity small,
+  .mobile-status .status-stat-grid span,
+  .mobile-status .status-progress span,
+  .mobile-status .next-reward-summary small { color: var(--muted); }
+  .mobile-status .status-identity strong,
+  .mobile-status .status-stat-grid strong,
+  .mobile-status .status-progress b { color: var(--forest-deep); }
+  .mobile-status .status-stat-grid > div { background: var(--paper); border-color: var(--line); }
+  .mobile-status .status-panel .progress-track { background: var(--paper-deep); }
+  .mobile-status .status-panel .progress-track span { background: var(--forest); }
+  .mobile-status .next-reward-summary { color: var(--gold-strong); border-top-color: var(--line); }
+  .mobile-status .portrait-frame { background: var(--paper-deep); border-color: var(--forest-deep); }
+
+  .activity-section-regular .section-heading {
+    padding-bottom: 12px;
+    border-bottom: 3px solid var(--forest-deep);
+  }
+
+  .activity-section-regular .activity-row { background: transparent; }
+
+  .character-page > .page-header,
+  .review-page > .page-header,
+  .settings-page > .page-header { margin-bottom: 26px; }
+
+  .character-page .character-hero {
+    color: var(--ink);
+    background: var(--surface);
+    border-color: var(--forest-deep);
+    border-left: 7px solid var(--gold);
+    border-bottom: 1px solid var(--forest-deep);
+    border-radius: 0;
+  }
+
+  .character-page .character-level-line span,
+  .character-page .hero-xp span,
+  .character-page .focus-line,
+  .character-page .character-hero .progress-wrap > span { color: var(--muted); }
+  .character-page .character-level-line strong { color: var(--forest-deep); }
+  .character-page .hero-xp b { color: var(--gold-strong); }
+  .character-page .coin-balance { color: var(--gold-strong); border-color: var(--line-strong); }
+  .character-page .character-hero .progress-track { background: var(--paper-deep); }
+  .character-page .character-hero .progress-track span { background: var(--forest); }
+  .character-page .character-portrait-wrap .traveler-portrait { border-color: var(--forest-deep); }
+
+  .review-page .review-overview {
+    color: var(--ink);
+    background: var(--gold-soft);
+    border: 1px solid var(--forest-deep);
+    border-left: 7px solid var(--forest-deep);
+    border-radius: 0;
+  }
+
+  .review-page .review-overview span,
+  .review-page .review-overview .progress-wrap > span { color: var(--ink-soft); }
+  .review-page .review-overview strong { color: var(--forest-deep); }
+  .review-page .review-overview .progress-track { background: var(--surface); }
+  .review-page .review-overview .progress-track span { background: var(--forest); }
+  .review-page .review-overview::after { color: var(--gold-strong); }
+
+  .settings-page > .settings-section {
+    border: 1px solid var(--forest-deep);
+    border-top-width: 5px;
+    border-radius: 0;
+    box-shadow: 4px 4px 0 var(--line);
+  }
+
+  .navigation {
+    height: 82px;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    color: var(--white);
+    background: var(--forest-deep);
+    border-top: 3px solid var(--gold);
+    box-shadow: 0 -10px 28px var(--overlay);
+  }
+
+  .nav-item {
+    min-height: 68px;
+    color: var(--white-muted);
+  }
+
+  .nav-item .nav-icon-wrap { color: inherit; }
+  .nav-item > span:last-child { color: inherit; font-size: 10px; }
+  .nav-item.active { color: var(--gold-soft); }
+  .nav-item.active::before { background: var(--gold); }
+  .nav-create {
+    width: 54px;
+    height: 54px;
+    color: var(--forest-deep);
+    background: var(--gold-soft);
+    border: 2px solid var(--gold);
+    border-radius: 3px;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .main-content { padding: 0 12px 164px; }
+  .page-header { width: calc(100% + 24px); min-height: 228px; margin-inline: -12px; padding-inline: 16px; }
+  .page-header::before { left: 16px; }
+  .page-header h1 { font-size: 44px; }
+  .page-folio { right: 16px; }
+  .season-summary { margin-top: -48px; padding: 14px 11px; grid-template-columns: 42px minmax(0, 1fr) 16px; gap: 10px; box-shadow: 5px 5px 0 var(--forest-deep); }
+  .season-summary-icon { width: 40px; height: 40px; }
+  .mission-card { min-height: 122px; padding: 14px 10px; grid-template-columns: 28px minmax(0, 1fr) 48px; gap: 9px; }
+  .mission-card .complete-button { width: 48px; height: 48px; }
+  .navigation { padding-inline: 6px; }
+}
+
+@media (max-width: 350px) {
+  .main-content { padding-right: 10px; padding-left: 10px; }
+  .page-header { width: calc(100% + 20px); margin-inline: -10px; }
+  .page-folio { display: block; min-width: 58px; font-size: 7px; }
+  .season-summary { grid-template-columns: 38px minmax(0, 1fr) 14px; }
+  .season-summary-icon { width: 36px; height: 36px; }
+  .mission-card { grid-template-columns: 25px minmax(0, 1fr) 48px; gap: 8px; }
+}
+
+@media (max-width: 759px) and (max-height: 600px) {
+  .page-header {
+    min-height: 202px;
+    padding-top: 40px;
+    padding-bottom: 34px;
+  }
+
+  .page-header::before { top: 13px; }
+  .page-header h1 { font-size: 44px; }
+  .page-header .page-lead { margin-top: 3px; }
+  .page-header .game-day-note { min-height: 28px; margin-top: 8px; }
+  .page-folio { top: 40px; }
+  .season-summary { min-height: 92px; margin-top: -34px; margin-bottom: 24px; padding-block: 10px; }
+  .activity-section-key .section-heading { min-height: 64px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
