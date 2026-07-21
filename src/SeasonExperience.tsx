@@ -7,14 +7,18 @@ import {
   Compass,
   Lightbulb,
   RefreshCw,
+  ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Target,
   X,
 } from 'lucide-react'
-import { addDays, domainLabel, type Activity, type Completion, type WeeklyReview } from './domain'
+import { addDays, domainLabel, formatTierGoalValue, type Activity, type Completion, type WeeklyReview } from './domain'
 import {
+  canCalibrateSeason,
   getSeasonDailyActivityIds,
   getSeasonDay,
+  getSeasonEvidence,
   getSeasonStrategy,
   seasonResults,
   type CoachSuggestion,
@@ -22,7 +26,7 @@ import {
   type SeasonResult,
   type SuggestionStatus,
 } from './season'
-import type { CreateSeasonInput } from './db'
+import { stableLifeBlueprint, type CreateSeasonInput } from './db'
 
 const responseLabels: Record<Exclude<SuggestionStatus, 'pending'>, string> = {
   accepted: '已接受',
@@ -63,12 +67,13 @@ export function SeasonTodaySummary({
   const activityById = new Map(activities.map((activity) => [activity.id, activity]))
   const completedIds = new Set(completions.filter((completion) => completion.status === 'active' && completion.occurredOn === today).map((completion) => completion.activityId))
   const completed = ids.filter((id) => completedIds.has(id)).length
+  const signalRecorded = season.dailySignals.some((signal) => signal.date === today)
   const labels = ids.map((id) => activityById.get(id)?.title ?? season.focusActivities.find((activity) => activity.activityId === id)?.title ?? '已移除行动')
   return (
     <button className="season-summary" type="button" onClick={onOpen} aria-label="管理当前成长赛季">
       <span className="season-summary-icon"><CalendarRange aria-hidden="true" /></span>
       <span className="season-summary-copy">
-        <small>第 {getSeasonDay(season, today)} / 28 天 · 今日重点 {completed}/{ids.length}</small>
+        <small>第 {getSeasonDay(season, today)} / 28 天 · 今日重点 {completed}/{ids.length} · 状态{signalRecorded ? '已记录' : '待记录'}</small>
         <strong>{season.title}</strong>
         <b>{labels.join(' · ')}</b>
       </span>
@@ -101,6 +106,8 @@ interface SeasonHubProps {
   onClose: () => void
   onCreate: (input: CreateSeasonInput) => Promise<void>
   onSetDailyFocus: (seasonId: string, activityIds: string[]) => Promise<void>
+  onCalibrate: (seasonId: string) => Promise<void>
+  onSaveSignal: (seasonId: string, signal: { wakeWindowMet: boolean; morningEnergy: number; control: number }) => Promise<void>
   onRespond: (seasonId: string, suggestionId: string, status: Exclude<SuggestionStatus, 'pending'>, note?: string) => Promise<void>
   onComplete: (seasonId: string, result: SeasonResult, evidence: string) => Promise<void>
 }
@@ -108,7 +115,7 @@ interface SeasonHubProps {
 export function SeasonHubModal(props: SeasonHubProps) {
   const activeSeason = props.seasons.find((season) => season.status === 'active')
   const completed = [...props.seasons].filter((season) => season.status === 'completed').sort((left, right) => right.endsOn.localeCompare(left.endsOn))
-  const [view, setView] = useState<'overview' | 'create' | 'focus' | 'complete'>(activeSeason ? 'overview' : 'create')
+  const [view, setView] = useState<'overview' | 'create' | 'focus' | 'calibrate' | 'signal' | 'complete'>(activeSeason ? 'overview' : 'create')
   const [template, setTemplate] = useState<Season>()
 
   useEffect(() => {
@@ -132,12 +139,16 @@ export function SeasonHubModal(props: SeasonHubProps) {
           />
         ) : activeSeason ? (
           <>
-            <SeasonOverview season={activeSeason} today={props.today} />
+            <SeasonOverview season={activeSeason} today={props.today} completions={props.completions} />
             <div className="season-hub-actions">
+              <button type="button" onClick={() => setView('signal')}><ShieldCheck aria-hidden="true" />记录今日状态</button>
               <button type="button" onClick={() => setView('focus')}><SlidersHorizontal aria-hidden="true" />调整今日重点</button>
+              {canCalibrateSeason(activeSeason, props.today) && <button type="button" onClick={() => setView('calibrate')}><Sparkles aria-hidden="true" />校准这个赛季</button>}
               <button type="button" disabled={props.today < activeSeason.endsOn} onClick={() => setView('complete')}><ClipboardCheck aria-hidden="true" />结束赛季</button>
             </div>
             {view === 'focus' && <DailyFocusEditor season={activeSeason} activities={props.activities} today={props.today} onSave={async (ids) => { await props.onSetDailyFocus(activeSeason.id, ids); setView('overview') }} />}
+            {view === 'signal' && <DailySignalEditor season={activeSeason} today={props.today} onSave={async (signal) => { await props.onSaveSignal(activeSeason.id, signal); setView('overview') }} />}
+            {view === 'calibrate' && <StableLifeCalibration onCancel={() => setView('overview')} onConfirm={async () => { await props.onCalibrate(activeSeason.id); setView('overview') }} />}
             {view === 'complete' && <CompleteSeasonForm season={activeSeason} onComplete={props.onComplete} />}
             <SuggestionList season={activeSeason} onRespond={props.onRespond} />
           </>
@@ -156,15 +167,22 @@ export function SeasonHubModal(props: SeasonHubProps) {
   )
 }
 
-function SeasonOverview({ season, today }: { season: Season; today: string }) {
+function SeasonOverview({ season, today, completions }: { season: Season; today: string; completions: Completion[] }) {
   const day = getSeasonDay(season, today)
   const pending = season.suggestions.filter((suggestion) => suggestion.status === 'pending').length
+  const evidence = getSeasonEvidence(season, completions, today)
   return (
     <section className="season-overview">
       <div className="season-progress-line"><span>第 {day} / 28 天</span><b>{Math.round(day / 28 * 100)}%</b></div>
       <div className="season-progress-track"><span style={{ width: `${day / 28 * 100}%` }} /></div>
       <dl><div><dt>成功标准</dt><dd>{season.successCriterion}</dd></div><div><dt>开始状态</dt><dd>{season.baseline}</dd></div><div><dt>期望结果</dt><dd>{season.targetOutcome}</dd></div></dl>
       <div className="season-focus-snapshots">{season.focusActivities.map((activity) => <span key={activity.activityId}>{activity.title}</span>)}</div>
+      <div className="season-evidence-grid">
+        <span><small>起床达标</small><b>{evidence.wakeWindowDays}/{evidence.recentSignalCount || 7}</b></span>
+        <span><small>晨间精力</small><b>{evidence.recentSignalCount ? evidence.morningEnergyAverage.toFixed(1) : '-'}/5</b></span>
+        <span><small>掌控感</small><b>{evidence.recentSignalCount ? evidence.controlAverage.toFixed(1) : '-'}/5</b></span>
+      </div>
+      <div className="season-behavior-progress">{evidence.behaviorDays.map((behavior) => <span key={behavior.activityId}><small>{behavior.title}</small><b>{behavior.completedDays}/20 天</b></span>)}</div>
       <small>{season.startsOn} 至 {season.endsOn} · {pending} 条建议待处理</small>
     </section>
   )
@@ -238,6 +256,66 @@ function DailyFocusEditor({ season, activities, today, onSave }: { season: Seaso
         return <label key={activity.id}><input type="checkbox" checked={checked} disabled={!checked && selected.length >= 3} onChange={() => setSelected((current) => checked ? current.filter((id) => id !== activity.id) : [...current, activity.id])} />{activity.title}</label>
       })}</div>
       <button className="secondary-action" type="button" disabled={selected.length === 0} onClick={() => void onSave(selected).catch(() => undefined)}><Check aria-hidden="true" />保存今日重点</button>
+    </section>
+  )
+}
+
+function StableLifeCalibration({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false)
+  return (
+    <section className="season-inline-editor season-calibration">
+      <div><span className="modal-kicker">第 1～3 天校准期</span><h3>用现实结果重新对齐核心行为</h3></div>
+      <p>旧完成、XP、金币和流水会完整保留；现有关键行为降为普通行为，今天重新作为第 1 天。</p>
+      <div className="blueprint-list">{stableLifeBlueprint.map((activity) => (
+        <article key={activity.title}>
+          <div><strong>{activity.title}</strong><span>{activity.cue}</span></div>
+          {activity.goal.kind === 'tiered' && <small>基础 {formatTierGoalValue(activity.goal, 1)} · 标准 {formatTierGoalValue(activity.goal, 2)}</small>}
+          <p>{activity.protocol}</p>
+        </article>
+      ))}</div>
+      <div className="calibration-rules">
+        <span>目标作息：23:30–07:30</span>
+        <span>思绪停车使用纸张，不打开新的应用</span>
+        <span>完成基础层就是有效行动，不追求每天满档</span>
+      </div>
+      <div className="confirmation-actions">
+        <button type="button" onClick={onCancel}>返回</button>
+        <button className="primary-action" type="button" disabled={saving} onClick={() => { setSaving(true); void onConfirm().catch(() => setSaving(false)) }}><Sparkles aria-hidden="true" />{saving ? '正在校准…' : '启用稳定生活方案'}</button>
+      </div>
+    </section>
+  )
+}
+
+function DailySignalEditor({
+  season,
+  today,
+  onSave,
+}: {
+  season: Season
+  today: string
+  onSave: (signal: { wakeWindowMet: boolean; morningEnergy: number; control: number }) => Promise<void>
+}) {
+  const existing = season.dailySignals.find((signal) => signal.date === today)
+  const [wakeWindowMet, setWakeWindowMet] = useState<boolean | undefined>(existing?.wakeWindowMet)
+  const [morningEnergy, setMorningEnergy] = useState(existing?.morningEnergy ?? 0)
+  const [control, setControl] = useState(existing?.control ?? 0)
+  const [saving, setSaving] = useState(false)
+  const valid = wakeWindowMet !== undefined && morningEnergy > 0 && control > 0
+  const scale = (value: number, setValue: (value: number) => void, label: string) => (
+    <div className="signal-scale" role="group" aria-label={label}>{[1, 2, 3, 4, 5].map((item) => <button type="button" className={value === item ? 'selected' : ''} key={item} onClick={() => setValue(item)}>{item}</button>)}</div>
+  )
+  return (
+    <section className="season-inline-editor daily-signal-editor">
+      <div><span className="modal-kicker">约 15 秒</span><h3>记录今天的现实状态</h3></div>
+      <p>这三项只用于判断生活是否真的变稳定，不影响 XP 或金币。</p>
+      <div className="signal-field"><strong>是否在 07:00–08:00 起床？</strong><div className="signal-binary" role="group" aria-label="起床时间是否达标"><button type="button" className={wakeWindowMet === true ? 'selected' : ''} onClick={() => setWakeWindowMet(true)}>是</button><button type="button" className={wakeWindowMet === false ? 'selected' : ''} onClick={() => setWakeWindowMet(false)}>否</button></div></div>
+      <div className="signal-field"><strong>今天上午的精力</strong><small>1 很低 · 5 很好</small>{scale(morningEnergy, setMorningEnergy, '晨间精力')}</div>
+      <div className="signal-field"><strong>今天的生活掌控感</strong><small>1 被推着走 · 5 主动选择</small>{scale(control, setControl, '生活掌控感')}</div>
+      <button className="primary-action" type="button" disabled={!valid || saving} onClick={() => {
+        if (wakeWindowMet === undefined) return
+        setSaving(true)
+        void onSave({ wakeWindowMet, morningEnergy, control }).catch(() => setSaving(false))
+      }}><Check aria-hidden="true" />{saving ? '正在保存…' : existing ? '更新今日状态' : '保存今日状态'}</button>
     </section>
   )
 }

@@ -45,6 +45,7 @@ import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
   archiveActivity as archiveActivityDefinition,
   activateGrowthDomains,
+  calibrateSeasonWithStableLife,
   cancelTodayCompletion,
   completeSeason,
   completeActivity,
@@ -60,6 +61,7 @@ import {
   respondToSeasonSuggestion,
   permanentlyDeleteActivity,
   saveWeeklyReview,
+  saveSeasonDailySignal,
   setActivityEnabled,
   setActivityKey,
   setRewardEnabled,
@@ -320,7 +322,7 @@ function GrowthDomainMigration({
     <main className="migration-screen">
       <form className="migration-panel" onSubmit={submit}>
         <header className="migration-header">
-          <span className="modal-kicker">地球 Online V4.0.2</span>
+          <span className="modal-kicker">地球 Online V4.1.0</span>
           <h1>建立六个成长领域</h1>
           <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
           <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
@@ -483,7 +485,10 @@ function App() {
     (activity) => activity.enabled && (activity.type !== 'task' || !completedTaskIds.has(activity.id)),
   )
   const isDue = (activity: Activity) => activity.type === 'habit' || !activity.plannedOn || activity.plannedOn <= today
-  const keyActivities = enabledActivities.filter((activity) => activity.isKey && isDue(activity))
+  const seasonFocusOrder = new Map(activeSeason?.focusActivities.map((focus, index) => [focus.activityId, index]) ?? [])
+  const keyActivities = enabledActivities
+    .filter((activity) => activity.isKey && isDue(activity))
+    .sort((left, right) => (seasonFocusOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (seasonFocusOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER))
   const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
   const tasks = enabledActivities.filter((activity) => activity.type === 'task' && !activity.isKey && isDue(activity))
   const reviewActivities = activeSeason
@@ -522,6 +527,9 @@ function App() {
           : undefined,
       })
       await refresh()
+      if (activity.cue === '23:00' && activeSeason?.calibration && !activeSeason.dailySignals.some((signal) => signal.date === today)) {
+        setNotice('夜间收尾已完成；可在赛季卡中用约 15 秒记录今日状态')
+      }
       void sendCompletionFeedback(preferences, {
         title: activity.title,
         xp: result.event.xpDelta,
@@ -911,6 +919,26 @@ function App() {
               throw error
             }
           }}
+          onCalibrate={async (seasonId) => {
+            try {
+              await calibrateSeasonWithStableLife(seasonId, today)
+              await refresh()
+              setNotice('稳定生活方案已启用，今天重新作为第 1 天')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
+          onSaveSignal={async (seasonId, signal) => {
+            try {
+              await saveSeasonDailySignal(seasonId, signal, today)
+              await refresh()
+              setNotice('今日现实状态已保存，不影响 XP 或金币')
+            } catch (error) {
+              setNotice(errorMessage(error))
+              throw error
+            }
+          }}
           onRespond={async (seasonId, suggestionId, status, note) => {
             try {
               await respondToSeasonSuggestion(seasonId, suggestionId, status, note)
@@ -1190,6 +1218,7 @@ function ActivitySection({
                   </>
                 ) : <span className="activity-schedule">{scheduleLabel(activity)}</span>}
                 {variant === 'key' && <div className="mission-reward"><Award aria-hidden="true" /><span>{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP</span><Coins aria-hidden="true" /><span>+{reward.coins}</span></div>}
+                {(activity.cue || activity.protocol) && <details className="activity-protocol"><summary>执行提示{activity.cue ? ` · ${activity.cue}` : ''}</summary>{activity.protocol && <p>{activity.protocol}</p>}</details>}
               </div>
               <button
                 className="complete-button"
@@ -1917,7 +1946,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.2{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.1.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
@@ -2058,6 +2087,8 @@ function ActivityManagerModal({
 function CreateActivityModal({ today, onClose, onCreate }: { today: string; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const [type, setType] = useState<'habit' | 'task'>('habit')
   const [title, setTitle] = useState('')
+  const [cue, setCue] = useState('')
+  const [protocol, setProtocol] = useState('')
   const [domain, setDomain] = useState<GrowthDomain>('health')
   const [difficulty, setDifficulty] = useState<Difficulty>('简单')
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
@@ -2074,6 +2105,8 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
       : { kind: 'count', count: 1, unit: '次' }
     onCreate({
       title,
+      cue: type === 'habit' && cue.trim() ? cue.trim() : undefined,
+      protocol: type === 'habit' && protocol.trim() ? protocol.trim() : undefined,
       type,
       domain,
       difficulty,
@@ -2113,6 +2146,11 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
+        {type === 'habit' && <details className="execution-details">
+          <summary><span><strong>执行提示</strong><small>{cue.trim() || '可选的触发条件与行动协议'}</small></span><Target aria-hidden="true" /></summary>
+          <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} placeholder="例如：起床后、第一段工作前" /></label>
+          <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} placeholder="写清最低动作和走神后的返回方式" /></label>
+        </details>}
         <details className="form-details">
           <summary><span><strong>成长领域与奖励</strong><small>{domainLabel(domain)} · {difficulty}</small></span><ListTodo aria-hidden="true" /></summary>
           <div className="field-grid">
@@ -2323,6 +2361,8 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
   const tiered = isTieredGoal(activity)
   const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const [title, setTitle] = useState(activity.title)
+  const [cue, setCue] = useState(activity.cue ?? '')
+  const [protocol, setProtocol] = useState(activity.protocol ?? '')
   const [domain, setDomain] = useState<GrowthDomain>(activity.domain ?? 'health')
   const [difficulty, setDifficulty] = useState<Difficulty>(activity.difficulty)
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>(activity.schedule.kind === 'weekly' ? 'weekly' : 'daily')
@@ -2340,6 +2380,8 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         : buildTierGoal(tierDraft)
     onSave({
       title: title.trim(),
+      cue: cue.trim() || undefined,
+      protocol: protocol.trim() || undefined,
       domain,
       difficulty,
       schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
@@ -2353,6 +2395,11 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
       <form className="modal" onSubmit={submit} aria-labelledby="edit-habit-title">
         <div className="modal-header"><h2 id="edit-habit-title">编辑习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <label className="full-field">习惯名称<input required maxLength={40} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <details className="execution-details" open={Boolean(activity.cue || activity.protocol)}>
+          <summary><span><strong>执行提示</strong><small>{cue.trim() || '可选'}</small></span><Target aria-hidden="true" /></summary>
+          <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} /></label>
+          <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} /></label>
+        </details>
         <div className="field-grid">
           <label>成长领域<select value={domain} onChange={(event) => setDomain(event.target.value as GrowthDomain)}>{growthDomains.map((value) => <option key={value} value={value}>{domainLabel(value)}</option>)}</select></label>
           <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>

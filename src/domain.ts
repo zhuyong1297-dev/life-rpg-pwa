@@ -176,6 +176,8 @@ export const ActivitySchema = z
   .object({
     id: z.string().min(1),
     title: z.string().trim().min(1).max(60),
+    cue: z.string().trim().min(1).max(80).optional(),
+    protocol: z.string().trim().min(1).max(280).optional(),
     type: z.enum(['habit', 'task']),
     attribute: z.enum(attributes).optional(),
     domain: z.enum(growthDomains).optional(),

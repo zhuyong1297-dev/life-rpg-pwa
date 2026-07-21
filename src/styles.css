@@ -154,6 +154,10 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .season-overview dd { margin: 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
 .season-focus-snapshots { margin: 12px 0 7px; display: flex; flex-wrap: wrap; gap: 6px; }
 .season-focus-snapshots span { padding: 4px 7px; border-radius: 4px; color: var(--forest); background: var(--forest-soft); font-size: 11px; font-weight: 800; }
+.season-evidence-grid, .season-behavior-progress { margin: 10px 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.season-evidence-grid span, .season-behavior-progress span { min-width: 0; padding: 8px; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.season-evidence-grid small, .season-behavior-progress small { overflow-wrap: anywhere; color: var(--muted); font-size: 9px; }
+.season-evidence-grid b, .season-behavior-progress b { font-size: 12px; }
 .season-overview > small { color: var(--muted); font-size: 10px; }
 .season-hub-actions { margin: 10px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .season-hub-actions button, .suggestion-actions button, .suggestion-response button { min-height: 44px; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--forest); font-weight: 800; cursor: pointer; }
@@ -176,6 +180,22 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .season-inline-editor { margin: 12px 0; padding: 13px; border: 1px solid #b8cfe2; border-radius: 7px; background: var(--blue-soft); }
 .season-inline-editor h3 { margin: 0; font-size: 15px; }
 .season-inline-editor p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.season-calibration { border-color: #e3c273; background: #fff9e9; }
+.season-calibration h3, .daily-signal-editor h3 { margin-top: 3px; }
+.blueprint-list { display: grid; gap: 8px; }
+.blueprint-list article { padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.blueprint-list article > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.blueprint-list article strong { color: var(--ink); }
+.blueprint-list article span, .blueprint-list article small { color: var(--forest); font-size: 10px; font-weight: 800; }
+.blueprint-list article p { margin-top: 5px; overflow-wrap: anywhere; }
+.calibration-rules { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.calibration-rules span::before { content: '· '; color: var(--gold); font-weight: 900; }
+.signal-field { display: grid; gap: 6px; color: var(--ink); }
+.signal-field > small { color: var(--muted); font-weight: 500; }
+.signal-binary, .signal-scale { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.signal-scale { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.signal-binary button, .signal-scale button { min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-weight: 800; cursor: pointer; }
+.signal-binary button.selected, .signal-scale button.selected { border-color: var(--forest); color: var(--forest); background: var(--forest-soft); }
 .daily-focus-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .daily-focus-options label { min-height: 44px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; border: 1px solid #b8cfe2; border-radius: 6px; background: white; overflow-wrap: anywhere; cursor: pointer; }
 .daily-focus-options input { width: 18px; height: 18px; margin: 0; accent-color: var(--forest); }
@@ -230,6 +250,9 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .activity-row-reward { flex: 0 0 auto; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; color: var(--gold); font-size: 12px; font-weight: 800; }
 .activity-row-reward svg { width: 14px; height: 14px; }
 .activity-row-reward svg:nth-of-type(2) { margin-left: 3px; }
+.activity-protocol { margin-top: 6px; color: var(--muted); font-size: 10px; }
+.activity-protocol summary { width: fit-content; max-width: 100%; overflow-wrap: anywhere; color: var(--forest); font-weight: 800; cursor: pointer; }
+.activity-protocol p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
 .difficulty, .tier-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 800; }
 .difficulty { background: var(--surface-soft); color: var(--muted); }
 .difficulty-普通 { color: var(--forest); background: var(--forest-soft); }
@@ -533,17 +556,18 @@ label textarea { min-height: 84px; resize: vertical; }
 .goal-type-block > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
 .form-section-label { display: block; margin: 16px 0 6px; color: var(--muted); font-size: 13px; }
 .modal .primary-action { width: 100%; margin-top: 18px; }
+.form-details textarea, .execution-details textarea { min-height: 72px; }
 .checkbox-field { min-height: 46px; margin-top: 12px; display: flex; align-items: center; gap: 8px; color: var(--ink); }
 .checkbox-field input { width: 20px; height: 20px; margin: 0; accent-color: var(--forest); }
 .checkbox-field svg { color: var(--gold); }
-.form-details { margin-top: 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.form-details summary { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
-.form-details summary::-webkit-details-marker { display: none; }
-.form-details summary > span { display: grid; gap: 3px; }
-.form-details summary small { color: var(--muted); }
-.form-details summary svg { color: var(--blue); }
-.form-details[open] { padding-bottom: 14px; }
-.form-details[open] summary { margin-bottom: 10px; }
+.form-details, .execution-details { margin-top: 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.form-details summary, .execution-details summary { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.form-details summary::-webkit-details-marker, .execution-details summary::-webkit-details-marker { display: none; }
+.form-details summary > span, .execution-details summary > span { display: grid; gap: 3px; }
+.form-details summary small, .execution-details summary small { color: var(--muted); }
+.form-details summary svg, .execution-details summary svg { color: var(--blue); }
+.form-details[open], .execution-details[open] { padding-bottom: 14px; }
+.form-details[open] summary, .execution-details[open] summary { margin-bottom: 10px; }
 .form-detail-note { margin: 9px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .domain-definition { margin: 10px 0 0; padding: 10px; display: grid; gap: 3px; color: var(--blue); background: var(--blue-soft); border-radius: 6px; font-size: 11px; line-height: 1.45; }
 .domain-definition span { color: var(--muted); }

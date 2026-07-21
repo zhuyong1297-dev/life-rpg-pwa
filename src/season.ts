@@ -24,6 +24,8 @@ export const suggestionStatuses = ['pending', 'accepted', 'modified', 'ignored']
 export const SeasonActivitySnapshotSchema = z.object({
   activityId: z.string().min(1),
   title: z.string().trim().min(1).max(60),
+  cue: z.string().trim().min(1).max(80).optional(),
+  protocol: z.string().trim().min(1).max(280).optional(),
   attribute: z.enum(attributes).optional(),
   domain: z.enum(growthDomains).optional(),
   difficulty: z.enum(difficulties),
@@ -54,6 +56,30 @@ export const SeasonDailyPlanSchema = z.object({
   activityIds: z.array(z.string().min(1)).min(1).max(3),
 })
 
+export const SeasonDailySignalSchema = z.object({
+  date: dateString,
+  wakeWindowMet: z.boolean(),
+  morningEnergy: z.number().int().min(1).max(5),
+  control: z.number().int().min(1).max(5),
+  recordedAt: timestamp,
+})
+
+const SeasonCalibrationSchema = z.object({
+  blueprintId: z.literal('stable-life-v1'),
+  calibratedOn: dateString,
+  calibratedAt: timestamp,
+  previous: z.object({
+    title: z.string().trim().min(1).max(40),
+    successCriterion: z.string().trim().min(1).max(180),
+    baseline: z.string().trim().min(1).max(280),
+    targetOutcome: z.string().trim().min(1).max(280),
+    startsOn: dateString,
+    endsOn: dateString,
+    focusActivities: z.array(SeasonActivitySnapshotSchema).min(1).max(3),
+    dailyPlans: z.array(SeasonDailyPlanSchema),
+  }),
+})
+
 export const SeasonSchema = z
   .object({
     id: z.string().min(1),
@@ -65,6 +91,8 @@ export const SeasonSchema = z
     endsOn: dateString,
     focusActivities: z.array(SeasonActivitySnapshotSchema).min(1).max(3),
     dailyPlans: z.array(SeasonDailyPlanSchema).default([]),
+    dailySignals: z.array(SeasonDailySignalSchema).default([]),
+    calibration: SeasonCalibrationSchema.optional(),
     suggestions: z.array(CoachSuggestionSchema).default([]),
     status: z.enum(['active', 'completed']),
     finalResult: z.enum(seasonResults).optional(),
@@ -89,6 +117,13 @@ export const SeasonSchema = z
     }
     if (season.dailyPlans.some((plan) => plan.date < season.startsOn || plan.date > season.endsOn)) {
       context.addIssue({ code: 'custom', path: ['dailyPlans'], message: '今日重点必须位于赛季日期内' })
+    }
+    const signalDates = season.dailySignals.map((signal) => signal.date)
+    if (new Set(signalDates).size !== signalDates.length) {
+      context.addIssue({ code: 'custom', path: ['dailySignals'], message: '同一游戏日只能保存一份状态记录' })
+    }
+    if (season.dailySignals.some((signal) => signal.date < season.startsOn || signal.date > season.endsOn)) {
+      context.addIssue({ code: 'custom', path: ['dailySignals'], message: '每日状态必须位于赛季日期内' })
     }
     if (season.suggestions.some((suggestion) => !focusIds.includes(suggestion.activityId))) {
       context.addIssue({ code: 'custom', path: ['suggestions'], message: '成长建议必须对应赛季核心行为' })
@@ -117,6 +152,7 @@ export type Season = z.infer<typeof SeasonSchema>
 export type SeasonResult = (typeof seasonResults)[number]
 export type CoachSuggestion = z.infer<typeof CoachSuggestionSchema>
 export type SuggestionStatus = (typeof suggestionStatuses)[number]
+export type SeasonDailySignal = z.infer<typeof SeasonDailySignalSchema>
 
 function titleForSuggestion(kind: CoachSuggestion['kind'], title: string) {
   if (kind === 'adjust') return `降低「${title}」的执行阻力`
@@ -182,6 +218,35 @@ export function getSeasonDailyActivityIds(season: Season, today: string) {
     ?? season.focusActivities.map((activity) => activity.activityId)
 }
 
+export function canCalibrateSeason(season: Season, today: string) {
+  return season.status === 'active'
+    && !season.calibration
+    && today >= season.startsOn
+    && today <= addDays(season.startsOn, 2)
+    && season.suggestions.length === 0
+}
+
+export function getSeasonEvidence(season: Season, completions: Completion[], throughDate: string) {
+  const end = throughDate < season.endsOn ? throughDate : season.endsOn
+  const recentStart = addDays(end, -6) < season.startsOn ? season.startsOn : addDays(end, -6)
+  const recentSignals = season.dailySignals.filter((signal) => signal.date >= recentStart && signal.date <= end)
+  const average = (key: 'morningEnergy' | 'control') => recentSignals.length === 0
+    ? 0
+    : recentSignals.reduce((sum, signal) => sum + signal[key], 0) / recentSignals.length
+  const active = completions.filter((completion) => completion.status === 'active' && completion.occurredOn >= season.startsOn && completion.occurredOn <= end)
+  return {
+    recentSignalCount: recentSignals.length,
+    wakeWindowDays: recentSignals.filter((signal) => signal.wakeWindowMet).length,
+    morningEnergyAverage: average('morningEnergy'),
+    controlAverage: average('control'),
+    behaviorDays: season.focusActivities.map((activity) => ({
+      activityId: activity.activityId,
+      title: activity.title,
+      completedDays: new Set(active.filter((completion) => completion.activityId === activity.activityId).map((completion) => completion.occurredOn)).size,
+    })),
+  }
+}
+
 export interface SeasonStrategy {
   season: Season
   activeDays: number
@@ -237,6 +302,8 @@ export function snapshotSeasonActivity(activity: Activity) {
   return SeasonActivitySnapshotSchema.parse({
     activityId: activity.id,
     title: activity.title,
+    cue: activity.cue,
+    protocol: activity.protocol,
     attribute: activity.attribute,
     domain: activity.domain,
     difficulty: activity.difficulty,

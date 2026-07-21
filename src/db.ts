@@ -35,10 +35,12 @@ import {
 } from './domain'
 import {
   SeasonSchema,
+  canCalibrateSeason,
   generateCoachSuggestions,
   snapshotSeasonActivity,
   type Season,
   type SeasonResult,
+  type SeasonDailySignal,
   type SuggestionStatus,
 } from './season'
 
@@ -299,6 +301,45 @@ export async function completeSeason(
 
 export type NewActivity = Omit<Activity, 'id' | 'createdAt'>
 
+export const stableLifeBlueprint: readonly NewActivity[] = [
+  {
+    title: '晨间唤醒',
+    cue: '07:30 起床后、查看信息前',
+    protocol: '基础：离床、接触自然光并喝水。标准：增加阳台或户外光照和轻微活动。',
+    type: 'habit',
+    domain: 'health',
+    difficulty: '简单',
+    goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [120, 300] },
+    schedule: { kind: 'daily' },
+    isKey: true,
+    enabled: true,
+  },
+  {
+    title: '单点开工',
+    cue: '第一段正式工作开始前',
+    protocol: '写下一个当前结果和一个立即动作。其他想法只记到纸上，不分析、不搜索，工作段结束后再处理。',
+    type: 'habit',
+    domain: 'career',
+    difficulty: '普通',
+    goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [600, 1500] },
+    schedule: { kind: 'daily' },
+    isKey: true,
+    enabled: true,
+  },
+  {
+    title: '夜间收尾',
+    cue: '23:00',
+    protocol: '基础：写下未完成事项和明天第一个动作。标准：停止工作、手机离开床边，准备 23:30 入睡。',
+    type: 'habit',
+    domain: 'life',
+    difficulty: '简单',
+    goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [180, 300] },
+    schedule: { kind: 'daily' },
+    isKey: true,
+    enabled: true,
+  },
+]
+
 async function countOpenKeyActivities(database: LifeRpgDatabase, excludeId?: string) {
   const today = await currentGameDate(database)
   const completedTaskIds = new Set(
@@ -319,6 +360,90 @@ export async function createActivity(input: NewActivity, database = db) {
     await database.activities.add(activity)
   })
   return activity
+}
+
+export async function calibrateSeasonWithStableLife(
+  seasonId: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, database.activities, async () => {
+    const season = await database.seasons.get(seasonId)
+    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    if (season.calibration?.blueprintId === 'stable-life-v1') {
+      const activities = await database.activities.bulkGet(season.focusActivities.map((activity) => activity.activityId))
+      return { season, activities: activities.filter((activity): activity is Activity => Boolean(activity)) }
+    }
+    if (!canCalibrateSeason(season, eventDate)) throw new Error('赛季只能在第 1～3 天校准一次')
+
+    const calibratedAt = new Date().toISOString()
+    const existing = await database.activities.toArray()
+    const created = stableLifeBlueprint.map((input) => ActivitySchema.parse({
+      ...input,
+      id: crypto.randomUUID(),
+      revision: 1,
+      createdAt: calibratedAt,
+    }))
+    await database.activities.bulkPut(existing.filter((activity) => activity.isKey).map((activity) => ({ ...activity, isKey: false })))
+    await database.activities.bulkAdd(created)
+
+    const next = SeasonSchema.parse({
+      ...season,
+      title: '稳定生活状态',
+      successCriterion: '三项核心行为各完成基础层至少 20 天；最后 7 天至少 5 天在 07:00–08:00 起床，晨间精力平均不低于 3/5，生活掌控感平均不低于 3.5/5。',
+      baseline: '早晨起床没精神；工作时容易被其他想法带走并陷进去，随后时间追赶、焦躁发呆，只想尽快熬过当天。',
+      targetOutcome: '早晨能够启动；工作时把岔开的想法先停放并回到当前动作；晚上能够收尾，生活主要感受是平静和可掌控。',
+      startsOn: eventDate,
+      endsOn: addDays(eventDate, 27),
+      focusActivities: created.map(snapshotSeasonActivity),
+      dailyPlans: [],
+      dailySignals: [],
+      suggestions: [],
+      calibration: {
+        blueprintId: 'stable-life-v1',
+        calibratedOn: eventDate,
+        calibratedAt,
+        previous: {
+          title: season.title,
+          successCriterion: season.successCriterion,
+          baseline: season.baseline,
+          targetOutcome: season.targetOutcome,
+          startsOn: season.startsOn,
+          endsOn: season.endsOn,
+          focusActivities: season.focusActivities,
+          dailyPlans: season.dailyPlans,
+        },
+      },
+    })
+    await database.seasons.put(next)
+    return { season: next, activities: created }
+  })
+}
+
+export async function saveSeasonDailySignal(
+  seasonId: string,
+  input: Pick<SeasonDailySignal, 'wakeWindowMet' | 'morningEnergy' | 'control'>,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, async () => {
+    const season = await database.seasons.get(seasonId)
+    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    if (eventDate < season.startsOn || eventDate > season.endsOn) throw new Error('今日状态必须位于当前赛季内')
+    const signal = {
+      date: eventDate,
+      ...input,
+      recordedAt: new Date().toISOString(),
+    }
+    const next = SeasonSchema.parse({
+      ...season,
+      dailySignals: [...season.dailySignals.filter((item) => item.date !== eventDate), signal],
+    })
+    await database.seasons.put(next)
+    return signal
+  })
 }
 
 export async function setActivityKey(activityId: string, isKey: boolean, database = db) {
@@ -360,7 +485,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
   }, database)
 }
 
-export type HabitUpdate = Pick<Activity, 'title' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
+export type HabitUpdate = Pick<Activity, 'title' | 'cue' | 'protocol' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
 export async function updateHabit(activityId: string, input: HabitUpdate, database = db) {
   return database.transaction('rw', database.activities, database.completions, database.settings, async () => {

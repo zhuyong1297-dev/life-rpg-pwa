@@ -1,10 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
   activateGrowthDomains,
   acknowledgeLevelMilestone,
   archiveActivity,
+  calibrateSeasonWithStableLife,
   cancelTodayCompletion,
   completeSeason,
   completeActivity,
@@ -21,10 +22,12 @@ import {
   respondToSeasonSuggestion,
   restoreActivity,
   saveWeeklyReview,
+  saveSeasonDailySignal,
   setRewardEnabled,
   setSeasonDailyFocus,
   setTargetReward,
   syncLevelMilestones,
+  stableLifeBlueprint,
   undoCompletion,
   updateActivityGoal,
   updateHabit,
@@ -32,6 +35,7 @@ import {
   type NewActivity,
 } from '../db'
 import { calculateStats, growthDomains } from '../domain'
+import { getSeasonEvidence } from '../season'
 
 let database: LifeRpgDatabase
 
@@ -432,6 +436,73 @@ describe('IndexedDB 事务', () => {
     expect((await database.seasons.get(season.id))?.focusActivities[0]).toMatchObject({ title: activity.title, domain: activity.domain })
   })
 
+  it('稳定生活蓝图原子重整前 3 天赛季且重复提交幂等', async () => {
+    const oldKey = await createActivity(dailyHabit, database)
+    const completed = await completeActivity(oldKey.id, '2026-01-05', undefined, database)
+    if (!completed.awarded) throw new Error('测试前置完成失败')
+    const season = await createSeason({
+      title: '旧赛季', successCriterion: '旧标准', baseline: '旧起点', targetOutcome: '旧目标', focusActivityIds: [oldKey.id],
+    }, '2026-01-05', database)
+    const ledgerBefore = await database.ledgerEvents.toArray()
+    const completionsBefore = await database.completions.toArray()
+
+    const calibrated = await calibrateSeasonWithStableLife(season.id, '2026-01-06', database)
+    expect(calibrated.activities).toHaveLength(3)
+    expect(calibrated.activities.map((activity) => ({
+      title: activity.title, cue: activity.cue, domain: activity.domain, difficulty: activity.difficulty, goal: activity.goal,
+    }))).toEqual(stableLifeBlueprint.map((activity) => ({
+      title: activity.title, cue: activity.cue, domain: activity.domain, difficulty: activity.difficulty, goal: activity.goal,
+    })))
+    expect(await database.activities.get(oldKey.id)).toMatchObject({ isKey: false, enabled: true })
+    expect(calibrated.season).toMatchObject({
+      startsOn: '2026-01-06', endsOn: '2026-02-02', dailyPlans: [], dailySignals: [], suggestions: [],
+      calibration: { blueprintId: 'stable-life-v1', previous: { title: '旧赛季', startsOn: '2026-01-05' } },
+    })
+    expect(calibrated.season.focusActivities).toHaveLength(3)
+    expect(await database.ledgerEvents.toArray()).toEqual(ledgerBefore)
+    expect(await database.completions.toArray()).toEqual(completionsBefore)
+
+    await calibrateSeasonWithStableLife(season.id, '2026-01-06', database)
+    expect(await database.activities.count()).toBe(4)
+  })
+
+  it('稳定生活校准在第 4 天拒绝，写入失败时完整回滚', async () => {
+    const oldKey = await createActivity(dailyHabit, database)
+    const season = await createSeason({
+      title: '旧赛季', successCriterion: '旧标准', baseline: '旧起点', targetOutcome: '旧目标', focusActivityIds: [oldKey.id],
+    }, '2026-01-05', database)
+    await expect(calibrateSeasonWithStableLife(season.id, '2026-01-08', database)).rejects.toThrow('第 1～3 天')
+    expect(await database.activities.toArray()).toEqual([oldKey])
+
+    const duplicateId = '00000000-0000-4000-8000-000000000000'
+    const random = vi.spyOn(crypto, 'randomUUID').mockReturnValue(duplicateId)
+    await expect(calibrateSeasonWithStableLife(season.id, '2026-01-06', database)).rejects.toBeTruthy()
+    random.mockRestore()
+    expect(await database.activities.toArray()).toEqual([oldKey])
+    expect(await database.seasons.get(season.id)).toMatchObject({ title: '旧赛季', startsOn: '2026-01-05' })
+  })
+
+  it('每日状态同日覆盖并派生最近 7 天现实证据', async () => {
+    const activity = await createActivity({ ...dailyHabit, isKey: false }, database)
+    const season = await createSeason({
+      title: '状态赛季', successCriterion: '观察现实变化', baseline: '低能量', targetOutcome: '稳定', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    await completeActivity(activity.id, '2026-01-05', undefined, database)
+    await saveSeasonDailySignal(season.id, { wakeWindowMet: false, morningEnergy: 2, control: 2 }, '2026-01-05', database)
+    await saveSeasonDailySignal(season.id, { wakeWindowMet: true, morningEnergy: 4, control: 3 }, '2026-01-05', database)
+    await saveSeasonDailySignal(season.id, { wakeWindowMet: true, morningEnergy: 3, control: 4 }, '2026-01-06', database)
+    const saved = await database.seasons.get(season.id)
+    expect(saved?.dailySignals).toHaveLength(2)
+    expect(getSeasonEvidence(saved!, await database.completions.toArray(), '2026-01-06')).toMatchObject({
+      recentSignalCount: 2,
+      wakeWindowDays: 2,
+      morningEnergyAverage: 3.5,
+      controlAverage: 3.5,
+      behaviorDays: [{ activityId: activity.id, completedDays: 1 }],
+    })
+    await expect(saveSeasonDailySignal(season.id, { wakeWindowMet: true, morningEnergy: 3, control: 3 }, '2026-02-03', database)).rejects.toThrow('当前赛季内')
+  })
+
   it('周复盘生成本地建议，响应建议不会自动修改活动', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
@@ -617,15 +688,15 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 7 备份保存赛季并兼容 schema 5 和 schema 6', async () => {
+  it('schema 8 备份保存赛季并兼容 schema 5 至 schema 7', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
     }, '2026-01-05', database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 7, appVersion: '4.0.2', seasons: [{ id: season.id }] })
-    await restoreBackup({ ...current, appVersion: '4.0.1' }, database)
-    await restoreBackup({ ...current, appVersion: '4.0.0' }, database)
+    expect(current).toMatchObject({ schemaVersion: 8, appVersion: '4.1.0', seasons: [{ id: season.id }] })
+    await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.1' }, database)
+    await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.0' }, database)
     await expect(restoreBackup({ ...current, seasons: [...current.seasons, { ...season, id: 'duplicate-active-season' }] }, database)).rejects.toThrow('只能存在一个')
     await restoreBackup({ ...current, schemaVersion: 6, appVersion: '3.2.0' }, database)
     const { seasons: _seasons, ...legacy } = current
