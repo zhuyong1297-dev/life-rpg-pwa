@@ -620,14 +620,20 @@ label textarea { min-height: 84px; resize: vertical; }
 .migration-progress .progress-track { background: #3b574d; }
 .migration-progress .progress-track span { background: #e2aa46; }
 .migration-progress .progress-wrap > span { color: #c4d8d0; }
+.migration-pending { margin-top: 12px; min-height: 44px; padding-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #3b574d; color: #f7d99d; font-size: 12px; font-weight: 800; }
+.migration-pending.ready { color: #b8dbc9; }
+.migration-pending button, .migration-footer-copy button { min-height: 40px; padding: 7px 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.migration-pending button svg, .migration-footer-copy button svg { width: 16px; height: 16px; }
 .migration-list { margin-top: 14px; display: grid; gap: 10px; }
 .migration-item { padding: 15px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.migration-item:focus { outline: 3px solid #e2aa46; outline-offset: 2px; }
 .migration-item.confirmed { border-color: #8db8a6; box-shadow: inset 4px 0 var(--forest); }
 .migration-item-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .migration-item-heading > div { min-width: 0; display: grid; gap: 3px; }
 .migration-item-heading strong { overflow-wrap: anywhere; font-size: 16px; }
 .migration-item-heading span { color: var(--muted); font-size: 11px; }
 .migration-item-heading > svg { width: 20px; color: var(--forest); }
+.migration-item-heading .migration-waiting { flex: 0 0 auto; padding: 3px 6px; color: #855d13; background: #fff0ce; border-radius: 4px; font-weight: 800; }
 .domain-choice-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .domain-choice-grid button { min-width: 0; min-height: 68px; padding: 9px; display: grid; align-content: center; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); text-align: left; cursor: pointer; }
 .domain-choice-grid button:hover { border-color: #8db8a6; background: var(--surface-soft); }
@@ -635,7 +641,10 @@ label textarea { min-height: 84px; resize: vertical; }
 .domain-choice-grid small { color: var(--muted); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .domain-example { margin: 9px 0 0; color: var(--muted); font-size: 11px; }
 .migration-footer { position: sticky; bottom: 0; margin-top: 14px; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; background: rgba(242, 245, 243, 0.96); border-top: 1px solid var(--line); backdrop-filter: blur(8px); }
-.migration-footer p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.migration-footer-copy { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 10px; }
+.migration-footer-copy strong { overflow-wrap: anywhere; color: #855d13; font-size: 12px; }
+.migration-footer-copy p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.migration-footer-copy button { grid-column: 2; grid-row: 1; color: var(--forest); }
 .migration-footer .primary-action { min-width: 190px; }
 
 @keyframes traveler-celebrate {
@@ -740,10 +749,13 @@ label textarea { min-height: 84px; resize: vertical; }
   .migration-header { padding: 16px 14px; }
   .migration-header h1 { font-size: 24px; }
   .migration-progress { grid-template-columns: 1fr; gap: 7px; }
+  .migration-pending { align-items: flex-start; flex-direction: column; }
   .migration-item { padding: 12px 10px; }
   .domain-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .domain-choice-grid button { min-height: 72px; padding: 8px; }
   .migration-footer { grid-template-columns: 1fr; padding: 10px 0 0; }
+  .migration-footer-copy { grid-template-columns: 1fr; }
+  .migration-footer-copy button { grid-column: 1; grid-row: auto; justify-self: start; }
   .migration-footer .primary-action { width: 100%; }
 }
 

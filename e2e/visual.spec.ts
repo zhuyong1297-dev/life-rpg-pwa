@@ -22,7 +22,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
 }
 
-test('旧活动必须逐项确认后才进入 V4', async ({ page }, testInfo) => {
+test('旧活动必须逐项确认并可定位遗漏项后才进入 V4', async ({ page }, testInfo) => {
   await page.goto('./')
   await expect(page.getByRole('heading', { name: '建立六个成长领域' })).toBeVisible()
   await page.evaluate(async () => {
@@ -32,11 +32,13 @@ test('旧活动必须逐项确认后才进入 V4', async ({ page }, testInfo) =>
       request.onerror = () => reject(request.error)
     })
     const transaction = database.transaction('activities', 'readwrite')
-    transaction.objectStore('activities').put({
-      id: 'legacy-writing', title: '旧体系写作', type: 'habit', attribute: '专注', difficulty: '普通',
-      goal: { count: 1, unit: '次' }, schedule: { kind: 'daily' }, isKey: true, enabled: true,
-      revision: 1, createdAt: '2026-07-20T08:00:00.000Z',
-    })
+    for (const [index, title] of ['旧体系活动一', '旧体系活动二', '旧体系活动三', '旧体系活动四', '最后一个待确认活动'].entries()) {
+      transaction.objectStore('activities').put({
+        id: `legacy-${index}`, title, type: 'habit', attribute: index === 4 ? '专注' : '体魄', difficulty: '普通',
+        goal: { count: 1, unit: '次' }, schedule: { kind: 'daily' }, isKey: index === 4, enabled: true,
+        revision: 1, createdAt: '2026-07-20T08:00:00.000Z',
+      })
+    }
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
@@ -44,16 +46,22 @@ test('旧活动必须逐项确认后才进入 V4', async ({ page }, testInfo) =>
     database.close()
   })
   await page.reload()
-  const item = page.locator('.migration-item').filter({ hasText: '旧体系写作' })
+  const items = page.locator('.migration-item')
+  for (let index = 0; index < 4; index += 1) await items.nth(index).getByRole('button', { name: /健康/ }).click()
+  const item = items.filter({ hasText: '最后一个待确认活动' })
   await expect(item).toContainText('旧属性：专注 · 建议：事业')
+  await expect(item).toContainText('待确认')
+  await expect(page.getByText('还未确认：最后一个待确认活动')).toHaveCount(2)
   await expect(page.getByRole('button', { name: '启用新领域体系' })).toBeDisabled()
+  await page.locator('.migration-footer').getByRole('button', { name: '定位未确认项' }).click()
+  await expect(item).toBeInViewport()
   await item.getByRole('button', { name: /创作/ }).click()
   await expect(page.getByRole('button', { name: '启用新领域体系' })).toBeEnabled()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/domain-migration-${testInfo.project.name}.png`, fullPage: true })
   await page.getByRole('button', { name: '启用新领域体系' }).click()
   await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
-  const migratedCard = page.locator('.mission-card').filter({ hasText: '旧体系写作' })
+  const migratedCard = page.locator('.mission-card').filter({ hasText: '最后一个待确认活动' })
   await expect(migratedCard).toContainText('创作')
   await expect(migratedCard).toContainText('每天')
 })

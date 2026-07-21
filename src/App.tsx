@@ -295,7 +295,18 @@ function GrowthDomainMigration({
   ))
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
-  const ready = confirmed.size === activities.length
+  const remainingActivities = activities.filter((activity) => !confirmed.has(activity.id))
+  const ready = remainingActivities.length === 0
+  const remainingLabel = ready
+    ? '所有活动已经确认'
+    : `还未确认：${remainingActivities[0].title}${remainingActivities.length > 1 ? ` 等 ${remainingActivities.length} 项` : ''}`
+
+  function focusFirstUnconfirmed() {
+    const index = activities.findIndex((activity) => activity.id === remainingActivities[0]?.id)
+    const item = document.getElementById(`migration-activity-${index}`)
+    item?.scrollIntoView({ block: 'center' })
+    item?.focus({ preventScroll: true })
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -309,22 +320,26 @@ function GrowthDomainMigration({
     <main className="migration-screen">
       <form className="migration-panel" onSubmit={submit}>
         <header className="migration-header">
-          <span className="modal-kicker">地球 Online V4.0.0</span>
+          <span className="modal-kicker">地球 Online V4.0.1</span>
           <h1>建立六个成长领域</h1>
           <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
           <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
+          <div className={ready ? 'migration-pending ready' : 'migration-pending'} role="status">
+            <span>{remainingLabel}</span>
+            {!ready && <button type="button" onClick={focusFirstUnconfirmed}><Crosshair aria-hidden="true" />定位未确认项</button>}
+          </div>
         </header>
         {notice && <div className="notice" role="status"><span>{notice}</span></div>}
         <div className="migration-list">
           {activities.length === 0 && <p className="empty-state">没有需要迁移的现有活动。启用后，新建行动将直接使用成长领域。</p>}
-          {activities.map((activity) => {
+          {activities.map((activity, index) => {
             const selected = assignments[activity.id]
             const isConfirmed = confirmed.has(activity.id)
             return (
-              <section className={isConfirmed ? 'migration-item confirmed' : 'migration-item'} key={activity.id}>
+              <section id={`migration-activity-${index}`} tabIndex={-1} className={isConfirmed ? 'migration-item confirmed' : 'migration-item'} key={activity.id}>
                 <div className="migration-item-heading">
                   <div><strong>{activity.title}</strong><span>旧属性：{activity.attribute ?? '未分类'} · 建议：{domainLabel(selected)}</span></div>
-                  {isConfirmed && <Check aria-label="已确认" />}
+                  {isConfirmed ? <Check aria-label="已确认" /> : <span className="migration-waiting">待确认</span>}
                 </div>
                 <div className="domain-choice-grid" aria-label={`${activity.title}的成长领域`}>
                   {growthDomains.map((domain) => {
@@ -352,7 +367,11 @@ function GrowthDomainMigration({
           })}
         </div>
         <footer className="migration-footer">
-          <p>总 XP、金币、完成记录和旧日志不会改变；六个新领域从 0 XP 开始。</p>
+          <div className="migration-footer-copy">
+            <strong>{remainingLabel}</strong>
+            <p>总 XP、金币、完成记录和旧日志不会改变；六个新领域从 0 XP 开始。</p>
+            {!ready && <button type="button" onClick={focusFirstUnconfirmed}><Crosshair aria-hidden="true" />定位未确认项</button>}
+          </div>
           <button className="primary-action" type="submit" disabled={!ready || submitting}><ShieldCheck aria-hidden="true" />{submitting ? '正在启用…' : '启用新领域体系'}</button>
         </footer>
       </form>
@@ -1898,7 +1917,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.1{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
