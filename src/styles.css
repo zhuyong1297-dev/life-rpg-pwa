@@ -707,7 +707,9 @@ label textarea { min-height: 84px; resize: vertical; }
   .milestone-main > div:first-child { padding-right: 60px; }
   .voucher-picker { grid-template-columns: 1fr; }
   .voucher-picker button { width: 100%; }
-  .attribute-grid { grid-template-columns: 1fr; gap: 0; }
+  .attribute-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+  .attribute-item { padding: 10px 0; }
+  .attribute-item > div:first-child { gap: 4px; margin-bottom: 6px; }
   .growth-row { grid-template-columns: 34px minmax(0, 1fr); padding: 8px 0; }
   .growth-row > b { grid-column: 2; text-align: left; }
   .feedback-intensity-control { grid-template-columns: 1fr; }

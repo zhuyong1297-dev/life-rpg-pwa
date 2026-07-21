@@ -320,7 +320,7 @@ function GrowthDomainMigration({
     <main className="migration-screen">
       <form className="migration-panel" onSubmit={submit}>
         <header className="migration-header">
-          <span className="modal-kicker">地球 Online V4.0.1</span>
+          <span className="modal-kicker">地球 Online V4.0.2</span>
           <h1>建立六个成长领域</h1>
           <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
           <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
@@ -1917,7 +1917,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.1{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.2{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }

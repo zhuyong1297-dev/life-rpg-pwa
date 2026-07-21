@@ -220,14 +220,19 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
     const coins = rect('.coin-balance')
     const routeSummary = rect('.reward-route-summary')
     const shopSummary = rect('.shop-summary')
+    const domainItems = [...document.querySelectorAll<HTMLElement>('.attribute-item')].map((item) => item.getBoundingClientRect())
     return {
       stageOverlapsPortrait: overlaps(stage, portrait),
       levelOverlapsCoins: overlaps(level, coins),
       routeSummaryHeight: routeSummary?.height,
       shopSummaryHeight: shopSummary?.height,
+      domainGridIsTwoColumns: domainItems.length === 6
+        && Math.abs(domainItems[0].top - domainItems[1].top) < 1
+        && domainItems[1].left > domainItems[0].left
+        && Math.abs(domainItems[2].top - domainItems[3].top) < 1,
     }
   })
-  expect(heroLayout).toMatchObject({ stageOverlapsPortrait: false, levelOverlapsCoins: false, routeSummaryHeight: 88, shopSummaryHeight: 104 })
+  expect(heroLayout).toMatchObject({ stageOverlapsPortrait: false, levelOverlapsCoins: false, routeSummaryHeight: 88, shopSummaryHeight: 104, domainGridIsTwoColumns: true })
   await page.screenshot({ path: `test-results/character-${testInfo.project.name}.png`, fullPage: true })
 
   await page.getByRole('button', { name: '复盘' }).click()

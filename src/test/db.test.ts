@@ -623,7 +623,8 @@ describe('IndexedDB 事务', () => {
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
     }, '2026-01-05', database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 7, appVersion: '4.0.1', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 7, appVersion: '4.0.2', seasons: [{ id: season.id }] })
+    await restoreBackup({ ...current, appVersion: '4.0.1' }, database)
     await restoreBackup({ ...current, appVersion: '4.0.0' }, database)
     await expect(restoreBackup({ ...current, seasons: [...current.seasons, { ...season, id: 'duplicate-active-season' }] }, database)).rejects.toThrow('只能存在一个')
     await restoreBackup({ ...current, schemaVersion: 6, appVersion: '3.2.0' }, database)
