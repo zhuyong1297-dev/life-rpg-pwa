@@ -2,11 +2,11 @@
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
 
-正式入口运行 V4.0.1，手机预览运行 V4.0.2：预览版将角色页六个成长领域在手机上恢复为两列三行。首次升级仍需逐项确认活动归属，角色总 XP、金币和历史流水不变。正式数据与预览数据继续完全隔离。
+正式入口与手机预览均运行 V4.0.2：角色页六个成长领域在手机上使用两列三行布局。首次升级仍需逐项确认活动归属，角色总 XP、金币和历史流水不变。正式数据与预览数据继续完全隔离。
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
-正式版本：[地球 Online V4.0.1](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v4.0.1)
+正式版本：[地球 Online V4.0.2](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v4.0.2)
 
 手机预览地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
 
