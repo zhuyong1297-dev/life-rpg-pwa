@@ -7,12 +7,59 @@ async function createVisualActivity(page: Page, title: string, isKey = false) {
   await page.getByRole('button', { name: '创建', exact: true }).click()
 }
 
+async function openApp(page: Page) {
+  await page.goto('./')
+  const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
+  const today = page.getByRole('heading', { name: '今天' })
+  await Promise.race([wizard.waitFor(), today.waitFor()])
+  if (await wizard.isVisible()) {
+    await page.getByRole('button', { name: '启用新领域体系' }).click()
+  }
+  await expect(today).toBeVisible()
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
 }
 
-test('代表性今天界面无溢出或反馈遮挡', async ({ page }, testInfo) => {
+test('旧活动必须逐项确认后才进入 V4', async ({ page }, testInfo) => {
   await page.goto('./')
+  await expect(page.getByRole('heading', { name: '建立六个成长领域' })).toBeVisible()
+  await page.evaluate(async () => {
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('activities', 'readwrite')
+    transaction.objectStore('activities').put({
+      id: 'legacy-writing', title: '旧体系写作', type: 'habit', attribute: '专注', difficulty: '普通',
+      goal: { count: 1, unit: '次' }, schedule: { kind: 'daily' }, isKey: true, enabled: true,
+      revision: 1, createdAt: '2026-07-20T08:00:00.000Z',
+    })
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+  })
+  await page.reload()
+  const item = page.locator('.migration-item').filter({ hasText: '旧体系写作' })
+  await expect(item).toContainText('旧属性：专注 · 建议：事业')
+  await expect(page.getByRole('button', { name: '启用新领域体系' })).toBeDisabled()
+  await item.getByRole('button', { name: /创作/ }).click()
+  await expect(page.getByRole('button', { name: '启用新领域体系' })).toBeEnabled()
+  await expectNoHorizontalOverflow(page)
+  await page.screenshot({ path: `test-results/domain-migration-${testInfo.project.name}.png`, fullPage: true })
+  await page.getByRole('button', { name: '启用新领域体系' }).click()
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  const migratedCard = page.locator('.mission-card').filter({ hasText: '旧体系写作' })
+  await expect(migratedCard).toContainText('创作')
+  await expect(migratedCard).toContainText('每天')
+})
+
+test('代表性今天界面无溢出或反馈遮挡', async ({ page }, testInfo) => {
+  await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例关键行为')
   await page.getByLabel('关键行为').check()
@@ -41,7 +88,7 @@ test('代表性今天界面无溢出或反馈遮挡', async ({ page }, testInfo)
 })
 
 test('三层选择器在各视口完整可见', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例分层习惯')
   await page.getByRole('button', { name: '分层目标' }).click()
@@ -65,7 +112,7 @@ test('三层选择器在各视口完整可见', async ({ page }, testInfo) => {
 })
 
 test('完成操作和归档确认在各视口完整可见', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例操作习惯')
   await page.getByRole('button', { name: '创建', exact: true }).click()
@@ -87,7 +134,7 @@ test('完成操作和归档确认在各视口完整可见', async ({ page }, tes
 })
 
 test('高级组合目标在各视口可完整编辑', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByRole('button', { name: '分层目标' }).click()
   await page.getByRole('switch', { name: /高级设置/ }).check()
@@ -106,7 +153,7 @@ test('高级组合目标在各视口可完整编辑', async ({ page }, testInfo)
 })
 
 test('三项关键行动和紧凑日常列表在各视口保持清晰', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await createVisualActivity(page, '清晨拉伸与肩颈活动，为全天工作做好准备', true)
   await createVisualActivity(page, '阅读专业书籍', true)
   await createVisualActivity(page, '完成当天最重要的工作成果', true)
@@ -115,7 +162,7 @@ test('三项关键行动和紧凑日常列表在各视口保持清晰', async ({
 
   await expect(page.locator('.mission-card')).toHaveCount(3)
   await expect(page.locator('.activity-row')).toHaveCount(2)
-  await expect(page.locator('.activity-row').first()).toContainText('体魄 · 每天')
+  await expect(page.locator('.activity-row').first()).toContainText('健康 · 每天')
   await expect(page.locator('.activity-row').first()).toContainText('目标 1次')
   await expect(page.locator('.activity-row').first()).toContainText('+5 XP')
   const regularLayout = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('.activity-row')].map((row) => {
@@ -136,7 +183,7 @@ test('三项关键行动和紧凑日常列表在各视口保持清晰', async ({
 })
 
 test('创建、角色、复盘、设置和编辑界面在各视口完整可见', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/create-${testInfo.project.name}.png` })
@@ -153,7 +200,7 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
   await expect(page.locator('.milestone-row').filter({ hasText: 'Lv.10 · 200 金币档礼券' })).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/reward-route-${testInfo.project.name}.png` })
-  await page.getByTitle('关闭').click()
+  await page.getByRole('dialog', { name: '等级奖励路线' }).getByRole('button', { name: '关闭', exact: true }).click()
   const heroLayout = await page.evaluate(() => {
     const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect()
     const overlaps = (left?: DOMRect, right?: DOMRect) => Boolean(
@@ -195,7 +242,7 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
 })
 
 test('旅程、商店和商品编辑弹层在各视口保持紧凑', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await openApp(page)
   await createVisualActivity(page, '用于旅程章节的示例行动')
   await page.getByRole('button', { name: '完成 用于旅程章节的示例行动' }).click()
   await page.getByRole('button', { name: '角色' }).click()

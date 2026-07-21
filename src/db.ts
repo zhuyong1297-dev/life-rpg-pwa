@@ -2,7 +2,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   ActivitySchema,
   type Activity,
-  type Attribute,
+  type GrowthDomain,
   type Completion,
   type Difficulty,
   type TierLevel,
@@ -70,6 +70,15 @@ export class LifeRpgDatabase extends Dexie {
       seasons: 'id, status, startsOn, endsOn',
       settings: 'key',
     })
+    this.version(3).stores({
+      activities: 'id, type, plannedOn',
+      completions: 'id, activityId, occurredOn, status, [activityId+occurredOn]',
+      ledgerEvents: 'id, kind, sourceId, occurredOn',
+      rewards: 'id',
+      weeklyReviews: 'id, weekStart',
+      seasons: 'id, status, startsOn, endsOn',
+      settings: 'key',
+    })
   }
 }
 
@@ -121,6 +130,63 @@ export async function currentGameDate(database = db, now = new Date()) {
   const storedMeta = await database.settings.get('meta')
   const activatedAt = storedMeta?.key === 'meta' ? storedMeta.value.gameDayBoundaryActivatedAt : undefined
   return effectiveGameDate(now, activatedAt)
+}
+
+export async function getGrowthDomainMigrationCandidates(database = db, now = new Date()) {
+  const today = await currentGameDate(database, now)
+  const [activities, completions] = await Promise.all([database.activities.toArray(), database.completions.toArray()])
+  const settledTaskIds = new Set(
+    completions
+      .filter((completion) => completion.status === 'active' && completion.occurredOn < today)
+      .map((completion) => completion.activityId),
+  )
+  return activities.filter((activity) => !activity.domain && (activity.type === 'habit' || !settledTaskIds.has(activity.id)))
+}
+
+export async function activateGrowthDomains(assignments: Record<string, GrowthDomain>, database = db, now = new Date()) {
+  return database.transaction('rw', database.activities, database.seasons, database.settings, database.completions, async () => {
+    const candidates = await getGrowthDomainMigrationCandidates(database, now)
+    const candidateIds = new Set(candidates.map((activity) => activity.id))
+    if (candidates.some((activity) => !assignments[activity.id]) || Object.keys(assignments).some((id) => !candidateIds.has(id))) {
+      throw new Error('请逐项确认所有活动的成长领域')
+    }
+
+    const activeSeason = await database.seasons.where('status').equals('active').first()
+    if (activeSeason?.focusActivities.some((snapshot) => !snapshot.domain && !assignments[snapshot.activityId])) {
+      throw new Error('当前赛季存在尚未确认成长领域的核心行为')
+    }
+
+    await database.activities.bulkPut(candidates.map((activity) => {
+      const { attribute: _attribute, ...rest } = activity
+      return ActivitySchema.parse({ ...rest, domain: assignments[activity.id] })
+    }))
+
+    if (activeSeason) {
+      await database.seasons.put(SeasonSchema.parse({
+        ...activeSeason,
+        focusActivities: activeSeason.focusActivities.map((snapshot) => {
+          if (snapshot.domain) return snapshot
+          const { attribute: _attribute, ...rest } = snapshot
+          return { ...rest, domain: assignments[snapshot.activityId] }
+        }),
+      }))
+    }
+
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta.value : {}
+    const levelSystem = meta.levelSystem
+      ? (() => {
+          const { focusAttribute: _focusAttribute, focusDomain: _focusDomain, ...rest } = meta.levelSystem
+          return rest
+        })()
+      : undefined
+    const activatedAt = now.toISOString()
+    await database.settings.put({
+      key: 'meta',
+      value: { ...meta, levelSystem, growthDomainSystem: { version: 1, activatedAt } },
+    })
+    return { migrated: candidates.length, activatedAt }
+  })
 }
 
 export interface CreateSeasonInput {
@@ -286,7 +352,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
   if (!activity || activity.type !== 'habit') throw new Error('找不到这项习惯')
   await updateHabit(activityId, {
     title: activity.title,
-    attribute: activity.attribute,
+    domain: activity.domain,
     difficulty: activity.difficulty,
     schedule: activity.schedule,
     goal,
@@ -294,7 +360,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
   }, database)
 }
 
-export type HabitUpdate = Pick<Activity, 'title' | 'attribute' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
+export type HabitUpdate = Pick<Activity, 'title' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
 export async function updateHabit(activityId: string, input: HabitUpdate, database = db) {
   return database.transaction('rw', database.activities, database.completions, database.settings, async () => {
@@ -315,6 +381,7 @@ export async function updateHabit(activityId: string, input: HabitUpdate, databa
         activityRevision: activity.revision ?? 1,
         titleSnapshot: activity.title,
         attributeSnapshot: activity.attribute,
+        domainSnapshot: activity.attribute ? undefined : activity.domain,
         difficultySnapshot: activity.difficulty,
       })))
     }
@@ -372,17 +439,18 @@ export async function permanentlyDeleteActivity(
         activityRevision: completion.activityRevision ?? activity.revision ?? 1,
         titleSnapshot: completion.titleSnapshot ?? activity.title,
         attributeSnapshot: completion.attributeSnapshot ?? activity.attribute,
+        domainSnapshot: completion.attributeSnapshot ? undefined : completion.domainSnapshot ?? activity.domain,
         difficultySnapshot: completion.difficultySnapshot ?? activity.difficulty,
       })))
     }
 
     const reviews = await database.weeklyReviews.toArray()
     const updatedReviews = reviews
-      .filter((review) => review.items.some((item) => item.activityId === activityId && (!item.titleSnapshot || !item.attributeSnapshot)))
+      .filter((review) => review.items.some((item) => item.activityId === activityId && (!item.titleSnapshot || (!item.attributeSnapshot && !item.domainSnapshot))))
       .map((review) => ({
         ...review,
         items: review.items.map((item) => item.activityId === activityId
-          ? { ...item, titleSnapshot: item.titleSnapshot ?? activity.title, attributeSnapshot: item.attributeSnapshot ?? activity.attribute }
+          ? { ...item, titleSnapshot: item.titleSnapshot ?? activity.title, attributeSnapshot: item.attributeSnapshot ?? activity.attribute, domainSnapshot: item.attributeSnapshot ? undefined : item.domainSnapshot ?? activity.domain }
           : item),
       }))
     if (updatedReviews.length > 0) await database.weeklyReviews.bulkPut(updatedReviews)
@@ -430,6 +498,7 @@ export async function completeActivity(
     const eventDate = occurredOn ?? await currentGameDate(database)
     const activity = await database.activities.get(activityId)
     if (!activity || !activity.enabled) throw new Error('这项行动不存在或已暂停')
+    if (!activity.domain) throw new Error('请先完成成长领域迁移')
     const requestedDetails = typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {})
     const active = await database.completions
       .where('activityId')
@@ -443,7 +512,8 @@ export async function completeActivity(
       }
       const createdAt = new Date().toISOString()
       const difficulty = active.difficultySnapshot ?? activity.difficulty
-      const attribute = active.attributeSnapshot ?? activity.attribute
+      const domain = active.domainSnapshot ?? activity.domain
+      if (!domain) throw new Error('请先完成成长领域迁移')
       const title = active.titleSnapshot ?? activity.title
       if (!getTierLevels(tierGoal).includes(requestedDetails.tier)) throw new Error('所选层次不属于完成时的目标')
       const tierCount = getTierCount(tierGoal)
@@ -453,7 +523,7 @@ export async function completeActivity(
         sourceId: active.id,
         occurredOn: eventDate,
         title: `层次升级：${title}（${requestedDetails.tier === 2 ? '标准' : '突破'}）`,
-        attribute,
+        domain,
         xpDelta: getTierUpgradeXp(difficulty, active.tier, requestedDetails.tier, tierCount),
         coinDelta: 0,
         createdAt,
@@ -499,7 +569,7 @@ export async function completeActivity(
       tierGoalSnapshot: isTieredGoal(activity) ? activity.goal : undefined,
       activityRevision: activity.revision ?? 1,
       titleSnapshot: activity.title,
-      attributeSnapshot: activity.attribute,
+      domainSnapshot: activity.domain,
       difficultySnapshot: activity.difficulty,
       createdAt,
     }
@@ -512,7 +582,7 @@ export async function completeActivity(
       sourceId: completion.id,
       occurredOn: eventDate,
       title: activity.title,
-      attribute: activity.attribute,
+      domain: activity.domain,
       xpDelta: reward.xp,
       coinDelta: reward.coins,
       createdAt,
@@ -552,6 +622,7 @@ function undoCompletionOn(completionId: string, requiredOn: string | undefined, 
         occurredOn: completion.occurredOn,
         title: `撤销：${reward.title}`,
         attribute: reward.attribute,
+        domain: reward.domain,
         xpDelta: -reward.xpDelta,
         coinDelta: -reward.coinDelta,
         createdAt,
@@ -702,7 +773,7 @@ export async function syncLevelMilestones(database = db, now = new Date()) {
   })
 }
 
-export async function acknowledgeLevelMilestone(level: number, focusAttribute: Attribute, database = db) {
+export async function acknowledgeLevelMilestone(level: number, focusDomain: GrowthDomain, database = db) {
   return database.transaction('rw', database.settings, async () => {
     const storedMeta = await database.settings.get('meta')
     const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
@@ -713,8 +784,9 @@ export async function acknowledgeLevelMilestone(level: number, focusAttribute: A
     const acknowledgedAt = milestone.acknowledgedAt ?? new Date().toISOString()
     const levelSystem = LevelSystemSchema.parse({
       ...system,
-      focusAttribute,
-      milestones: system.milestones.map((item) => item.level === level ? { ...item, acknowledgedAt, focusAttribute } : item),
+      focusAttribute: undefined,
+      focusDomain,
+      milestones: system.milestones.map((item) => item.level === level ? { ...item, acknowledgedAt, focusAttribute: undefined, focusDomain } : item),
     })
     await database.settings.put({ ...meta, value: { ...meta.value, levelSystem } })
     return levelSystem
@@ -765,6 +837,7 @@ export async function saveWeeklyReview(review: WeeklyReview, database = db) {
         ...item,
         titleSnapshot: item.titleSnapshot ?? activities[index]?.title,
         attributeSnapshot: item.attributeSnapshot ?? activities[index]?.attribute,
+        domainSnapshot: item.attributeSnapshot ? undefined : item.domainSnapshot ?? activities[index]?.domain,
       })),
     })
     await database.weeklyReviews.put(savedReview)

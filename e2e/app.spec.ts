@@ -2,7 +2,13 @@ import { expect, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('./')
-  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
+  const today = page.getByRole('heading', { name: '今天' })
+  await Promise.race([wizard.waitFor(), today.waitFor()])
+  if (await wizard.isVisible()) {
+    await page.getByRole('button', { name: '启用新领域体系' }).click()
+  }
+  await expect(today).toBeVisible()
 })
 
 async function openActivityManager(page: import('@playwright/test').Page) {
@@ -176,7 +182,7 @@ test('活动管理可以完整编辑习惯并转换为三层次数目标', async
   const row = await expandManagedActivity(page, '示例次数习惯')
   await row.getByRole('button', { name: '编辑' }).click()
   await page.getByLabel('习惯名称').fill('调整后的习惯')
-  await page.getByLabel('属性').selectOption('创造')
+  await page.getByLabel('成长领域').selectOption('creation')
   await page.getByLabel('难度').selectOption('困难')
   await page.getByLabel('频率').selectOption('weekly')
   await page.getByLabel('每周次数').fill('4')
@@ -190,7 +196,7 @@ test('活动管理可以完整编辑习惯并转换为三层次数目标', async
   await expect(page.getByText('习惯已更新，历史完成和账本保持不变')).toBeVisible()
   await page.getByRole('button', { name: '今天' }).click()
   await expect(page.getByText('调整后的习惯', { exact: true })).toBeVisible()
-  await expect(page.getByText(/创造 · 每周 4 次/)).toBeVisible()
+  await expect(page.getByText(/创作 · 每周 4 次/)).toBeVisible()
   await expect(page.getByText(/基础 1组 · 标准 3组 · 突破 5组/)).toBeVisible()
 })
 

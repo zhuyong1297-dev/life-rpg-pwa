@@ -11,7 +11,7 @@ import {
   Target,
   X,
 } from 'lucide-react'
-import { addDays, type Activity, type Completion, type WeeklyReview } from './domain'
+import { addDays, domainLabel, type Activity, type Completion, type WeeklyReview } from './domain'
 import {
   getSeasonDailyActivityIds,
   getSeasonDay,
@@ -218,7 +218,7 @@ function CreateSeasonForm({
         {eligible.length === 0 ? <span className="empty-state">请先创建并启用至少一项习惯。</span> : eligible.map((activity) => {
           const checked = focusIds.includes(activity.id)
           const scheduleLabel = activity.schedule.kind === 'daily' ? '每天' : activity.schedule.kind === 'weekly' ? `每周 ${activity.schedule.times} 次` : '单次'
-          return <label key={activity.id}><input type="checkbox" checked={checked} disabled={!checked && focusIds.length >= 3} onChange={() => setFocusIds((current) => checked ? current.filter((id) => id !== activity.id) : [...current, activity.id])} /><span><strong>{activity.title}</strong><small>{activity.attribute} · {scheduleLabel}</small></span></label>
+          return <label key={activity.id}><input type="checkbox" checked={checked} disabled={!checked && focusIds.length >= 3} onChange={() => setFocusIds((current) => checked ? current.filter((id) => id !== activity.id) : [...current, activity.id])} /><span><strong>{activity.title}</strong><small>{activity.domain ? domainLabel(activity.domain) : `${activity.attribute} · 旧体系`} · {scheduleLabel}</small></span></label>
         })}
       </fieldset>
       <p className="form-detail-note">赛季从 {today} 到 {addDays(today, 27)}，共 28 个游戏日。XP 只反馈投入，不判断赛季是否成功。</p>

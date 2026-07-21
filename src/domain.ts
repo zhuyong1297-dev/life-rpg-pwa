@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const attributes = ['体魄', '智识', '专注', '创造', '关系', '心境'] as const
+export const growthDomains = ['health', 'learning', 'creation', 'career', 'life', 'mindset'] as const
 export const difficulties = ['简单', '普通', '困难', 'Boss'] as const
 export const reviewDecisions = ['保留', '调整', '暂停'] as const
 export const tierLevels = [1, 2, 3] as const
@@ -9,12 +10,35 @@ export const timeInputUnits = ['秒', '分钟'] as const
 export const combinedModes = ['per_occurrence', 'total'] as const
 
 export type Attribute = (typeof attributes)[number]
+export type GrowthDomain = (typeof growthDomains)[number]
 export type Difficulty = (typeof difficulties)[number]
 export type ReviewDecision = (typeof reviewDecisions)[number]
 export type TierLevel = (typeof tierLevels)[number]
 export type TierMetric = 'duration' | 'count'
 export type TimeInputUnit = (typeof timeInputUnits)[number]
 export type CombinedMode = (typeof combinedModes)[number]
+
+export const growthDomainDetails: Record<GrowthDomain, { label: string; description: string; examples: string; identity: string }> = {
+  health: { label: '健康', description: '改善身体状态与恢复能力', examples: '运动、睡眠、饮食、卫生', identity: '你正在照顾并增强自己的身体' },
+  learning: { label: '学习', description: '理解知识并练习可迁移的技能', examples: '阅读、课程、复习、技能练习', identity: '你正在把知识变成真正的能力' },
+  creation: { label: '创作', description: '把想法转化为可以看见的作品', examples: '写作、绘画、制作内容、个人作品', identity: '你正在把想法变成作品' },
+  career: { label: '事业', description: '推进工作交付、职业发展与收入', examples: '完成项目、客户工作、职业规划', identity: '你正在推进长期事业' },
+  life: { label: '生活', description: '改善环境、财务、行政和日常秩序', examples: '整理房间、记账、处理事务', identity: '你正在建立更有秩序的生活' },
+  mindset: { label: '心境', description: '调节情绪、反思并恢复心理状态', examples: '日记、冥想、呼吸练习', identity: '你正在培养稳定而清醒的内在状态' },
+}
+
+export const legacyDomainSuggestions: Record<Attribute, GrowthDomain> = {
+  体魄: 'health',
+  智识: 'learning',
+  专注: 'career',
+  创造: 'creation',
+  关系: 'life',
+  心境: 'mindset',
+}
+
+export function domainLabel(domain: GrowthDomain) {
+  return growthDomainDetails[domain].label
+}
 
 export const rewardTable: Record<Difficulty, { xp: number; coins: number }> = {
   简单: { xp: 5, coins: 2 },
@@ -153,7 +177,8 @@ export const ActivitySchema = z
     id: z.string().min(1),
     title: z.string().trim().min(1).max(60),
     type: z.enum(['habit', 'task']),
-    attribute: z.enum(attributes),
+    attribute: z.enum(attributes).optional(),
+    domain: z.enum(growthDomains).optional(),
     difficulty: z.enum(difficulties),
     goal: ActivityGoalSchema,
     schedule: ScheduleSchema,
@@ -165,6 +190,9 @@ export const ActivitySchema = z
     createdAt: timestamp,
   })
   .superRefine((activity, context) => {
+    if ((activity.attribute === undefined) === (activity.domain === undefined)) {
+      context.addIssue({ code: 'custom', path: ['domain'], message: '活动必须且只能使用一个成长领域体系' })
+    }
     if (activity.type === 'habit' && activity.schedule.kind === 'once') {
       context.addIssue({ code: 'custom', path: ['schedule'], message: '习惯必须设置每天或每周计划' })
     }
@@ -201,6 +229,7 @@ export const CompletionSchema = z
     activityRevision: z.number().int().positive().optional(),
     titleSnapshot: z.string().trim().min(1).max(60).optional(),
     attributeSnapshot: z.enum(attributes).optional(),
+    domainSnapshot: z.enum(growthDomains).optional(),
     difficultySnapshot: z.enum(difficulties).optional(),
     createdAt: timestamp,
     undoneAt: timestamp.optional(),
@@ -223,9 +252,13 @@ export const CompletionSchema = z
         context.addIssue({ code: 'custom', path: ['achievedValue'], message: '三层完成快照与所选层次不一致' })
       }
     }
-    const activitySnapshot = [completion.activityRevision, completion.titleSnapshot, completion.attributeSnapshot, completion.difficultySnapshot]
-    if (activitySnapshot.some((value) => value !== undefined) && activitySnapshot.some((value) => value === undefined)) {
+    const activitySnapshot = [completion.activityRevision, completion.titleSnapshot, completion.difficultySnapshot]
+    const classificationSnapshot = [completion.attributeSnapshot, completion.domainSnapshot]
+    if (activitySnapshot.some((value) => value !== undefined) && (activitySnapshot.some((value) => value === undefined) || classificationSnapshot.every((value) => value === undefined))) {
       context.addIssue({ code: 'custom', path: ['activityRevision'], message: '完成时的活动配置快照不完整' })
+    }
+    if (classificationSnapshot.every((value) => value !== undefined)) {
+      context.addIssue({ code: 'custom', path: ['domainSnapshot'], message: '完成快照不能同时使用旧属性和成长领域' })
     }
   })
 
@@ -238,6 +271,7 @@ export const LedgerEventSchema = z.object({
   occurredOn: dateString,
   title: z.string().min(1).max(80),
   attribute: z.enum(attributes).optional(),
+  domain: z.enum(growthDomains).optional(),
   xpDelta: z.number().int(),
   coinDelta: z.number().int(),
   createdAt: timestamp,
@@ -259,6 +293,7 @@ export const ReviewItemSchema = z.object({
   activityId: z.string().min(1),
   titleSnapshot: z.string().trim().min(1).max(60).optional(),
   attributeSnapshot: z.enum(attributes).optional(),
+  domainSnapshot: z.enum(growthDomains).optional(),
   adherence: z.number().min(0).max(1),
   completed: z.number().int().nonnegative(),
   planned: z.number().int().positive(),
@@ -304,13 +339,18 @@ export const LevelMilestoneSchema = z
     sourceEventId: z.string().min(1),
     acknowledgedAt: timestamp.optional(),
     focusAttribute: z.enum(attributes).optional(),
+    focusDomain: z.enum(growthDomains).optional(),
     voucherMaxCost: z.number().int().positive().optional(),
     claimedRewardId: z.string().min(1).optional(),
     claimedAt: timestamp.optional(),
   })
   .superRefine((milestone, context) => {
-    if ((milestone.acknowledgedAt === undefined) !== (milestone.focusAttribute === undefined)) {
-      context.addIssue({ code: 'custom', path: ['focusAttribute'], message: '查看升级报告时必须选择下一等级方向' })
+    const focus = milestone.focusDomain ?? milestone.focusAttribute
+    if ((milestone.acknowledgedAt === undefined) !== (focus === undefined)) {
+      context.addIssue({ code: 'custom', path: ['focusDomain'], message: '查看升级报告时必须选择下一等级方向' })
+    }
+    if (milestone.focusDomain && milestone.focusAttribute) {
+      context.addIssue({ code: 'custom', path: ['focusDomain'], message: '等级方向不能同时使用旧属性和成长领域' })
     }
     if ((milestone.claimedRewardId === undefined) !== (milestone.claimedAt === undefined)) {
       context.addIssue({ code: 'custom', path: ['claimedRewardId'], message: '阶段礼券领取信息不完整' })
@@ -328,9 +368,13 @@ export const LevelSystemSchema = z
     baselineLevel: z.number().int().positive(),
     highestLevelReached: z.number().int().positive(),
     focusAttribute: z.enum(attributes).optional(),
+    focusDomain: z.enum(growthDomains).optional(),
     milestones: z.array(LevelMilestoneSchema),
   })
   .superRefine((system, context) => {
+    if (system.focusDomain && system.focusAttribute) {
+      context.addIssue({ code: 'custom', path: ['focusDomain'], message: '当前方向不能同时使用旧属性和成长领域' })
+    }
     if (system.highestLevelReached < system.baselineLevel) {
       context.addIssue({ code: 'custom', path: ['highestLevelReached'], message: '历史最高等级不能低于启用基线' })
     }
@@ -351,6 +395,7 @@ export const MetaSchema = z.object({
   levelSystem: LevelSystemSchema.optional(),
   targetRewardId: z.string().min(1).optional(),
   gameDayBoundaryActivatedAt: timestamp.optional(),
+  growthDomainSystem: z.object({ version: z.literal(1), activatedAt: timestamp }).optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [
@@ -366,6 +411,7 @@ export interface CharacterStats {
   totalXp: number
   coins: number
   attributeXp: Record<Attribute, number>
+  domainXp: Record<GrowthDomain, number>
 }
 
 export function getLevel(totalXp: number) {
@@ -420,6 +466,8 @@ export interface LevelReport {
   completionCount: number
   attributeXp: Record<Attribute, number>
   strongestAttribute?: Attribute
+  domainXp: Record<GrowthDomain, number>
+  strongestDomain?: GrowthDomain
   topActions: Array<{ title: string; xp: number }>
 }
 
@@ -437,9 +485,11 @@ export function getLevelReport(events: LedgerEvent[], milestone: LevelMilestone,
       !corrections.has(event.id),
   )
   const attributeXp = Object.fromEntries(attributes.map((attribute) => [attribute, 0])) as Record<Attribute, number>
+  const domainXp = Object.fromEntries(growthDomains.map((domain) => [domain, 0])) as Record<GrowthDomain, number>
   const completions = new Map<string, { title: string; xp: number; occurredOn: string }>()
   for (const event of rewards) {
     if (event.attribute) attributeXp[event.attribute] += event.xpDelta
+    if (event.domain) domainXp[event.domain] += event.xpDelta
     const current = completions.get(event.sourceId)
     completions.set(event.sourceId, {
       title: current?.title ?? event.title,
@@ -450,11 +500,16 @@ export function getLevelReport(events: LedgerEvent[], milestone: LevelMilestone,
   const strongestAttribute = [...attributes]
     .sort((left, right) => attributeXp[right] - attributeXp[left])
     .find((attribute) => attributeXp[attribute] > 0)
+  const strongestDomain = [...growthDomains]
+    .sort((left, right) => domainXp[right] - domainXp[left])
+    .find((domain) => domainXp[domain] > 0)
   return {
     activeDays: new Set([...completions.values()].map((completion) => completion.occurredOn)).size,
     completionCount: completions.size,
     attributeXp,
     strongestAttribute,
+    domainXp,
+    strongestDomain,
     topActions: [...completions.values()]
       .sort((left, right) => right.xp - left.xp)
       .slice(0, 3)
@@ -469,6 +524,7 @@ export interface JourneyEntry {
   createdAt: string
   title: string
   attribute?: Attribute
+  domain?: GrowthDomain
   xp: number
   coins: number
   tier?: TierLevel
@@ -493,6 +549,7 @@ export interface JourneyMonth {
   xp: number
   coins: number
   strongestAttribute?: Attribute
+  strongestDomain?: GrowthDomain
   days: JourneyDay[]
 }
 
@@ -516,6 +573,7 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
         createdAt: first.createdAt,
         title: completion.titleSnapshot ?? first.title.replace(/^层次升级：/, '').replace(/（(?:标准|突破)）$/, ''),
         attribute: completion.attributeSnapshot ?? first.attribute,
+        domain: completion.domainSnapshot ?? first.domain,
         xp: rewards.reduce((total, event) => total + event.xpDelta, 0),
         coins: rewards.reduce((total, event) => total + event.coinDelta, 0),
         tier: completion.tier,
@@ -563,8 +621,11 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
       monthEntries.forEach((entry) => dayMap.set(entry.occurredOn, [...(dayMap.get(entry.occurredOn) ?? []), entry]))
       const actions = monthEntries.filter((entry) => entry.kind === 'action')
       const attributeXp = Object.fromEntries(attributes.map((attribute) => [attribute, 0])) as Record<Attribute, number>
+      const domainXp = Object.fromEntries(growthDomains.map((domain) => [domain, 0])) as Record<GrowthDomain, number>
       actions.forEach((entry) => { if (entry.attribute) attributeXp[entry.attribute] += entry.xp })
+      actions.forEach((entry) => { if (entry.domain) domainXp[entry.domain] += entry.xp })
       const strongestAttribute = [...attributes].sort((left, right) => attributeXp[right] - attributeXp[left]).find((attribute) => attributeXp[attribute] > 0)
+      const strongestDomain = [...growthDomains].sort((left, right) => domainXp[right] - domainXp[left]).find((domain) => domainXp[domain] > 0)
       const [year, monthNumber] = month.split('-')
       return {
         month,
@@ -574,6 +635,7 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
         xp: actions.reduce((total, entry) => total + entry.xp, 0),
         coins: actions.reduce((total, entry) => total + entry.coins, 0),
         strongestAttribute,
+        strongestDomain,
         days: [...dayMap.entries()].sort(([left], [right]) => right.localeCompare(left)).map(([date, dayEntries]) => ({
           date,
           entries: dayEntries.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
@@ -586,14 +648,16 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
 
 export function calculateStats(events: LedgerEvent[]): CharacterStats {
   const attributeXp = Object.fromEntries(attributes.map((attribute) => [attribute, 0])) as Record<Attribute, number>
+  const domainXp = Object.fromEntries(growthDomains.map((domain) => [domain, 0])) as Record<GrowthDomain, number>
   let totalXp = 0
   let coins = 0
   for (const event of events) {
     totalXp += event.xpDelta
     coins += event.coinDelta
     if (event.attribute) attributeXp[event.attribute] += event.xpDelta
+    if (event.domain) domainXp[event.domain] += event.xpDelta
   }
-  return { totalXp, coins, attributeXp }
+  return { totalXp, coins, attributeXp, domainXp }
 }
 
 export function localDate(date = new Date()) {
@@ -638,8 +702,8 @@ export function addDays(date: string, amount: number) {
   return localDate(value)
 }
 
-export function identityMessage(attribute: Attribute) {
-  return `你正在强化${attribute}`
+export function identityMessage(domain: GrowthDomain) {
+  return growthDomainDetails[domain].identity
 }
 
 export function isDurationGoal(activity: Activity): activity is Activity & { goal: LegacyGoal } {

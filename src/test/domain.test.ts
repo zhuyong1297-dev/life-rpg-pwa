@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('使用固定的四档奖励', () => {
@@ -170,6 +170,8 @@ describe('领域规则', () => {
       completionCount: 1,
       attributeXp: { 体魄: 0, 智识: 10, 专注: 0, 创造: 0, 关系: 0, 心境: 0 },
       strongestAttribute: '智识',
+      domainXp: { health: 0, learning: 0, creation: 0, career: 0, life: 0, mindset: 0 },
+      strongestDomain: undefined,
       topActions: [{ title: '阅读', xp: 10 }],
     })
   })
@@ -202,6 +204,21 @@ describe('领域规则', () => {
       totalXp: 0,
       coins: -2,
       attributeXp: Object.fromEntries(attributes.map((attribute) => [attribute, 0])),
+      domainXp: Object.fromEntries(growthDomains.map((domain) => [domain, 0])),
     })
+  })
+
+  it('六个成长领域使用稳定 ID，旧属性只提供迁移建议', () => {
+    expect(growthDomains).toEqual(['health', 'learning', 'creation', 'career', 'life', 'mindset'])
+    expect(growthDomains.map((domain) => growthDomainDetails[domain].label)).toEqual(['健康', '学习', '创作', '事业', '生活', '心境'])
+    expect(legacyDomainSuggestions).toEqual({ 体魄: 'health', 智识: 'learning', 专注: 'career', 创造: 'creation', 关系: 'life', 心境: 'mindset' })
+  })
+
+  it('旧属性经验不进入新领域，新领域流水从零独立累计', () => {
+    const stats = calculateStats([
+      { id: 'old', kind: 'reward', sourceId: 'c1', occurredOn: '2026-01-01', title: '旧行动', attribute: '体魄', xpDelta: 10, coinDelta: 5, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'new', kind: 'reward', sourceId: 'c2', occurredOn: '2026-01-02', title: '新行动', domain: 'health', xpDelta: 5, coinDelta: 2, createdAt: '2026-01-02T00:00:00.000Z' },
+    ])
+    expect(stats).toMatchObject({ totalXp: 15, coins: 7, attributeXp: { 体魄: 10 }, domainXp: { health: 5 } })
   })
 })

@@ -44,6 +44,7 @@ import {
 import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
   archiveActivity as archiveActivityDefinition,
+  activateGrowthDomains,
   cancelTodayCompletion,
   completeSeason,
   completeActivity,
@@ -77,9 +78,12 @@ import {
 } from './db'
 import {
   addDays,
-  attributes,
+  domainLabel,
   calculateStats,
   difficulties,
+  growthDomainDetails,
+  growthDomains,
+  legacyDomainSuggestions,
   getCharacterStage,
   getCharacterStageName,
   getCompletionTierGoal,
@@ -107,7 +111,7 @@ import {
   tierLabels,
   tierLevels,
   type Activity,
-  type Attribute,
+  type GrowthDomain,
   type Completion,
   type Difficulty,
   type FeedbackIntensity,
@@ -146,7 +150,7 @@ const defaultPreferences: Preferences = { notifications: false, vibration: true,
 interface AwardFeedback {
   completionId: string
   title: string
-  attribute: Attribute
+  domain: GrowthDomain
   xp: number
   coins: number
   durationMinutes?: number
@@ -273,6 +277,89 @@ function timeInputSeconds(value: string, unit: TimeInputUnit) {
   return String(Number(value) * (unit === '分钟' ? 60 : 1))
 }
 
+function activityDomainLabel(activity: Activity) {
+  return activity.domain ? domainLabel(activity.domain) : `${activity.attribute ?? '未分类'} · 旧体系`
+}
+
+function GrowthDomainMigration({
+  activities,
+  onComplete,
+  notice,
+}: {
+  activities: Activity[]
+  onComplete: (assignments: Record<string, GrowthDomain>) => Promise<void>
+  notice: string
+}) {
+  const [assignments, setAssignments] = useState<Record<string, GrowthDomain>>(() => Object.fromEntries(
+    activities.map((activity) => [activity.id, activity.attribute ? legacyDomainSuggestions[activity.attribute] : 'life']),
+  ))
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
+  const [submitting, setSubmitting] = useState(false)
+  const ready = confirmed.size === activities.length
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!ready || submitting) return
+    setSubmitting(true)
+    await onComplete(assignments)
+    setSubmitting(false)
+  }
+
+  return (
+    <main className="migration-screen">
+      <form className="migration-panel" onSubmit={submit}>
+        <header className="migration-header">
+          <span className="modal-kicker">地球 Online V4.0.0</span>
+          <h1>建立六个成长领域</h1>
+          <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
+          <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
+        </header>
+        {notice && <div className="notice" role="status"><span>{notice}</span></div>}
+        <div className="migration-list">
+          {activities.length === 0 && <p className="empty-state">没有需要迁移的现有活动。启用后，新建行动将直接使用成长领域。</p>}
+          {activities.map((activity) => {
+            const selected = assignments[activity.id]
+            const isConfirmed = confirmed.has(activity.id)
+            return (
+              <section className={isConfirmed ? 'migration-item confirmed' : 'migration-item'} key={activity.id}>
+                <div className="migration-item-heading">
+                  <div><strong>{activity.title}</strong><span>旧属性：{activity.attribute ?? '未分类'} · 建议：{domainLabel(selected)}</span></div>
+                  {isConfirmed && <Check aria-label="已确认" />}
+                </div>
+                <div className="domain-choice-grid" aria-label={`${activity.title}的成长领域`}>
+                  {growthDomains.map((domain) => {
+                    const details = growthDomainDetails[domain]
+                    return (
+                      <button
+                        type="button"
+                        key={domain}
+                        className={selected === domain ? 'selected' : ''}
+                        aria-pressed={selected === domain}
+                        onClick={() => {
+                          setAssignments((current) => ({ ...current, [activity.id]: domain }))
+                          setConfirmed((current) => new Set(current).add(activity.id))
+                        }}
+                      >
+                        <DomainMark domain={domain} />
+                        <small>{details.description}</small>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="domain-example">当前选择示例：{growthDomainDetails[selected].examples}</p>
+              </section>
+            )
+          })}
+        </div>
+        <footer className="migration-footer">
+          <p>总 XP、金币、完成记录和旧日志不会改变；六个新领域从 0 XP 开始。</p>
+          <button className="primary-action" type="submit" disabled={!ready || submitting}><ShieldCheck aria-hidden="true" />{submitting ? '正在启用…' : '启用新领域体系'}</button>
+        </footer>
+      </form>
+    </main>
+  )
+}
+
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
 
@@ -334,12 +421,17 @@ function App() {
   const levelSystem = metaSetting?.key === 'meta' ? metaSetting.value.levelSystem : undefined
   const targetRewardId = metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined
   const gameDayBoundaryActivatedAt = metaSetting?.key === 'meta' ? metaSetting.value.gameDayBoundaryActivatedAt : undefined
+  const growthDomainSystem = metaSetting?.key === 'meta' ? metaSetting.value.growthDomainSystem : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
   const activeSeason = snapshot.seasons.find((season) => season.status === 'active')
   const characterNeedsAttention = Boolean(levelSystem?.milestones.some(
     (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
   ))
   const today = effectiveGameDate(clock, gameDayBoundaryActivatedAt)
+  const growthDomainCandidates = useMemo(() => {
+    const settledTaskIds = new Set(snapshot.completions.filter((completion) => completion.status === 'active' && completion.occurredOn < today).map((completion) => completion.activityId))
+    return snapshot.activities.filter((activity) => !activity.domain && (activity.type === 'habit' || !settledTaskIds.has(activity.id)))
+  }, [snapshot.activities, snapshot.completions, today])
 
   useEffect(() => {
     const refreshClock = () => {
@@ -391,10 +483,11 @@ function App() {
       const completedTierGoal = getCompletionTierGoal(result.completion, result.activity)
       const nextLevel = getLevel(nextStats.totalXp)
       const leveledUp = nextLevel.level > level.level
+      if (!activity.domain) throw new Error('请先完成成长领域迁移')
       setFeedback({
         completionId: result.completion.id,
         title: activity.title,
-        attribute: activity.attribute,
+        domain: activity.domain,
         xp: result.event.xpDelta,
         coins: result.event.coinDelta,
         durationMinutes: result.completion.durationMinutes,
@@ -414,7 +507,7 @@ function App() {
         title: activity.title,
         xp: result.event.xpDelta,
         coins: result.event.coinDelta,
-        attribute: activity.attribute,
+        domain: activity.domain,
         durationMinutes: result.completion.durationMinutes,
         tier: result.completion.tier,
         upgraded: result.upgraded,
@@ -460,6 +553,24 @@ function App() {
         <ShieldCheck aria-hidden="true" />
         <span>正在读取本地存档…</span>
       </main>
+    )
+  }
+
+  if (!growthDomainSystem) {
+    return (
+      <GrowthDomainMigration
+        activities={growthDomainCandidates}
+        onComplete={async (assignments) => {
+          try {
+            await activateGrowthDomains(assignments)
+            await refresh()
+            setNotice('六个成长领域已启用，新领域从 0 XP 开始')
+          } catch (error) {
+            setNotice(errorMessage(error))
+          }
+        }}
+        notice={notice}
+      />
     )
   }
 
@@ -519,11 +630,11 @@ function App() {
             levelSystem={levelSystem}
             rewards={snapshot.rewards}
             targetRewardId={targetRewardId}
-            onAcknowledge={async (milestoneLevel, focusAttribute) => {
+            onAcknowledge={async (milestoneLevel, focusDomain) => {
               try {
-                await acknowledgeLevelMilestone(milestoneLevel, focusAttribute)
+                await acknowledgeLevelMilestone(milestoneLevel, focusDomain)
                 await refresh()
-                setNotice(`下一等级方向已设为${focusAttribute}`)
+                setNotice(`下一阶段重点领域已设为${domainLabel(focusDomain)}`)
               } catch (error) {
                 setNotice(errorMessage(error))
               }
@@ -995,7 +1106,7 @@ function TodayStatusPanel({
       </div>
       <div className="next-reward-summary">
         <Gift aria-hidden="true" />
-        <div><span>{pendingVoucher ? '待领取奖励' : '下一奖励'}：Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</span><small>{pendingVoucher ? '已达到，可前往角色页领取' : `还需 ${rewardXpRemaining} XP`}{levelSystem?.focusAttribute ? ` · 当前方向：${levelSystem.focusAttribute}` : ''}</small></div>
+        <div><span>{pendingVoucher ? '待领取奖励' : '下一奖励'}：Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</span><small>{pendingVoucher ? '已达到，可前往角色页领取' : `还需 ${rewardXpRemaining} XP`}{levelSystem?.focusDomain ? ` · 当前方向：${domainLabel(levelSystem.focusDomain)}` : ''}</small></div>
       </div>
     </section>
   )
@@ -1044,7 +1155,7 @@ function ActivitySection({
           return (
             <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
               <div className="activity-copy">
-                {variant === 'key' && <div className="mission-meta"><AttributeMark attribute={activity.attribute} /><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span></div>}
+                {variant === 'key' && activity.domain && <div className="mission-meta"><DomainMark domain={activity.domain} /><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span></div>}
                 <div className="activity-title-line">
                   <strong>{activity.title}</strong>
                   {variant === 'regular' && <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>}
@@ -1052,7 +1163,7 @@ function ActivitySection({
                 </div>
                 {variant === 'regular' ? (
                   <>
-                    <span className="activity-frequency">{activity.attribute} · {activityFrequencyLabel(activity)}</span>
+                    <span className="activity-frequency">{activityDomainLabel(activity)} · {activityFrequencyLabel(activity)}</span>
                     <div className="activity-detail-line">
                       <span className="activity-goal">{activityGoalLabel(activity)}</span>
                       <span className="activity-row-reward"><Award aria-hidden="true" />{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP <Coins aria-hidden="true" />+{reward.coins}</span>
@@ -1078,18 +1189,18 @@ function ActivitySection({
   )
 }
 
-const attributeIcons: Record<Attribute, typeof Dumbbell> = {
-  体魄: Dumbbell,
-  智识: BookOpen,
-  专注: Crosshair,
-  创造: Brain,
-  关系: UsersRound,
-  心境: Leaf,
+const domainIcons: Record<GrowthDomain, typeof Dumbbell> = {
+  health: Dumbbell,
+  learning: BookOpen,
+  creation: Brain,
+  career: ClipboardCheck,
+  life: Home,
+  mindset: Leaf,
 }
 
-function AttributeMark({ attribute }: { attribute: Attribute }) {
-  const Icon = attributeIcons[attribute]
-  return <span className={`attribute-mark attribute-${attribute}`}><Icon aria-hidden="true" />{attribute}</span>
+function DomainMark({ domain }: { domain: GrowthDomain }) {
+  const Icon = domainIcons[domain]
+  return <span className={`attribute-mark domain-${domain}`}><Icon aria-hidden="true" />{domainLabel(domain)}</span>
 }
 
 function CharacterPage({
@@ -1118,7 +1229,7 @@ function CharacterPage({
   rewards: Snapshot['rewards']
   targetRewardId?: string
   onRedeem: (rewardId: string) => void
-  onAcknowledge: (level: number, focusAttribute: Attribute) => void
+  onAcknowledge: (level: number, focusDomain: GrowthDomain) => void
   onClaimVoucher: (level: number, rewardId: string) => void
   onCreateReward: (input: RewardInput) => Promise<void>
   onUpdateReward: (rewardId: string, input: RewardInput) => Promise<void>
@@ -1186,7 +1297,7 @@ function CharacterPage({
           <div className="character-level-line"><div><span>当前等级</span><strong>Lv.{level.level}</strong></div><div className="coin-balance"><Coins aria-hidden="true" /><span>金币</span><strong>{stats.coins}</strong></div></div>
           <div className="hero-xp"><b>{stats.totalXp} XP</b><span>距离 Lv.{level.level + 1} 还需 {level.needed - level.current} XP</span></div>
           <ProgressBar value={level.progress} label={`${level.current} / ${level.needed} XP`} />
-          <p className="focus-line"><Crosshair aria-hidden="true" />成长方向：{levelSystem?.focusAttribute ?? '完成下一份成长报告后选择'}</p>
+          <p className="focus-line"><Crosshair aria-hidden="true" />下一阶段重点领域：{levelSystem?.focusDomain ? domainLabel(levelSystem.focusDomain) : '完成下一份成长报告后选择'}</p>
         </div>
       </section>
       {pendingReport && pendingReportData && (
@@ -1195,16 +1306,16 @@ function CharacterPage({
           <div className="report-stat-grid">
             <div><span>活跃天数</span><strong>{pendingReportData.activeDays}</strong></div>
             <div><span>唯一完成</span><strong>{pendingReportData.completionCount}</strong></div>
-            <div><span>最强属性</span><strong>{pendingReportData.strongestAttribute ?? '待积累'}</strong></div>
+            <div><span>主要成长领域</span><strong>{pendingReportData.strongestDomain ? domainLabel(pendingReportData.strongestDomain) : '新体系待积累'}</strong></div>
           </div>
           <div className="report-columns">
-            <div><h3>属性成长</h3><div className="report-attribute-list">{attributes.map((attribute) => <span key={attribute}>{attribute}<b>+{pendingReportData.attributeXp[attribute]} XP</b></span>)}</div></div>
+            <div><h3>领域成长</h3><div className="report-attribute-list">{growthDomains.map((domain) => <span key={domain}>{domainLabel(domain)}<b>+{pendingReportData.domainXp[domain]} XP</b></span>)}</div></div>
             <div><h3>贡献最高的行动</h3>{pendingReportData.topActions.length > 0 ? <ol>{pendingReportData.topActions.map((action, index) => <li key={`${action.title}:${index}`}><span>{action.title}</span><b>+{action.xp} XP</b></li>)}</ol> : <p className="empty-state">本周期还没有可统计的行动。</p>}</div>
           </div>
           <fieldset className="focus-picker">
-            <legend>下一等级重点发展</legend>
+            <legend>下一阶段重点领域</legend>
             <p>只作为身份提醒，不改变奖励倍率。</p>
-            <div>{attributes.map((attribute) => <button type="button" key={attribute} onClick={() => onAcknowledge(pendingReport.level, attribute)}><AttributeMark attribute={attribute} /></button>)}</div>
+            <div>{growthDomains.map((domain) => <button type="button" key={domain} onClick={() => onAcknowledge(pendingReport.level, domain)}><DomainMark domain={domain} /></button>)}</div>
           </fieldset>
         </section>
       )}
@@ -1220,14 +1331,14 @@ function CharacterPage({
         </button>
       </section>
       <section className="content-section">
-        <div className="section-heading"><div><span>成长维度</span><h2>六项属性</h2></div></div>
+        <div className="section-heading"><div><span>现实结果</span><h2>六个成长领域</h2></div></div>
         <div className="attribute-grid">
-          {attributes.map((attribute) => {
-            const attributeLevel = getLevel(stats.attributeXp[attribute])
+          {growthDomains.map((domain) => {
+            const domainLevel = getLevel(stats.domainXp[domain])
             return (
-              <div className="attribute-item" key={attribute}>
-                <div><AttributeMark attribute={attribute} /><span>Lv.{attributeLevel.level}</span></div>
-                <ProgressBar value={attributeLevel.progress} label={`${stats.attributeXp[attribute]} XP`} compact />
+              <div className="attribute-item" key={domain}>
+                <div><DomainMark domain={domain} /><span>Lv.{domainLevel.level}</span></div>
+                <ProgressBar value={domainLevel.progress} label={`${stats.domainXp[domain]} XP`} compact />
               </div>
             )
           })}
@@ -1290,7 +1401,8 @@ function CharacterPage({
                 {[...milestones].reverse().filter((milestone) => milestone.acknowledgedAt).map((milestone) => {
                   const previous = milestones.find((item) => item.level === milestone.level - 1)
                   const report = getLevelReport(ledgerEvents, milestone, previous?.reachedAt ?? levelSystem?.activatedAt ?? milestone.reachedAt)
-                  return <p key={milestone.level}>Lv.{milestone.level} · {milestone.focusAttribute}方向 · {report.activeDays} 个活跃日 · {report.completionCount} 项完成</p>
+                  const focus = milestone.focusDomain ? domainLabel(milestone.focusDomain) : milestone.focusAttribute ? `${milestone.focusAttribute}（旧体系）` : '未选择方向'
+                  return <p key={milestone.level}>Lv.{milestone.level} · {focus} · {report.activeDays} 个活跃日 · {report.completionCount} 项完成</p>
                 })}
               </details>
             )}
@@ -1350,7 +1462,7 @@ function GrowthEntryRow({ entry }: { entry: JourneyEntry }) {
   return (
     <div className={`growth-row growth-${entry.kind}`}>
       <span className="growth-icon">{entry.kind === 'action' ? <ActivityIcon aria-hidden="true" /> : <Gift aria-hidden="true" />}</span>
-      <div><strong>{entry.title}</strong><span>{formatShortDate(entry.occurredOn)}{entry.attribute ? ` · ${entry.attribute}` : ''}{entry.tier ? ` · ${tierLabels[entry.tier]}` : ''}</span></div>
+      <div><strong>{entry.title}</strong><span>{formatShortDate(entry.occurredOn)}{entry.domain ? ` · ${domainLabel(entry.domain)}` : entry.attribute ? ` · ${entry.attribute} · 旧体系` : ''}{entry.tier ? ` · ${tierLabels[entry.tier]}` : ''}</span></div>
       <b>{entry.kind === 'action' ? `+${entry.xp} XP${entry.coins ? ` · +${entry.coins}` : ''}` : '里程碑'}</b>
     </div>
   )
@@ -1391,7 +1503,7 @@ function ActionLogModal({ months, today, onClose }: { months: JourneyMonth[]; to
         </div>
         <div className="journey-summary-grid">
           <span>活跃天数<b>{month?.activeDays ?? 0}</b></span><span>行动数<b>{month?.actionCount ?? 0}</b></span>
-          <span>获得 XP<b>+{month?.xp ?? 0}</b></span><span>获得金币<b>+{month?.coins ?? 0}</b></span><span>最强属性<b>{month?.strongestAttribute ?? '待积累'}</b></span>
+          <span>获得 XP<b>+{month?.xp ?? 0}</b></span><span>获得金币<b>+{month?.coins ?? 0}</b></span><span>主要成长领域<b>{month?.strongestDomain ? domainLabel(month.strongestDomain) : '待积累'}</b></span>
         </div>
         <div className="journey-calendar" aria-label={`${year} 年 ${monthNumber} 月行动月历`}>
           {['一', '二', '三', '四', '五', '六', '日'].map((label) => <span className="calendar-weekday" key={label}>{label}</span>)}
@@ -1419,7 +1531,8 @@ function ActionLogModal({ months, today, onClose }: { months: JourneyMonth[]; to
 function JourneyEntryDetails({ entry }: { entry: JourneyEntry }) {
   if (entry.kind !== 'action') return <article className="journey-milestone"><Gift aria-hidden="true" /><div><strong>{entry.title}</strong><span>永久里程碑</span></div></article>
   const hasDetails = Boolean(entry.note || entry.durationMinutes || (entry.tier && entry.tierGoalSnapshot))
-  const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{entry.attribute}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>+{entry.xp} XP · +{entry.coins}</b></div>
+  const classification = entry.domain ? domainLabel(entry.domain) : entry.attribute ? `${entry.attribute} · 旧体系` : '未分类'
+  const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{classification}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>+{entry.xp} XP · +{entry.coins}</b></div>
   if (!hasDetails) return <article className="journey-entry">{main}</article>
   return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.note && <p>成果：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.tier && entry.tierGoalSnapshot && <p>完成标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
 }
@@ -1524,7 +1637,7 @@ function ReviewPage({
       items: progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, achievement }) => ({
         activityId: activity.id,
         titleSnapshot: activity.title,
-        attributeSnapshot: activity.attribute,
+        domainSnapshot: activity.domain,
         completed,
         planned,
         adherence,
@@ -1785,7 +1898,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V3.2.1{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.0.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
@@ -1845,7 +1958,7 @@ function ActivityManagerModal({
   ]
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
   const visible = groups[tab].filter((activity) => (
-    !normalizedQuery || `${activity.title} ${activity.attribute} ${activity.difficulty}`.toLocaleLowerCase('zh-CN').includes(normalizedQuery)
+    !normalizedQuery || `${activity.title} ${activityDomainLabel(activity)} ${activity.difficulty}`.toLocaleLowerCase('zh-CN').includes(normalizedQuery)
   ))
 
   async function updateActivity(action: () => Promise<unknown>) {
@@ -1875,7 +1988,7 @@ function ActivityManagerModal({
           ))}
         </div>
         {activities.length > 8 && (
-          <label className="activity-manager-search"><Search aria-hidden="true" /><span className="sr-only">搜索活动</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、属性或难度" /></label>
+          <label className="activity-manager-search"><Search aria-hidden="true" /><span className="sr-only">搜索活动</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、成长领域或难度" /></label>
         )}
         <div className="activity-manager-list">
           {visible.length === 0 && <p className="empty-state">{normalizedQuery ? '没有匹配的活动' : '这里还没有活动'}</p>}
@@ -1886,7 +1999,7 @@ function ActivityManagerModal({
             return (
               <div className={expanded ? 'activity-manager-row expanded' : 'activity-manager-row'} key={activity.id}>
                 <button className="activity-manager-row-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? undefined : activity.id)}>
-                  <span><strong>{activity.title}</strong><small>{activity.type === 'habit' ? '习惯' : '一次性任务'} · {activity.attribute} · {activity.difficulty}</small></span>
+                  <span><strong>{activity.title}</strong><small>{activity.type === 'habit' ? '习惯' : '一次性任务'} · {activityDomainLabel(activity)} · {activity.difficulty}</small></span>
                   <ChevronRight aria-hidden="true" />
                 </button>
                 {expanded && (
@@ -1926,7 +2039,7 @@ function ActivityManagerModal({
 function CreateActivityModal({ today, onClose, onCreate }: { today: string; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const [type, setType] = useState<'habit' | 'task'>('habit')
   const [title, setTitle] = useState('')
-  const [attribute, setAttribute] = useState<Attribute>('体魄')
+  const [domain, setDomain] = useState<GrowthDomain>('health')
   const [difficulty, setDifficulty] = useState<Difficulty>('简单')
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
   const [weeklyTimes, setWeeklyTimes] = useState(3)
@@ -1943,7 +2056,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
     onCreate({
       title,
       type,
-      attribute,
+      domain,
       difficulty,
       goal,
       schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
@@ -1982,11 +2095,12 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
         <details className="form-details">
-          <summary><span><strong>奖励与分类</strong><small>{attribute} · {difficulty}</small></span><ListTodo aria-hidden="true" /></summary>
+          <summary><span><strong>成长领域与奖励</strong><small>{domainLabel(domain)} · {difficulty}</small></span><ListTodo aria-hidden="true" /></summary>
           <div className="field-grid">
-            <label>属性<select value={attribute} onChange={(event) => setAttribute(event.target.value as Attribute)}>{attributes.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label>成长领域<select value={domain} onChange={(event) => setDomain(event.target.value as GrowthDomain)}>{growthDomains.map((value) => <option key={value} value={value}>{domainLabel(value)}</option>)}</select></label>
             <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>
           </div>
+          <p className="domain-definition"><strong>{growthDomainDetails[domain].description}</strong><span>例如：{growthDomainDetails[domain].examples}</span></p>
           <p className="form-detail-note">奖励由难度决定；目标次数和时长不会放大奖励。</p>
         </details>
         <button className="primary-action" type="submit"><Plus aria-hidden="true" />创建</button>
@@ -2190,7 +2304,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
   const tiered = isTieredGoal(activity)
   const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const [title, setTitle] = useState(activity.title)
-  const [attribute, setAttribute] = useState<Attribute>(activity.attribute)
+  const [domain, setDomain] = useState<GrowthDomain>(activity.domain ?? 'health')
   const [difficulty, setDifficulty] = useState<Difficulty>(activity.difficulty)
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>(activity.schedule.kind === 'weekly' ? 'weekly' : 'daily')
   const [weeklyTimes, setWeeklyTimes] = useState(activity.schedule.kind === 'weekly' ? activity.schedule.times : 3)
@@ -2207,7 +2321,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         : buildTierGoal(tierDraft)
     onSave({
       title: title.trim(),
-      attribute,
+      domain,
       difficulty,
       schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
       goal,
@@ -2221,9 +2335,10 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         <div className="modal-header"><h2 id="edit-habit-title">编辑习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <label className="full-field">习惯名称<input required maxLength={40} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <div className="field-grid">
-          <label>属性<select value={attribute} onChange={(event) => setAttribute(event.target.value as Attribute)}>{attributes.map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>成长领域<select value={domain} onChange={(event) => setDomain(event.target.value as GrowthDomain)}>{growthDomains.map((value) => <option key={value} value={value}>{domainLabel(value)}</option>)}</select></label>
           <label>难度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty)}>{difficulties.map((value) => <option key={value}>{value}</option>)}</select></label>
         </div>
+        <p className="domain-definition"><strong>{growthDomainDetails[domain].description}</strong><span>例如：{growthDomainDetails[domain].examples}</span></p>
         <div className="field-grid">
           <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>
           {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={7} required value={weeklyTimes} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
@@ -2385,11 +2500,11 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
       <div className="feedback-copy">
         <span>{feedback.leveledUp ? `角色升级 · Lv.${feedback.level.level}` : feedback.upgraded ? '委托升级' : '委托完成'}</span>
         <strong>{feedback.title}</strong>
-        <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{feedback.attribute}</b></div>
+        <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{domainLabel(feedback.domain)}</b></div>
         <div className="feedback-detail">
           {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
           {feedback.tier && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
-          <p>{identityMessage(feedback.attribute)}</p>
+          <p>{identityMessage(feedback.domain)}</p>
           {feedback.rewardGoal && (
             <p className="feedback-goal">
               {feedback.rewardGoal.remaining === 0

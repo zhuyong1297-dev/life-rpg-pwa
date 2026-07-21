@@ -4,10 +4,12 @@ import {
   ScheduleSchema,
   addDays,
   attributes,
+  growthDomains,
   difficulties,
   formatTierGoalValue,
   type Activity,
   type Attribute,
+  type GrowthDomain,
   type Completion,
   type WeeklyReview,
 } from './domain'
@@ -22,10 +24,15 @@ export const suggestionStatuses = ['pending', 'accepted', 'modified', 'ignored']
 export const SeasonActivitySnapshotSchema = z.object({
   activityId: z.string().min(1),
   title: z.string().trim().min(1).max(60),
-  attribute: z.enum(attributes),
+  attribute: z.enum(attributes).optional(),
+  domain: z.enum(growthDomains).optional(),
   difficulty: z.enum(difficulties),
   goal: ActivityGoalSchema,
   schedule: ScheduleSchema,
+}).superRefine((activity, context) => {
+  if ((activity.attribute === undefined) === (activity.domain === undefined)) {
+    context.addIssue({ code: 'custom', path: ['domain'], message: '赛季活动必须且只能使用一个成长领域体系' })
+  }
 })
 
 export const CoachSuggestionSchema = z.object({
@@ -180,7 +187,7 @@ export interface SeasonStrategy {
   activeDays: number
   completionCount: number
   averageAdherence: number
-  effectiveBehaviors: Array<{ title: string; attribute: Attribute; adherence: number; impact: number; friction: number; cadence: string; baseLayer: string }>
+  effectiveBehaviors: Array<{ title: string; attribute?: Attribute; domain?: GrowthDomain; adherence: number; impact: number; friction: number; cadence: string; baseLayer: string }>
   mainFriction?: { title: string; friction: number }
   nextSuggestion: string
 }
@@ -199,6 +206,7 @@ export function getSeasonStrategy(season: Season, reviews: WeeklyReview[], compl
     return {
       title: activity.title,
       attribute: activity.attribute,
+      domain: activity.domain,
       adherence: average('adherence'),
       impact: average('impact'),
       friction: average('friction'),
@@ -230,6 +238,7 @@ export function snapshotSeasonActivity(activity: Activity) {
     activityId: activity.id,
     title: activity.title,
     attribute: activity.attribute,
+    domain: activity.domain,
     difficulty: activity.difficulty,
     goal: activity.goal,
     schedule: activity.schedule,

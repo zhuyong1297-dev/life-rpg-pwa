@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
+  activateGrowthDomains,
   acknowledgeLevelMilestone,
   archiveActivity,
   cancelTodayCompletion,
@@ -11,6 +12,7 @@ import {
   createSeason,
   createReward,
   currentGameDate,
+  getGrowthDomainMigrationCandidates,
   getSnapshot,
   initializeDatabase,
   permanentlyDeleteActivity,
@@ -29,14 +31,14 @@ import {
   updateReward,
   type NewActivity,
 } from '../db'
-import { calculateStats } from '../domain'
+import { calculateStats, growthDomains } from '../domain'
 
 let database: LifeRpgDatabase
 
 const dailyHabit: NewActivity = {
   title: '示例习惯',
   type: 'habit',
-  attribute: '专注',
+  domain: 'career',
   difficulty: '普通',
   goal: { count: 1, unit: '次' },
   schedule: { kind: 'daily' },
@@ -161,6 +163,54 @@ describe('IndexedDB 事务', () => {
     expect(await currentGameDate(database, new Date(2026, 6, 21, 4, 0, 0))).toBe('2026-07-21')
   })
 
+  it('领域迁移必须完整确认且原子同步当前赛季，不改写历史数值', async () => {
+    const oldHabit = await createActivity({ ...dailyHabit, domain: undefined, attribute: '专注', title: '旧习惯' }, database)
+    const currentTask = await createActivity({
+      ...dailyHabit,
+      domain: undefined,
+      attribute: '体魄',
+      title: '今日任务',
+      type: 'task',
+      schedule: { kind: 'once' },
+      plannedOn: '2026-01-06',
+      isKey: false,
+    }, database)
+    const settledTask = await createActivity({
+      ...dailyHabit,
+      domain: undefined,
+      attribute: '智识',
+      title: '历史任务',
+      type: 'task',
+      schedule: { kind: 'once' },
+      plannedOn: '2026-01-05',
+      isKey: false,
+    }, database)
+    await database.completions.add({ id: 'legacy-completion', activityId: settledTask.id, occurredOn: '2026-01-05', status: 'active', createdAt: '2026-01-05T08:00:00.000Z' })
+    await database.ledgerEvents.add({ id: 'legacy-reward', kind: 'reward', sourceId: 'legacy-completion', occurredOn: '2026-01-05', title: '历史任务', attribute: '智识', xpDelta: 15, coinDelta: 7, createdAt: '2026-01-05T08:00:00.000Z' })
+    const season = await createSeason({ title: '迁移赛季', successCriterion: '完成迁移', baseline: '旧体系', targetOutcome: '新体系', focusActivityIds: [oldHabit.id] }, '2026-01-05', database)
+    const meta = await database.settings.get('meta')
+    if (meta?.key !== 'meta') throw new Error('测试缺少 meta')
+    await database.settings.put({ ...meta, value: { ...meta.value, levelSystem: { ...meta.value.levelSystem!, focusAttribute: '专注' } } })
+
+    const now = new Date('2026-01-06T12:00:00.000Z')
+    expect((await getGrowthDomainMigrationCandidates(database, now)).map((item) => item.id).sort()).toEqual([currentTask.id, oldHabit.id].sort())
+    await expect(activateGrowthDomains({ [oldHabit.id]: 'career' }, database, now)).rejects.toThrow('逐项确认')
+    expect(await database.activities.get(oldHabit.id)).toMatchObject({ attribute: '专注' })
+
+    const before = calculateStats(await database.ledgerEvents.toArray())
+    await activateGrowthDomains({ [oldHabit.id]: 'career', [currentTask.id]: 'health' }, database, now)
+    expect(await database.activities.get(oldHabit.id)).toMatchObject({ domain: 'career' })
+    expect((await database.activities.get(oldHabit.id))?.attribute).toBeUndefined()
+    expect(await database.activities.get(settledTask.id)).toMatchObject({ attribute: '智识' })
+    expect((await database.seasons.get(season.id))?.focusActivities[0]).toMatchObject({ domain: 'career' })
+    expect((await database.seasons.get(season.id))?.focusActivities[0].attribute).toBeUndefined()
+    const migratedMeta = await database.settings.get('meta')
+    expect(migratedMeta?.key === 'meta' ? migratedMeta.value : undefined).toMatchObject({ growthDomainSystem: { version: 1 } })
+    expect(migratedMeta?.key === 'meta' ? migratedMeta.value.levelSystem?.focusAttribute : undefined).toBeUndefined()
+    expect(calculateStats(await database.ledgerEvents.toArray())).toEqual(before)
+    expect(calculateStats(await database.ledgerEvents.toArray()).domainXp).toEqual(Object.fromEntries(growthDomains.map((domain) => [domain, 0])))
+  })
+
   it('组合三层目标仍只按难度和层次发奖', async () => {
     const activity = await createActivity({
       ...dailyHabit,
@@ -211,6 +261,7 @@ describe('IndexedDB 事务', () => {
       activityRevision: _activityRevision,
       titleSnapshot: _titleSnapshot,
       attributeSnapshot: _attributeSnapshot,
+      domainSnapshot: _domainSnapshot,
       difficultySnapshot: _difficultySnapshot,
       tierGoalSnapshot: _tierGoalSnapshot,
       ...legacyCompletion
@@ -225,7 +276,7 @@ describe('IndexedDB 事务', () => {
 
     const updated = await updateHabit(activity.id, {
       title: '修改后的习惯',
-      attribute: '体魄',
+      domain: 'health',
       difficulty: 'Boss',
       schedule: { kind: 'weekly', times: 2 },
       goal: { count: 1, unit: '次' },
@@ -236,7 +287,7 @@ describe('IndexedDB 事务', () => {
     expect(await database.completions.get(first.completion.id)).toMatchObject({
       activityRevision: 1,
       titleSnapshot: '示例习惯',
-      attributeSnapshot: '专注',
+      domainSnapshot: 'career',
       difficultySnapshot: '普通',
     })
 
@@ -244,7 +295,7 @@ describe('IndexedDB 事务', () => {
     expect(upgraded).toMatchObject({ awarded: true, upgraded: true })
     expect((await database.ledgerEvents.get(`reward:${first.completion.id}:tier:2`))).toMatchObject({
       title: '层次升级：示例习惯（标准）',
-      attribute: '专注',
+      domain: 'career',
       xpDelta: 2,
     })
     await expect(completeActivity(activity.id, '2026-01-06', undefined, database)).rejects.toThrow('必须填写实际成果')
@@ -255,7 +306,7 @@ describe('IndexedDB 事务', () => {
     await completeActivity(activity.id, '2026-01-05', undefined, database)
     await updateHabit(activity.id, {
       title: activity.title,
-      attribute: activity.attribute,
+      domain: activity.domain,
       difficulty: activity.difficulty,
       schedule: { kind: 'weekly', times: 1 },
       goal: activity.goal,
@@ -299,6 +350,7 @@ describe('IndexedDB 事务', () => {
       activityRevision: _activityRevision,
       titleSnapshot: _titleSnapshot,
       attributeSnapshot: _attributeSnapshot,
+      domainSnapshot: _domainSnapshot,
       difficultySnapshot: _difficultySnapshot,
       ...legacyCompletion
     } = completed.completion
@@ -325,13 +377,13 @@ describe('IndexedDB 事务', () => {
     expect(await database.activities.get(activity.id)).toBeUndefined()
     expect(await database.completions.get(completed.completion.id)).toMatchObject({
       titleSnapshot: activity.title,
-      attributeSnapshot: activity.attribute,
+      domainSnapshot: activity.domain,
       difficultySnapshot: activity.difficulty,
       activityRevision: 1,
     })
     expect((await database.weeklyReviews.get('review-legacy'))?.items[0]).toMatchObject({
       titleSnapshot: activity.title,
-      attributeSnapshot: activity.attribute,
+      domainSnapshot: activity.domain,
     })
     expect(await database.ledgerEvents.toArray()).toEqual(ledgerBefore)
     expect(calculateStats(await database.ledgerEvents.toArray())).toEqual(statsBefore)
@@ -377,7 +429,7 @@ describe('IndexedDB 事务', () => {
     await archiveActivity(activity.id, database)
     await permanentlyDeleteActivity(activity.id, '2026-01-06', database)
     expect(await database.activities.get(activity.id)).toBeUndefined()
-    expect((await database.seasons.get(season.id))?.focusActivities[0]).toMatchObject({ title: activity.title, attribute: activity.attribute })
+    expect((await database.seasons.get(season.id))?.focusActivities[0]).toMatchObject({ title: activity.title, domain: activity.domain })
   })
 
   it('周复盘生成本地建议，响应建议不会自动修改活动', async () => {
@@ -482,13 +534,13 @@ describe('IndexedDB 事务', () => {
     const created = await syncLevelMilestones(database, new Date(Date.now() + 11_000))
     expect(created).toMatchObject([{ level: 2 }])
     expect(await syncLevelMilestones(database, new Date(Date.now() + 12_000))).toEqual([])
-    await acknowledgeLevelMilestone(2, '体魄', database)
+    await acknowledgeLevelMilestone(2, 'health', database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem : undefined).toMatchObject({
       baselineLevel: 1,
       highestLevelReached: 2,
-      focusAttribute: '体魄',
-      milestones: [{ level: 2, focusAttribute: '体魄' }],
+      focusDomain: 'health',
+      milestones: [{ level: 2, focusDomain: 'health' }],
     })
   })
 
@@ -565,15 +617,15 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 6 备份保存赛季并兼容缺少赛季的 schema 5', async () => {
+  it('schema 7 备份保存赛季并兼容 schema 5 和 schema 6', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
     }, '2026-01-05', database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 6, appVersion: '3.2.1', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 7, appVersion: '4.0.0', seasons: [{ id: season.id }] })
     await expect(restoreBackup({ ...current, seasons: [...current.seasons, { ...season, id: 'duplicate-active-season' }] }, database)).rejects.toThrow('只能存在一个')
-    await restoreBackup({ ...current, appVersion: '3.2.0' }, database)
+    await restoreBackup({ ...current, schemaVersion: 6, appVersion: '3.2.0' }, database)
     const { seasons: _seasons, ...legacy } = current
     await restoreBackup({ ...legacy, schemaVersion: 5, appVersion: '2.6.0' }, database)
     await restoreBackup(current, database)

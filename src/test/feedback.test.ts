@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { playCompletionVibration, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 
-const detail = { title: '示例行动', xp: 5, coins: 2, attribute: '体魄' as const }
+const detail = { title: '示例行动', xp: 5, coins: 2, domain: 'health' as const }
 const preferences = { notifications: true, vibration: false, sound: false, feedbackIntensity: 'clear' as const }
 
 beforeEach(() => {
@@ -40,7 +40,7 @@ describe('完成反馈降级', () => {
       value: { ready: Promise.resolve({ showNotification }) },
     })
     expect(await sendCompletionFeedback(preferences, detail)).toMatchObject({ notification: 'sent' })
-    expect(showNotification).toHaveBeenCalledWith('行动已完成', expect.objectContaining({ body: '+5 XP · +2 金币 · 体魄' }))
+    expect(showNotification).toHaveBeenCalledWith('行动已完成', expect.objectContaining({ body: '+5 XP · +2 金币 · 健康' }))
   })
 
   it('音频不支持时返回 false', async () => {
