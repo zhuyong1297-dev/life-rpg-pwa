@@ -74,6 +74,121 @@ test('Boss 没有实际成果时不能完成', async ({ page }) => {
   await expect(page.getByText('+50 XP', { exact: true })).toBeVisible()
 })
 
+test('目标规划器使用二级地址、自动恢复草稿并支持浏览器返回', async ({ page }) => {
+  await page.getByRole('button', { name: '规划一个 28 天目标' }).click()
+  await expect(page).toHaveURL(/#\/coach\/plan$/)
+  await expect(page.getByRole('heading', { name: '目标规划器' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '主导航' })).toHaveCount(0)
+  await page.getByLabel('成长主题').fill('建立一个可以长期坚持的现实目标')
+  await page.getByLabel('开始状态').fill('目前目标模糊，行为容易被临时事项替代')
+  await page.getByLabel('期望结果').fill('每天知道真正应该推进的行动')
+  await page.getByLabel('可验证成功标准').fill('28 天内至少 20 天完成基础行为，并留下现实成果')
+  await page.waitForTimeout(500)
+  await page.reload()
+  await expect(page.getByLabel('成长主题')).toHaveValue('建立一个可以长期坚持的现实目标')
+  await page.getByRole('button', { name: '返回' }).click()
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await page.getByRole('button', { name: '继续规划' }).click()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+})
+
+test('四步规划可以创建行为并原子启动 28 天赛季', async ({ page }) => {
+  await page.getByRole('button', { name: '规划一个 28 天目标' }).click()
+  await page.getByLabel('成长主题').fill('稳定推进现实项目')
+  await page.getByLabel('开始状态').fill('经常在开始前切换目标')
+  await page.getByLabel('期望结果').fill('每天完成一段不切换目标的工作')
+  await page.getByLabel('可验证成功标准').fill('28 天内至少 20 天完成核心行为')
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByRole('button', { name: /^推进/ }).click()
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByLabel('行为名称').fill('推进一个现实结果')
+  await page.getByLabel('触发条件').fill('第一段正式工作开始前')
+  await page.getByLabel('执行协议').fill('写下一个结果和下一动作，然后只推进这一件事')
+  await page.getByRole('button', { name: '确认这个行为' }).click()
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByText('状态较差时，我仍能完成基础层').click()
+  await page.getByText('这些行为会推动成功标准').click()
+  await page.getByRole('button', { name: '启动 28 天赛季' }).click()
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '管理当前成长赛季' })).toContainText('稳定推进现实项目')
+  await expect(page.getByRole('article').filter({ hasText: '推进一个现实结果' })).toBeVisible()
+})
+
+test('存在当前赛季时规划器只保存下个赛季方案', async ({ page }) => {
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('当前赛季行为')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '开始 28 天成长赛季' }).click()
+  await page.getByLabel('成长主题').fill('当前现实目标')
+  await page.getByLabel('可验证的成功标准').fill('当前赛季保持原样')
+  await page.getByLabel('开始状态').fill('已经开始执行当前计划')
+  await page.getByLabel('期望结果').fill('完成当前赛季后再切换目标')
+  await page.getByRole('checkbox', { name: /当前赛季行为/ }).check()
+  await page.getByRole('button', { name: '开始赛季' }).click()
+  await page.getByRole('dialog').getByTitle('关闭').click()
+
+  await page.getByRole('button', { name: '规划下个赛季' }).click()
+  await page.getByLabel('成长主题').fill('下个现实目标')
+  await page.getByLabel('开始状态').fill('等待当前赛季结束后再开始')
+  await page.getByLabel('期望结果').fill('下个赛季有清晰可执行的行动')
+  await page.getByLabel('可验证成功标准').fill('28 天内至少 20 天完成基础行为')
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByRole('button', { name: '维护/收尾 维持环境或完成收尾' }).click()
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByLabel('行为名称').fill('下个赛季的新行为')
+  await page.getByLabel('触发条件').fill('每天结束前')
+  await page.getByLabel('执行协议').fill('完成一个可验证的最小动作')
+  await page.getByRole('button', { name: '确认这个行为' }).click()
+  await page.getByRole('button', { name: '下一步' }).click()
+  await page.getByText('状态较差时，我仍能完成基础层').click()
+  await page.getByText('这些行为会推动成功标准').click()
+  await page.getByRole('button', { name: '保存为下个赛季' }).click()
+
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '管理当前成长赛季' })).toContainText('当前现实目标')
+  await expect(page.getByRole('button', { name: '下个赛季已规划' })).toBeVisible()
+  await expect(page.getByText('下个赛季的新行为', { exact: true })).toHaveCount(0)
+
+  const state = await page.evaluate(async () => {
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction(['activities', 'seasons', 'ledgerEvents', 'settings'], 'readonly')
+    const readAll = <T,>(storeName: string) => new Promise<T[]>((resolve, reject) => {
+      const read = transaction.objectStore(storeName).getAll()
+      read.onsuccess = () => resolve(read.result as T[])
+      read.onerror = () => reject(read.error)
+    })
+    const [activities, seasons, ledgerEvents, settings] = await Promise.all([
+      readAll<Record<string, unknown>>('activities'),
+      readAll<Record<string, unknown>>('seasons'),
+      readAll<Record<string, unknown>>('ledgerEvents'),
+      readAll<Record<string, unknown>>('settings'),
+    ])
+    database.close()
+    return {
+      activityCount: activities.length,
+      keyActivityCount: activities.filter((activity) => activity.isKey).length,
+      seasonCount: seasons.length,
+      activeSeasonTitle: seasons.find((season) => season.status === 'active')?.title,
+      ledgerCount: ledgerEvents.length,
+      draftStatus: settings.find((setting) => setting.key === 'coachPlanDraft')?.value
+        && (settings.find((setting) => setting.key === 'coachPlanDraft')?.value as Record<string, unknown>).status,
+    }
+  })
+  expect(state).toEqual({
+    activityCount: 1,
+    keyActivityCount: 0,
+    seasonCount: 1,
+    activeSeasonTitle: '当前现实目标',
+    ledgerCount: 0,
+    draftStatus: 'ready',
+  })
+})
+
 test('三层时间习惯一键选层并在当天只补 XP 差额', async ({ page }) => {
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例分层习惯')
@@ -397,6 +512,7 @@ test('28 天赛季生成透明建议并沉淀为可复用策略', async ({ page 
     database.close()
   })
   await page.reload()
+  await page.getByRole('button', { name: '今天' }).click()
   const seasonButton = page.getByRole('button', { name: '管理当前成长赛季' })
   await expect(seasonButton).toBeVisible()
   await seasonButton.click()

@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CoachPlanDraftSchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, createCoachPlanDraft, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
+  it('目标规划草稿允许未完成状态，但 ready 必须通过现实检查', () => {
+    const draft = createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'plan-1')
+    expect(CoachPlanDraftSchema.parse(draft)).toMatchObject({ currentStep: 1, status: 'editing', behaviors: [] })
+    expect(() => CoachPlanDraftSchema.parse({ ...draft, status: 'ready' })).toThrow('成长主题')
+    expect(CoachPlanDraftSchema.parse({
+      ...draft,
+      title: '稳定生活',
+      successCriterion: '28 天内完成 20 天',
+      baseline: '作息不稳定',
+      targetOutcome: '可以稳定开始和结束一天',
+      currentStep: 4,
+      status: 'ready',
+      behaviors: [{
+        id: 'behavior-1', role: 'start', source: 'new', title: '晨间启动', cue: '起床后', protocol: '接触自然光并喝水',
+        domain: 'health', difficulty: '简单', goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [120, 300] },
+        schedule: { kind: 'daily' }, confirmed: true,
+      }],
+      badDayConfirmed: true,
+      evidenceConfirmed: true,
+    })).toMatchObject({ status: 'ready' })
+  })
+
   it('使用固定的四档奖励', () => {
     expect(rewardTable).toEqual({
       简单: { xp: 5, coins: 2 },

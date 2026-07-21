@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBackup, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
+  activateCoachPlanDraft,
   activateGrowthDomains,
   acknowledgeLevelMilestone,
   archiveActivity,
@@ -13,6 +14,7 @@ import {
   createSeason,
   createReward,
   currentGameDate,
+  getCoachPlanDraft,
   getGrowthDomainMigrationCandidates,
   getSnapshot,
   initializeDatabase,
@@ -23,6 +25,7 @@ import {
   restoreActivity,
   saveWeeklyReview,
   saveSeasonDailySignal,
+  saveCoachPlanDraft,
   setRewardEnabled,
   setSeasonDailyFocus,
   setTargetReward,
@@ -34,7 +37,7 @@ import {
   updateReward,
   type NewActivity,
 } from '../db'
-import { calculateStats, growthDomains } from '../domain'
+import { calculateStats, createCoachPlanDraft, growthDomains, type CoachPlanDraft } from '../domain'
 import { getSeasonEvidence } from '../season'
 
 let database: LifeRpgDatabase
@@ -55,6 +58,21 @@ const tieredHabit: NewActivity = {
   goal: { kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] },
 }
 
+function readyCoachDraft(behaviors: CoachPlanDraft['behaviors']): CoachPlanDraft {
+  return {
+    ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'plan-1'),
+    title: '稳定推进项目',
+    successCriterion: '28 天内完成 20 天核心行为',
+    baseline: '当前容易被临时想法打断',
+    targetOutcome: '能够稳定启动并完成当日重点',
+    currentStep: 4,
+    status: 'ready',
+    behaviors,
+    badDayConfirmed: true,
+    evidenceConfirmed: true,
+  }
+}
+
 beforeEach(async () => {
   database = new LifeRpgDatabase(`test-${crypto.randomUUID()}`)
   await initializeDatabase(database)
@@ -66,6 +84,57 @@ afterEach(async () => {
 })
 
 describe('IndexedDB 事务', () => {
+  it('目标规划启用会原子切换关键行为并且重复提交幂等', async () => {
+    const oldKey = await createActivity({ ...dailyHabit, title: '旧关键行为' }, database)
+    const reusable = await createActivity({ ...dailyHabit, title: '继续复用', isKey: false }, database)
+    const draft = readyCoachDraft([
+      { id: 'reuse', role: 'progress', source: 'existing', activityId: reusable.id, confirmed: true },
+      {
+        id: 'new', role: 'maintain', source: 'new', title: '收尾行为', cue: '结束工作前', protocol: '记录下一步并停止工作',
+        domain: 'life', difficulty: '简单', goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [180, 300] },
+        schedule: { kind: 'daily' }, confirmed: true,
+      },
+    ])
+    await saveCoachPlanDraft(draft, database)
+    const first = await activateCoachPlanDraft(draft.id, '2026-01-05', database)
+    const second = await activateCoachPlanDraft(draft.id, '2026-01-05', database)
+    expect(second.id).toBe(first.id)
+    expect(await database.seasons.count()).toBe(1)
+    expect(await database.activities.count()).toBe(3)
+    expect((await database.activities.get(oldKey.id))?.isKey).toBe(false)
+    expect((await database.activities.get(reusable.id))?.isKey).toBe(true)
+    expect(first.focusActivities.map((item) => item.title)).toEqual(['继续复用', '收尾行为'])
+    expect(await getCoachPlanDraft(database)).toBeUndefined()
+  })
+
+  it('存在当前赛季时启用草稿会拒绝且不修改赛季或活动', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    const season = await createSeason({
+      title: '当前赛季', successCriterion: '保持行动', baseline: '开始', targetOutcome: '稳定', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    const draft = readyCoachDraft([{
+      id: 'new', role: 'start', source: 'new', title: '新启动', cue: '起床后', protocol: '先做最小动作',
+      domain: 'health', difficulty: '简单', goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 2] },
+      schedule: { kind: 'daily' }, confirmed: true,
+    }])
+    await saveCoachPlanDraft(draft, database)
+    await expect(activateCoachPlanDraft(draft.id, '2026-01-05', database)).rejects.toThrow('只能先保存')
+    expect(await database.activities.count()).toBe(1)
+    expect(await database.seasons.get(season.id)).toEqual(season)
+    expect(await getCoachPlanDraft(database)).toMatchObject({ id: draft.id, status: 'ready' })
+  })
+
+  it('复用活动失效时启用整笔回滚', async () => {
+    const reusable = await createActivity({ ...dailyHabit, isKey: false }, database)
+    await database.activities.update(reusable.id, { enabled: false })
+    const draft = readyCoachDraft([{ id: 'reuse', role: 'progress', source: 'existing', activityId: reusable.id, confirmed: true }])
+    await saveCoachPlanDraft(draft, database)
+    await expect(activateCoachPlanDraft(draft.id, '2026-01-05', database)).rejects.toThrow('暂停、归档或删除')
+    expect(await database.seasons.count()).toBe(0)
+    expect(await database.activities.count()).toBe(1)
+    expect(await getCoachPlanDraft(database)).toMatchObject({ id: draft.id })
+  })
+
   it('限制最多三项关键行为', async () => {
     for (let index = 0; index < 3; index += 1) await createActivity({ ...dailyHabit, title: `示例 ${index}` }, database)
     await expect(createActivity({ ...dailyHabit, title: '第四项' }, database)).rejects.toThrow('最多只能启用 3 项')
@@ -731,13 +800,17 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 8 备份保存赛季并兼容 schema 5 至 schema 7', async () => {
+  it('schema 9 备份保存规划草稿并兼容 schema 5 至 schema 8', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
     }, '2026-01-05', database)
+    const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
+    await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 8, appVersion: '4.1.0', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 9, appVersion: '4.2.0', seasons: [{ id: season.id }] })
+    expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
+    await restoreBackup({ ...current, schemaVersion: 8, appVersion: '4.1.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.1' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.0' }, database)
     await expect(restoreBackup({ ...current, seasons: [...current.seasons, { ...season, id: 'duplicate-active-season' }] }, database)).rejects.toThrow('只能存在一个')

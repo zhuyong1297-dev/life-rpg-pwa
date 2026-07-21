@@ -172,6 +172,114 @@ export type TieredGoal = z.infer<typeof TieredGoalSchema>
 
 export const ActivityGoalSchema = z.union([LegacyGoalSchema, TieredGoalSchema])
 
+export const coachBehaviorRoles = ['start', 'progress', 'maintain'] as const
+export const coachBehaviorRoleLabels: Record<(typeof coachBehaviorRoles)[number], string> = {
+  start: '启动',
+  progress: '推进',
+  maintain: '维护/收尾',
+}
+
+const CoachPlanExistingBehaviorSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(coachBehaviorRoles),
+  source: z.literal('existing'),
+  activityId: z.string().min(1),
+  confirmed: z.boolean(),
+})
+
+const CoachPlanNewBehaviorSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(coachBehaviorRoles),
+  source: z.literal('new'),
+  title: z.string().trim().max(60),
+  cue: z.string().trim().max(80),
+  protocol: z.string().trim().max(280),
+  domain: z.enum(growthDomains),
+  difficulty: z.enum(difficulties),
+  goal: TieredGoalSchema,
+  schedule: z.union([
+    z.object({ kind: z.literal('daily') }),
+    z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(7) }),
+  ]),
+  confirmed: z.boolean(),
+})
+
+export const CoachPlanBehaviorSchema = z.discriminatedUnion('source', [
+  CoachPlanExistingBehaviorSchema,
+  CoachPlanNewBehaviorSchema,
+])
+
+export const CoachPlanDraftSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().trim().max(40),
+    successCriterion: z.string().trim().max(180),
+    baseline: z.string().trim().max(280),
+    targetOutcome: z.string().trim().max(280),
+    currentStep: z.number().int().min(1).max(4),
+    status: z.enum(['editing', 'ready']),
+    behaviors: z.array(CoachPlanBehaviorSchema).max(3),
+    badDayConfirmed: z.boolean(),
+    evidenceConfirmed: z.boolean(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .superRefine((draft, context) => {
+    const behaviorIds = draft.behaviors.map((behavior) => behavior.id)
+    if (new Set(behaviorIds).size !== behaviorIds.length) {
+      context.addIssue({ code: 'custom', path: ['behaviors'], message: '行为方案不能重复' })
+    }
+    const activityIds = draft.behaviors.flatMap((behavior) => behavior.source === 'existing' ? [behavior.activityId] : [])
+    if (new Set(activityIds).size !== activityIds.length) {
+      context.addIssue({ code: 'custom', path: ['behaviors'], message: '不能重复复用同一项活动' })
+    }
+    if (draft.status !== 'ready') return
+    for (const [field, value, label] of [
+      ['title', draft.title, '成长主题'],
+      ['successCriterion', draft.successCriterion, '成功标准'],
+      ['baseline', draft.baseline, '开始状态'],
+      ['targetOutcome', draft.targetOutcome, '期望结果'],
+    ] as const) {
+      if (!value) context.addIssue({ code: 'custom', path: [field], message: `请填写${label}` })
+    }
+    if (draft.behaviors.length < 1) {
+      context.addIssue({ code: 'custom', path: ['behaviors'], message: '请规划 1 至 3 项核心行为' })
+    }
+    draft.behaviors.forEach((behavior, index) => {
+      if (behavior.source === 'existing' && !behavior.confirmed) {
+        context.addIssue({ code: 'custom', path: ['behaviors', index], message: '请确认复用活动的当前标准' })
+      }
+      if (behavior.source === 'new' && (!behavior.title || !behavior.cue || !behavior.protocol || !behavior.confirmed)) {
+        context.addIssue({ code: 'custom', path: ['behaviors', index], message: '请确认新行为的名称、触发条件、执行协议和最低标准' })
+      }
+    })
+    if (!draft.badDayConfirmed || !draft.evidenceConfirmed) {
+      context.addIssue({ code: 'custom', path: ['badDayConfirmed'], message: '请完成现实检查' })
+    }
+  })
+
+export type CoachPlanBehavior = z.infer<typeof CoachPlanBehaviorSchema>
+export type CoachPlanDraft = z.infer<typeof CoachPlanDraftSchema>
+export type CoachBehaviorRole = (typeof coachBehaviorRoles)[number]
+
+export function createCoachPlanDraft(now = new Date(), id: string = crypto.randomUUID()): CoachPlanDraft {
+  const timestampValue = now.toISOString()
+  return CoachPlanDraftSchema.parse({
+    id,
+    title: '',
+    successCriterion: '',
+    baseline: '',
+    targetOutcome: '',
+    currentStep: 1,
+    status: 'editing',
+    behaviors: [],
+    badDayConfirmed: false,
+    evidenceConfirmed: false,
+    createdAt: timestampValue,
+    updatedAt: timestampValue,
+  })
+}
+
 export const ActivitySchema = z
   .object({
     id: z.string().min(1),
@@ -403,6 +511,7 @@ export const MetaSchema = z.object({
 export const SettingSchema = z.discriminatedUnion('key', [
   z.object({ key: z.literal('preferences'), value: PreferencesSchema }),
   z.object({ key: z.literal('meta'), value: MetaSchema }),
+  z.object({ key: z.literal('coachPlanDraft'), value: CoachPlanDraftSchema }),
 ])
 
 export type Setting = z.infer<typeof SettingSchema>

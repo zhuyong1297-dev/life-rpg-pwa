@@ -13,7 +13,7 @@ import {
   Target,
   X,
 } from 'lucide-react'
-import { addDays, domainLabel, formatTierGoalValue, type Activity, type Completion, type WeeklyReview } from './domain'
+import { addDays, domainLabel, formatTierGoalValue, type Activity, type CoachPlanDraft, type Completion, type WeeklyReview } from './domain'
 import {
   canCalibrateSeason,
   getSeasonDailyActivityIds,
@@ -46,21 +46,28 @@ export function SeasonTodaySummary({
   today,
   activities,
   completions,
+  draft,
   onOpen,
+  onPlan,
 }: {
   season?: Season
   today: string
   activities: Activity[]
   completions: Completion[]
+  draft?: CoachPlanDraft
   onOpen: () => void
+  onPlan: () => void
 }) {
   if (!season) {
     return (
-      <button className="season-summary season-summary-empty" type="button" onClick={onOpen} aria-label="开始 28 天成长赛季">
-        <span className="season-summary-icon"><Compass aria-hidden="true" /></span>
-        <span><small>个人成长教练</small><strong>开始 28 天成长赛季</strong><b>围绕一个现实结果，只保留 1～3 项核心行为。</b></span>
-        <ChevronRight aria-hidden="true" />
-      </button>
+      <div className="season-plan-entry">
+        <button className="season-summary season-summary-empty" type="button" onClick={onPlan} aria-label={draft ? '继续规划 28 天目标' : '规划一个 28 天目标'}>
+          <span className="season-summary-icon"><Compass aria-hidden="true" /></span>
+          <span><small>个人成长教练</small><strong>{draft ? '继续规划' : '规划一个 28 天目标'}</strong><b>{draft ? `已完成第 ${draft.currentStep} 步 · 草稿自动保存在本机` : '把模糊目标转成可验证结果和 1～3 项核心行为。'}</b></span>
+          <ChevronRight aria-hidden="true" />
+        </button>
+        <button className="season-direct-link" type="button" aria-label="开始 28 天成长赛季" onClick={onOpen}>直接选择现有行为创建赛季</button>
+      </div>
     )
   }
   const ids = getSeasonDailyActivityIds(season, today)
@@ -70,15 +77,22 @@ export function SeasonTodaySummary({
   const signalRecorded = season.dailySignals.some((signal) => signal.date === today)
   const labels = ids.map((id) => activityById.get(id)?.title ?? season.focusActivities.find((activity) => activity.activityId === id)?.title ?? '已移除行动')
   return (
-    <button className="season-summary" type="button" onClick={onOpen} aria-label="管理当前成长赛季">
-      <span className="season-summary-icon"><CalendarRange aria-hidden="true" /></span>
-      <span className="season-summary-copy">
-        <small>第 {getSeasonDay(season, today)} / 28 天 · 今日重点 {completed}/{ids.length} · 状态{signalRecorded ? '已记录' : '待记录'}</small>
-        <strong>{season.title}</strong>
-        <b>{labels.join(' · ')}</b>
-      </span>
-      <ChevronRight aria-hidden="true" />
-    </button>
+    <div className="season-plan-entry">
+      <button className="season-summary" type="button" onClick={onOpen} aria-label="管理当前成长赛季">
+        <span className="season-summary-icon"><CalendarRange aria-hidden="true" /></span>
+        <span className="season-summary-copy">
+          <small>第 {getSeasonDay(season, today)} / 28 天 · 今日重点 {completed}/{ids.length} · 状态{signalRecorded ? '已记录' : '待记录'}</small>
+          <strong>{season.title}</strong>
+          <b>{labels.join(' · ')}</b>
+        </span>
+        <ChevronRight aria-hidden="true" />
+      </button>
+      <button className="next-season-plan" type="button" onClick={onPlan}>
+        <Target aria-hidden="true" />
+        <span><small>个人成长教练</small><strong>{draft ? draft.status === 'ready' ? '下个赛季已规划' : '继续规划下个赛季' : '规划下个赛季'}</strong></span>
+        <ChevronRight aria-hidden="true" />
+      </button>
+    </div>
   )
 }
 

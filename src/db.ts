@@ -2,6 +2,8 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   ActivitySchema,
   type Activity,
+  CoachPlanDraftSchema,
+  type CoachPlanDraft,
   type GrowthDomain,
   type Completion,
   type Difficulty,
@@ -197,6 +199,97 @@ export interface CreateSeasonInput {
   baseline: string
   targetOutcome: string
   focusActivityIds: string[]
+}
+
+export async function getCoachPlanDraft(database = db) {
+  const setting = await database.settings.get('coachPlanDraft')
+  return setting?.key === 'coachPlanDraft' ? CoachPlanDraftSchema.parse(setting.value) : undefined
+}
+
+export async function saveCoachPlanDraft(draft: CoachPlanDraft, database = db, now = new Date()) {
+  const next = CoachPlanDraftSchema.parse({ ...draft, updatedAt: now.toISOString() })
+  await database.settings.put({ key: 'coachPlanDraft', value: next })
+  return next
+}
+
+export async function deleteCoachPlanDraft(draftId: string, database = db) {
+  const stored = await database.settings.get('coachPlanDraft')
+  if (stored?.key !== 'coachPlanDraft' || stored.value.id !== draftId) return false
+  await database.settings.delete('coachPlanDraft')
+  return true
+}
+
+export async function activateCoachPlanDraft(
+  draftId: string,
+  startsOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = startsOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.settings, database.seasons, database.activities, async () => {
+    const alreadyCreated = await database.seasons.filter((season) => season.sourcePlanId === draftId).first()
+    if (alreadyCreated) return alreadyCreated
+
+    const setting = await database.settings.get('coachPlanDraft')
+    if (setting?.key !== 'coachPlanDraft' || setting.value.id !== draftId) throw new Error('找不到这份目标规划草稿')
+    const draft = CoachPlanDraftSchema.parse(setting.value)
+    if (draft.status !== 'ready') throw new Error('请先完成四步规划和现实检查')
+    if (await database.seasons.where('status').equals('active').count()) throw new Error('当前赛季尚未结束，只能先保存为下个赛季')
+
+    const existingPlans = draft.behaviors.filter((behavior) => behavior.source === 'existing')
+    const existingActivities = await database.activities.bulkGet(existingPlans.map((behavior) => behavior.activityId))
+    if (existingActivities.some((activity) => !activity || activity.type !== 'habit' || !activity.enabled || activity.archivedAt)) {
+      throw new Error('复用的活动已暂停、归档或删除，请返回草稿替换')
+    }
+
+    const createdAt = new Date().toISOString()
+    const createdActivities = draft.behaviors.flatMap((behavior) => behavior.source === 'new'
+      ? [ActivitySchema.parse({
+          id: `coach-activity:${draft.id}:${behavior.id}`,
+          title: behavior.title,
+          cue: behavior.cue,
+          protocol: behavior.protocol,
+          type: 'habit',
+          domain: behavior.domain,
+          difficulty: behavior.difficulty,
+          goal: behavior.goal,
+          schedule: behavior.schedule,
+          isKey: true,
+          enabled: true,
+          revision: 1,
+          createdAt,
+        })]
+      : [])
+
+    const allActivities = await database.activities.toArray()
+    const selectedExistingIds = new Set(existingPlans.map((behavior) => behavior.activityId))
+    await database.activities.bulkPut(allActivities
+      .filter((activity) => activity.isKey || selectedExistingIds.has(activity.id))
+      .map((activity) => ActivitySchema.parse({ ...activity, isKey: selectedExistingIds.has(activity.id) })))
+    if (createdActivities.length) await database.activities.bulkAdd(createdActivities)
+
+    const selectedActivities = draft.behaviors.map((behavior) => behavior.source === 'existing'
+      ? existingActivities[existingPlans.findIndex((plan) => plan.id === behavior.id)]!
+      : createdActivities.find((activity) => activity.id === `coach-activity:${draft.id}:${behavior.id}`)!)
+    const season = SeasonSchema.parse({
+      id: `season:${draft.id}`,
+      sourcePlanId: draft.id,
+      title: draft.title,
+      successCriterion: draft.successCriterion,
+      baseline: draft.baseline,
+      targetOutcome: draft.targetOutcome,
+      startsOn: eventDate,
+      endsOn: addDays(eventDate, 27),
+      focusActivities: selectedActivities.map(snapshotSeasonActivity),
+      dailyPlans: [],
+      dailySignals: [],
+      suggestions: [],
+      status: 'active',
+      createdAt,
+    })
+    await database.seasons.add(season)
+    await database.settings.delete('coachPlanDraft')
+    return season
+  })
 }
 
 export async function createSeason(input: CreateSeasonInput, startsOn: string | undefined = undefined, database = db) {

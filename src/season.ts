@@ -83,6 +83,7 @@ const SeasonCalibrationSchema = z.object({
 export const SeasonSchema = z
   .object({
     id: z.string().min(1),
+    sourcePlanId: z.string().min(1).optional(),
     title: z.string().trim().min(1).max(40),
     successCriterion: z.string().trim().min(1).max(180),
     baseline: z.string().trim().min(1).max(280),

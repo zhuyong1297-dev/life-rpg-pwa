@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   Activity as ActivityIcon,
   Award,
@@ -45,6 +45,7 @@ import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
 import {
   archiveActivity as archiveActivityDefinition,
   activateGrowthDomains,
+  activateCoachPlanDraft,
   calibrateSeasonWithStableLife,
   cancelTodayCompletion,
   completeSeason,
@@ -61,6 +62,7 @@ import {
   respondToSeasonSuggestion,
   permanentlyDeleteActivity,
   saveWeeklyReview,
+  saveCoachPlanDraft,
   saveSeasonDailySignal,
   setActivityEnabled,
   setActivityKey,
@@ -80,6 +82,9 @@ import {
 } from './db'
 import {
   addDays,
+  coachBehaviorRoleLabels,
+  CoachPlanDraftSchema,
+  createCoachPlanDraft,
   domainLabel,
   calculateStats,
   difficulties,
@@ -112,7 +117,11 @@ import {
   formatTierGoalValue,
   tierLabels,
   tierLevels,
+  TieredGoalSchema,
   type Activity,
+  type CoachBehaviorRole,
+  type CoachPlanBehavior,
+  type CoachPlanDraft,
   type GrowthDomain,
   type Completion,
   type Difficulty,
@@ -135,7 +144,21 @@ import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, r
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from './SeasonExperience'
 
 type Page = 'today' | 'character' | 'review' | 'settings'
+type SecondaryPage = 'coach-plan'
 type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
+
+function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
+  const path = window.location.hash.replace(/^#\/?/, '')
+  if (path === 'coach/plan') return { page: 'today', secondary: 'coach-plan' }
+  if (path === 'character' || path === 'review' || path === 'settings') return { page: path }
+  return { page: 'today' }
+}
+
+function navigateTo(path: string, replace = false) {
+  const url = `${window.location.pathname}${window.location.search}#/${path}`
+  if (replace) window.history.replaceState(null, '', url)
+  else window.location.hash = `/${path}`
+}
 
 const emptySnapshot: Snapshot = {
   activities: [],
@@ -322,7 +345,7 @@ function GrowthDomainMigration({
     <main className="migration-screen">
       <form className="migration-panel" onSubmit={submit}>
         <header className="migration-header">
-          <span className="modal-kicker">地球 Online V4.1.0</span>
+          <span className="modal-kicker">地球 Online V4.2.0</span>
           <h1>建立六个成长领域</h1>
           <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
           <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
@@ -385,7 +408,9 @@ const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
 
 function App() {
-  const [page, setPage] = useState<Page>('today')
+  const initialRoute = useMemo(routeFromHash, [])
+  const [page, setPage] = useState<Page>(initialRoute.page)
+  const [secondaryPage, setSecondaryPage] = useState<SecondaryPage | undefined>(initialRoute.secondary)
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot)
   const [ready, setReady] = useState(false)
   const [notice, setNotice] = useState('')
@@ -400,6 +425,17 @@ function App() {
   const [seasonHubOpen, setSeasonHubOpen] = useState(false)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
   const [clock, setClock] = useState(() => new Date())
+
+  useEffect(() => {
+    if (!window.location.hash) navigateTo('today', true)
+    const syncRoute = () => {
+      const route = routeFromHash()
+      setPage(route.page)
+      setSecondaryPage(route.secondary)
+    }
+    window.addEventListener('hashchange', syncRoute)
+    return () => window.removeEventListener('hashchange', syncRoute)
+  }, [])
 
   const refresh = useCallback(async () => {
     setSnapshot(await getSnapshot())
@@ -443,6 +479,8 @@ function App() {
   const targetRewardId = metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined
   const gameDayBoundaryActivatedAt = metaSetting?.key === 'meta' ? metaSetting.value.gameDayBoundaryActivatedAt : undefined
   const growthDomainSystem = metaSetting?.key === 'meta' ? metaSetting.value.growthDomainSystem : undefined
+  const coachDraftSetting = snapshot.settings.find((item) => item.key === 'coachPlanDraft')
+  const coachDraft = coachDraftSetting?.key === 'coachPlanDraft' ? coachDraftSetting.value : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
   const activeSeason = snapshot.seasons.find((season) => season.status === 'active')
   const characterNeedsAttention = Boolean(levelSystem?.milestones.some(
@@ -602,16 +640,16 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <Navigation
+    <div className={secondaryPage ? 'app-shell secondary-route' : 'app-shell'}>
+      {!secondaryPage && <Navigation
         page={page}
         onChange={(nextPage) => {
-          setPage(nextPage)
+          navigateTo(nextPage)
           if (nextPage === 'character') void syncLevelMilestones().then(refresh)
         }}
         onCreate={() => setCreateOpen(true)}
         characterNeedsAttention={characterNeedsAttention}
-      />
+      />}
       <main className="main-content">
         {isPreview && (
           <div className="preview-banner" role="status">
@@ -627,7 +665,31 @@ function App() {
             </button>
           </div>
         )}
-        {page === 'today' && (
+        {secondaryPage === 'coach-plan' ? (
+          <CoachPlanScreen
+            storedDraft={coachDraft}
+            activities={snapshot.activities}
+            activeSeason={activeSeason}
+            onBack={() => navigateTo(page)}
+            onSave={async (draft) => {
+              await saveCoachPlanDraft(draft)
+              await refresh()
+            }}
+            onFinish={async (draft) => {
+              const readyDraft = { ...draft, currentStep: 4 as const, status: 'ready' as const }
+              await saveCoachPlanDraft(readyDraft)
+              if (activeSeason) {
+                await refresh()
+                setNotice('下个赛季方案已保存，当前赛季和关键行为没有改变')
+              } else {
+                await activateCoachPlanDraft(readyDraft.id, today)
+                await refresh()
+                setNotice('28 天成长赛季已启动，规划行为已设为关键行动')
+              }
+              navigateTo('today')
+            }}
+          />
+        ) : page === 'today' && (
           <TodayPage
             today={today}
             totalXp={stats.totalXp}
@@ -645,6 +707,8 @@ function App() {
             onCompleted={setCompletionActivity}
             onCreate={() => setCreateOpen(true)}
             onOpenSeason={() => setSeasonHubOpen(true)}
+            coachDraft={coachDraft}
+            onOpenCoach={() => navigateTo('coach/plan')}
           />
         )}
         {page === 'character' && (
@@ -966,6 +1030,273 @@ function App() {
   )
 }
 
+type NewCoachBehavior = Extract<CoachPlanBehavior, { source: 'new' }>
+
+function createNewCoachBehavior(role: CoachBehaviorRole): NewCoachBehavior {
+  return {
+    id: crypto.randomUUID(),
+    role,
+    source: 'new',
+    title: '',
+    cue: '',
+    protocol: '',
+    domain: role === 'progress' ? 'career' : role === 'maintain' ? 'life' : 'health',
+    difficulty: role === 'progress' ? '普通' : '简单',
+    goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [300, 900] },
+    schedule: { kind: 'daily' },
+    confirmed: false,
+  }
+}
+
+function CoachPlanScreen({
+  storedDraft,
+  activities,
+  activeSeason,
+  onBack,
+  onSave,
+  onFinish,
+}: {
+  storedDraft?: CoachPlanDraft
+  activities: Activity[]
+  activeSeason?: Snapshot['seasons'][number]
+  onBack: () => void
+  onSave: (draft: CoachPlanDraft) => Promise<void>
+  onFinish: (draft: CoachPlanDraft) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<CoachPlanDraft>(() => storedDraft ?? createCoachPlanDraft())
+  const [reuseRole, setReuseRole] = useState<CoachBehaviorRole>('progress')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [replaceConfirm, setReplaceConfirm] = useState(false)
+  const saveQueue = useRef<Promise<void>>(Promise.resolve())
+
+  useEffect(() => {
+    if (storedDraft && storedDraft.id !== draft.id) setDraft(storedDraft)
+  }, [storedDraft?.id])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      saveQueue.current = saveQueue.current.catch(() => undefined).then(() => onSave(draft))
+      void saveQueue.current.catch((saveError: unknown) => setError(errorMessage(saveError)))
+    }, 350)
+    return () => window.clearTimeout(timer)
+  }, [draft])
+
+  const updateDraft = (next: Partial<CoachPlanDraft>) => {
+    setError('')
+    setDraft((current) => ({ ...current, ...next, status: 'editing', updatedAt: new Date().toISOString() }))
+  }
+  const updateBehavior = (id: string, update: (behavior: CoachPlanBehavior) => CoachPlanBehavior) => {
+    updateDraft({ behaviors: draft.behaviors.map((behavior) => behavior.id === id ? update(behavior) : behavior) })
+  }
+  const eligibleActivities = activities.filter((activity) => activity.type === 'habit' && activity.enabled && !activity.archivedAt)
+  const selectedActivityIds = new Set(draft.behaviors.flatMap((behavior) => behavior.source === 'existing' ? [behavior.activityId] : []))
+  const activityById = new Map(activities.map((activity) => [activity.id, activity]))
+
+  function stepError(step: number) {
+    if (step === 1 && (!draft.title.trim() || !draft.successCriterion.trim() || !draft.baseline.trim() || !draft.targetOutcome.trim())) return '请先完整填写现实结果和可验证标准'
+    if (step === 2 && (draft.behaviors.length < 1 || draft.behaviors.length > 3)) return '请选择 1 至 3 项核心行为'
+    if (step === 3) {
+      if (draft.behaviors.some((behavior) => behavior.source === 'existing' && (!behavior.confirmed || !activityById.get(behavior.activityId)?.enabled || activityById.get(behavior.activityId)?.archivedAt))) return '请确认每项复用活动仍然可用'
+      if (draft.behaviors.some((behavior) => behavior.source === 'new' && !behavior.confirmed)) return '请逐项确认新行为的领域、难度、触发条件和最低标准'
+    }
+    return ''
+  }
+
+  function goNext() {
+    const message = stepError(draft.currentStep)
+    if (message) return setError(message)
+    updateDraft({ currentStep: Math.min(4, draft.currentStep + 1) })
+  }
+
+  const burden = draft.behaviors.reduce((summary, behavior) => {
+    const activity = behavior.source === 'existing' ? activityById.get(behavior.activityId) : behavior
+    if (!activity) return summary
+    const times = activity.schedule.kind === 'weekly' ? activity.schedule.times : 7
+    summary.sessions += times
+    if (activity.goal.kind === 'tiered') {
+      const achievement = getTierAchievement(activity.goal, 1)
+      summary.seconds += (achievement.durationSeconds ?? 0) * times
+    } else if (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') {
+      summary.seconds += activity.goal.count * 60 * times
+    }
+    return summary
+  }, { sessions: 0, seconds: 0 })
+
+  async function finish() {
+    const message = stepError(3)
+    if (message) return setError(message)
+    try {
+      setSubmitting(true)
+      const readyDraft = CoachPlanDraftSchema.parse({ ...draft, currentStep: 4, status: 'ready' })
+      await saveQueue.current
+      await onFinish(readyDraft)
+    } catch (finishError) {
+      setError(errorMessage(finishError))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const steps = ['现实结果', '行动链', '最低标准', '现实检查']
+  return (
+    <section className="coach-plan-screen" aria-labelledby="coach-plan-title">
+      <header className="coach-plan-header">
+        <button className="coach-back" type="button" onClick={onBack}><ChevronLeft aria-hidden="true" />返回</button>
+        <div><span className="modal-kicker">个人成长教练</span><h1 id="coach-plan-title">目标规划器</h1><p>把一个现实目标拆成最多三项能真正执行的行为。</p></div>
+        <button className={replaceConfirm ? 'coach-restart confirming' : 'coach-restart'} type="button" onClick={() => {
+          if (!replaceConfirm) return setReplaceConfirm(true)
+          setDraft(createCoachPlanDraft())
+          setReplaceConfirm(false)
+        }}><RotateCcw aria-hidden="true" />{replaceConfirm ? '确认替换草稿' : '重新规划'}</button>
+      </header>
+
+      <ol className="coach-steps" aria-label="规划进度">
+        {steps.map((label, index) => {
+          const number = index + 1
+          return <li key={label} className={number === draft.currentStep ? 'active' : number < draft.currentStep ? 'done' : ''}><span>{number < draft.currentStep ? <Check aria-hidden="true" /> : number}</span><b>{label}</b></li>
+        })}
+      </ol>
+
+      {error && <div className="coach-error" role="alert">{error}</div>}
+
+      <div className="coach-plan-body">
+        {draft.currentStep === 1 && (
+          <section className="coach-step-panel">
+            <div className="coach-step-heading"><span>第 1 步</span><h2>先定义现实结果</h2><p>成功标准必须能在 28 天后用事实回答，而不是“获得多少 XP”。</p></div>
+            <label className="full-field">成长主题<input maxLength={40} value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="例如：建立稳定的生活节奏" /></label>
+            <label className="full-field">开始状态<textarea maxLength={280} value={draft.baseline} onChange={(event) => updateDraft({ baseline: event.target.value })} placeholder="现在具体是什么状态？" /></label>
+            <label className="full-field">期望结果<textarea maxLength={280} value={draft.targetOutcome} onChange={(event) => updateDraft({ targetOutcome: event.target.value })} placeholder="28 天后希望现实中发生什么变化？" /></label>
+            <label className="full-field">可验证成功标准<textarea maxLength={180} value={draft.successCriterion} onChange={(event) => updateDraft({ successCriterion: event.target.value })} placeholder="写出日期、次数、结果或可观察证据" /></label>
+          </section>
+        )}
+
+        {draft.currentStep === 2 && (
+          <section className="coach-step-panel">
+            <div className="coach-step-heading"><span>第 2 步</span><h2>建立最短行动链</h2><p>选择 1～3 项行为。模板只提供结构，不会替你判断领域和难度。</p></div>
+            <div className="coach-template-grid">
+              {(['start', 'progress', 'maintain'] as CoachBehaviorRole[]).map((role) => (
+                <button key={role} type="button" disabled={draft.behaviors.length >= 3} onClick={() => updateDraft({ behaviors: [...draft.behaviors, createNewCoachBehavior(role)] })}>
+                  <Zap aria-hidden="true" /><strong>{coachBehaviorRoleLabels[role]}</strong><small>{role === 'start' ? '降低开始阻力' : role === 'progress' ? '直接推动结果' : '维持环境或完成收尾'}</small><Plus aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+            {eligibleActivities.length > 0 && (
+              <section className="coach-reuse-block">
+                <div className="coach-reuse-head"><div><strong>复用现有活动</strong><small>沿用它当前的频率和最低标准</small></div><BehaviorRoleControl value={reuseRole} onChange={setReuseRole} /></div>
+                <div className="coach-reuse-list">
+                  {eligibleActivities.map((activity) => (
+                    <button key={activity.id} type="button" disabled={draft.behaviors.length >= 3 || selectedActivityIds.has(activity.id)} onClick={() => updateDraft({ behaviors: [...draft.behaviors, { id: crypto.randomUUID(), role: reuseRole, source: 'existing', activityId: activity.id, confirmed: false }] })}>
+                      <span><strong>{activity.title}</strong><small>{activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty} · {activityFrequencyLabel(activity)}</small></span><Plus aria-hidden="true" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <CoachSelectedBehaviors draft={draft} activityById={activityById} onUpdate={updateBehavior} onRemove={(id) => updateDraft({ behaviors: draft.behaviors.filter((behavior) => behavior.id !== id) })} />
+          </section>
+        )}
+
+        {draft.currentStep === 3 && (
+          <section className="coach-step-panel">
+            <div className="coach-step-heading"><span>第 3 步</span><h2>确认最低标准</h2><p>状态差时先做到基础层；标准层是状态正常时的完整行动。</p></div>
+            <div className="coach-behavior-editors">
+              {draft.behaviors.map((behavior) => behavior.source === 'new' ? (
+                <CoachNewBehaviorEditor key={behavior.id} behavior={behavior} onChange={(next) => updateBehavior(behavior.id, () => next)} />
+              ) : (
+                <CoachExistingBehaviorEditor key={behavior.id} behavior={behavior} activity={activityById.get(behavior.activityId)} onChange={(next) => updateBehavior(behavior.id, () => next)} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {draft.currentStep === 4 && (
+          <section className="coach-step-panel">
+            <div className="coach-step-heading"><span>第 4 步</span><h2>现实检查</h2><p>奖励能强化行动，但不能证明目标已经实现。</p></div>
+            <div className="coach-burden">
+              <Target aria-hidden="true" />
+              <div><small>预计每周最低负担</small><strong>{burden.sessions} 次执行{burden.seconds > 0 ? ` · ${formatDurationSeconds(burden.seconds)}` : ''}</strong><p>次数按计划频率计算；只有含时间的行为才汇总时长。</p></div>
+            </div>
+            <CoachSelectedBehaviors draft={draft} activityById={activityById} compact onUpdate={updateBehavior} onRemove={(id) => updateDraft({ behaviors: draft.behaviors.filter((behavior) => behavior.id !== id) })} />
+            <label className="coach-check"><input type="checkbox" checked={draft.badDayConfirmed} onChange={(event) => updateDraft({ badDayConfirmed: event.target.checked })} /><span><strong>状态较差时，我仍能完成基础层</strong><small>如果答案是否定的，返回上一步继续降低门槛。</small></span></label>
+            <label className="coach-check"><input type="checkbox" checked={draft.evidenceConfirmed} onChange={(event) => updateDraft({ evidenceConfirmed: event.target.checked })} /><span><strong>这些行为会推动成功标准</strong><small>它们必须改变现实结果，而不只是容易打卡。</small></span></label>
+            {activeSeason && <p className="coach-queue-note"><ShieldCheck aria-hidden="true" />当前赛季仍在进行。保存后不会创建活动，也不会修改当前关键行为。</p>}
+          </section>
+        )}
+      </div>
+
+      <footer className="coach-plan-footer">
+        <button className="secondary-action" type="button" disabled={draft.currentStep === 1} onClick={() => updateDraft({ currentStep: Math.max(1, draft.currentStep - 1) })}><ChevronLeft aria-hidden="true" />上一步</button>
+        <span>草稿自动保存在本机</span>
+        {draft.currentStep < 4 ? (
+          <button className="primary-action" type="button" onClick={goNext}>下一步<ChevronRight aria-hidden="true" /></button>
+        ) : (
+          <button className="primary-action" type="button" disabled={submitting || !draft.badDayConfirmed || !draft.evidenceConfirmed} onClick={() => void finish()}><ShieldCheck aria-hidden="true" />{submitting ? '正在保存…' : activeSeason ? '保存为下个赛季' : '启动 28 天赛季'}</button>
+        )}
+      </footer>
+    </section>
+  )
+}
+
+function BehaviorRoleControl({ value, onChange }: { value: CoachBehaviorRole; onChange: (role: CoachBehaviorRole) => void }) {
+  return <div className="coach-role-control" aria-label="行为角色">{(['start', 'progress', 'maintain'] as CoachBehaviorRole[]).map((role) => <button key={role} type="button" className={value === role ? 'selected' : ''} onClick={() => onChange(role)}>{coachBehaviorRoleLabels[role]}</button>)}</div>
+}
+
+function CoachSelectedBehaviors({ draft, activityById, onUpdate, onRemove, compact = false }: {
+  draft: CoachPlanDraft
+  activityById: Map<string, Activity>
+  onUpdate: (id: string, update: (behavior: CoachPlanBehavior) => CoachPlanBehavior) => void
+  onRemove: (id: string) => void
+  compact?: boolean
+}) {
+  if (draft.behaviors.length === 0) return <div className="coach-empty">还没有行动。只选真正推动结果的 1～3 项。</div>
+  return <div className={compact ? 'coach-selected compact' : 'coach-selected'}>{draft.behaviors.map((behavior) => {
+    const activity = behavior.source === 'existing' ? activityById.get(behavior.activityId) : undefined
+    return <article key={behavior.id}><span className="coach-role-badge">{coachBehaviorRoleLabels[behavior.role]}</span><div><strong>{behavior.source === 'new' ? behavior.title || '未命名新行为' : activity?.title ?? '活动已失效'}</strong><small>{behavior.source === 'new' ? '新建行为' : '复用现有活动'} · {behavior.confirmed ? '已确认' : '待确认'}</small></div>{!compact && <BehaviorRoleControl value={behavior.role} onChange={(role) => onUpdate(behavior.id, (item) => ({ ...item, role }))} />}<button className="icon-button" type="button" title="移除" onClick={() => onRemove(behavior.id)}><X aria-hidden="true" /></button></article>
+  })}</div>
+}
+
+function CoachExistingBehaviorEditor({ behavior, activity, onChange }: { behavior: Extract<CoachPlanBehavior, { source: 'existing' }>; activity?: Activity; onChange: (behavior: Extract<CoachPlanBehavior, { source: 'existing' }>) => void }) {
+  if (!activity || !activity.enabled || activity.archivedAt) return <article className="coach-editor invalid"><strong>复用活动已失效</strong><p>它可能已暂停、归档或删除。请返回上一步替换。</p></article>
+  return (
+    <article className={behavior.confirmed ? 'coach-editor confirmed' : 'coach-editor'}>
+      <div className="coach-editor-title"><span className="coach-role-badge">{coachBehaviorRoleLabels[behavior.role]}</span><div><h3>{activity.title}</h3><p>复用现有活动</p></div>{behavior.confirmed && <CheckCircle2 aria-label="已确认" />}</div>
+      <dl className="coach-existing-details"><div><dt>成长领域</dt><dd>{activity.domain ? domainLabel(activity.domain) : '旧体系'}</dd></div><div><dt>难度</dt><dd>{activity.difficulty}</dd></div><div><dt>频率</dt><dd>{activityFrequencyLabel(activity)}</dd></div><div><dt>最低标准</dt><dd>{activityGoalLabel(activity)}</dd></div></dl>
+      <button className="secondary-action" type="button" onClick={() => onChange({ ...behavior, confirmed: true })}><Check aria-hidden="true" />确认沿用当前标准</button>
+    </article>
+  )
+}
+
+function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBehavior; onChange: (behavior: NewCoachBehavior) => void }) {
+  const [goalDraft, setGoalDraft] = useState<TierGoalDraft>(() => tierGoalDraftFromGoal(behavior.goal))
+  const [localError, setLocalError] = useState('')
+  const change = (next: Partial<NewCoachBehavior>) => onChange({ ...behavior, ...next, confirmed: false })
+  function confirm() {
+    try {
+      const goal = TieredGoalSchema.parse(buildTierGoal(goalDraft))
+      if (!behavior.title.trim() || !behavior.cue.trim() || !behavior.protocol.trim()) throw new Error('请填写名称、触发条件和执行协议')
+      setLocalError('')
+      onChange({ ...behavior, goal, confirmed: true })
+    } catch (confirmError) {
+      setLocalError(errorMessage(confirmError))
+    }
+  }
+  return (
+    <article className={behavior.confirmed ? 'coach-editor confirmed' : 'coach-editor'}>
+      <div className="coach-editor-title"><span className="coach-role-badge">{coachBehaviorRoleLabels[behavior.role]}</span><div><h3>{behavior.title || '新行为'}</h3><p>所有分类和标准都需要你确认</p></div>{behavior.confirmed && <CheckCircle2 aria-label="已确认" />}</div>
+      <label className="full-field">行为名称<input maxLength={60} value={behavior.title} onChange={(event) => change({ title: event.target.value })} /></label>
+      <div className="field-grid"><label>成长领域<select value={behavior.domain} onChange={(event) => change({ domain: event.target.value as GrowthDomain })}>{growthDomains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}</select></label><label>难度<select value={behavior.difficulty} onChange={(event) => change({ difficulty: event.target.value as Difficulty })}>{difficulties.map((difficulty) => <option key={difficulty}>{difficulty}</option>)}</select></label></div>
+      <p className="domain-definition"><strong>{growthDomainDetails[behavior.domain].description}</strong><span>例如：{growthDomainDetails[behavior.domain].examples}</span></p>
+      <div className="field-grid"><label>频率<select value={behavior.schedule.kind} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && <label>每周次数<input type="number" min={1} max={7} value={behavior.schedule.times} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
+      <label className="full-field">触发条件<input maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="什么时候、什么之后开始" /></label>
+      <label className="full-field">执行协议<textarea maxLength={280} value={behavior.protocol} onChange={(event) => change({ protocol: event.target.value })} placeholder="具体做什么，走神或中断后怎样返回" /></label>
+      <div className="coach-goal-box"><strong>分层最低标准</strong><TierGoalFields value={goalDraft} onChange={(next) => { setGoalDraft(next); change({}) }} /></div>
+      {localError && <p className="coach-inline-error" role="alert">{localError}</p>}
+      <button className="secondary-action" type="button" onClick={confirm}><Check aria-hidden="true" />确认这个行为</button>
+    </article>
+  )
+}
+
 function Navigation({
   page,
   onChange,
@@ -1033,6 +1364,8 @@ function TodayPage({
   onCompleted,
   onCreate,
   onOpenSeason,
+  coachDraft,
+  onOpenCoach,
 }: {
   today: string
   totalXp: number
@@ -1050,6 +1383,8 @@ function TodayPage({
   onCompleted: (activity: Activity) => void
   onCreate: () => void
   onOpenSeason: () => void
+  coachDraft?: CoachPlanDraft
+  onOpenCoach: () => void
 }) {
   const stage = getCharacterStage(level.level)
   const completedKeys = keyActivities.filter((activity) => Boolean(activeCompletion(activity))).length
@@ -1065,7 +1400,15 @@ function TodayPage({
               <p className="game-day-note"><CalendarDays aria-hidden="true" />本日结算至 {formatShortDate(addDays(today, 1))} 04:00</p>
             </div>
           </header>
-          <SeasonTodaySummary season={season} today={today} activities={activities} completions={completions} onOpen={onOpenSeason} />
+          <SeasonTodaySummary
+            season={season}
+            today={today}
+            activities={activities}
+            completions={completions}
+            draft={coachDraft}
+            onOpen={onOpenSeason}
+            onPlan={onOpenCoach}
+          />
           <div className="mobile-status">
             <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} />
           </div>
@@ -1946,7 +2289,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.1.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.2.0{isPreview ? ' 预览版' : ''}</footer>
     </div>
   )
 }
