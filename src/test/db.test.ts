@@ -518,6 +518,34 @@ describe('IndexedDB 事务', () => {
     ])
   })
 
+  it('从 V4.0.2 升级只补齐读取视图，不修改赛季、关键行为或成长历史', async () => {
+    const activity = await createActivity({ ...dailyHabit, title: '升级保护行为' }, database)
+    await completeActivity(activity.id, '2026-01-05', undefined, database)
+    const season = await createSeason({
+      title: '升级保护赛季', successCriterion: '保持原有定义', baseline: '已有运行数据', targetOutcome: '升级后完全一致', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    const { dailySignals: _dailySignals, ...schema7Season } = season
+    await database.seasons.put(schema7Season as typeof season)
+    const before = {
+      activities: await database.activities.toArray(),
+      completions: await database.completions.toArray(),
+      ledgerEvents: await database.ledgerEvents.toArray(),
+      rewards: await database.rewards.toArray(),
+      seasons: await database.seasons.toArray(),
+    }
+
+    await initializeDatabase(database)
+    const snapshot = await getSnapshot(database)
+
+    expect(snapshot.seasons[0].dailySignals).toEqual([])
+    expect(await database.activities.toArray()).toEqual(before.activities)
+    expect(await database.completions.toArray()).toEqual(before.completions)
+    expect(await database.ledgerEvents.toArray()).toEqual(before.ledgerEvents)
+    expect(await database.rewards.toArray()).toEqual(before.rewards)
+    expect(await database.seasons.toArray()).toEqual(before.seasons)
+    expect(snapshot.activities.filter((item) => stableLifeBlueprint.some((blueprint) => blueprint.title === item.title))).toEqual([])
+  })
+
   it('周复盘生成本地建议，响应建议不会自动修改活动', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
