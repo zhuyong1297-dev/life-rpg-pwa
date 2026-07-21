@@ -456,6 +456,47 @@ test('赛季前 3 天可启用稳定生活蓝图并记录现实状态', async ({
   await page.screenshot({ path: `test-results/stable-life-${testInfo.project.name}.png`, fullPage: true })
 })
 
+test('schema 7 旧赛季缺少每日状态字段时仍可打开', async ({ page }) => {
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('旧赛季行为')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '开始 28 天成长赛季' }).click()
+  await page.getByLabel('成长主题').fill('旧版赛季')
+  await page.getByLabel('可验证的成功标准').fill('应用能够继续打开')
+  await page.getByLabel('开始状态').fill('尚未记录状态')
+  await page.getByLabel('期望结果').fill('旧数据自动兼容')
+  await page.getByRole('checkbox', { name: /旧赛季行为/ }).check()
+  await page.getByRole('button', { name: '开始赛季' }).click()
+  await page.evaluate(async () => {
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('seasons', 'readwrite')
+    const store = transaction.objectStore('seasons')
+    const seasons = await new Promise<Record<string, unknown>[]>((resolve, reject) => {
+      const getAll = store.getAll()
+      getAll.onsuccess = () => resolve(getAll.result)
+      getAll.onerror = () => reject(getAll.error)
+    })
+    const legacySeason = { ...seasons[0] }
+    delete legacySeason.dailySignals
+    store.put(legacySeason)
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+  })
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await page.getByRole('button', { name: '管理当前成长赛季' }).click()
+  await page.getByRole('button', { name: '记录今日状态' }).click()
+  await expect(page.getByRole('heading', { name: '记录今天的现实状态' })).toBeVisible()
+})
+
 test('奖励商店支持紧凑入口、新增编辑、目标和停用恢复', async ({ page }) => {
   await page.getByRole('button', { name: '角色' }).click()
   await expect(page.locator('.shop-summary')).toBeVisible()

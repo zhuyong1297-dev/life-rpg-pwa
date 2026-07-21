@@ -281,8 +281,9 @@ export async function completeSeason(
 ) {
   const eventDate = occurredOn ?? await currentGameDate(database)
   return database.transaction('rw', database.seasons, async () => {
-    const season = await database.seasons.get(seasonId)
-    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    const storedSeason = await database.seasons.get(seasonId)
+    if (!storedSeason || storedSeason.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    const season = SeasonSchema.parse(storedSeason)
     if (eventDate < season.endsOn) throw new Error(`赛季将在 ${season.endsOn} 游戏日结束`)
     if (!season.suggestions.some((suggestion) => suggestion.status === 'accepted' || suggestion.status === 'modified')) {
       throw new Error('结束赛季前至少接受或调整一条成长建议')
@@ -429,8 +430,9 @@ export async function saveSeasonDailySignal(
 ) {
   const eventDate = occurredOn ?? await currentGameDate(database)
   return database.transaction('rw', database.seasons, async () => {
-    const season = await database.seasons.get(seasonId)
-    if (!season || season.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    const storedSeason = await database.seasons.get(seasonId)
+    if (!storedSeason || storedSeason.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    const season = SeasonSchema.parse(storedSeason)
     if (eventDate < season.startsOn || eventDate > season.endsOn) throw new Error('今日状态必须位于当前赛季内')
     const signal = {
       date: eventDate,
@@ -997,5 +999,13 @@ export async function getSnapshot(database = db) {
     database.seasons.toArray(),
     database.settings.toArray(),
   ])
-  return { activities, completions, ledgerEvents, rewards, weeklyReviews, seasons, settings }
+  return {
+    activities,
+    completions,
+    ledgerEvents,
+    rewards,
+    weeklyReviews,
+    seasons: seasons.map((season) => SeasonSchema.parse(season)),
+    settings,
+  }
 }

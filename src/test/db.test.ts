@@ -503,6 +503,21 @@ describe('IndexedDB 事务', () => {
     await expect(saveSeasonDailySignal(season.id, { wakeWindowMet: true, morningEnergy: 3, control: 3 }, '2026-02-03', database)).rejects.toThrow('当前赛季内')
   })
 
+  it('schema 7 旧赛季缺少每日状态字段时仍能启动和记录', async () => {
+    const activity = await createActivity({ ...dailyHabit, isKey: false }, database)
+    const season = await createSeason({
+      title: '旧版赛季', successCriterion: '完成现实目标', baseline: '尚未开始', targetOutcome: '形成稳定行动', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    const { dailySignals: _dailySignals, ...schema7Season } = season
+    await database.seasons.put(schema7Season as typeof season)
+
+    expect((await getSnapshot(database)).seasons[0].dailySignals).toEqual([])
+    await saveSeasonDailySignal(season.id, { wakeWindowMet: true, morningEnergy: 3, control: 4 }, '2026-01-05', database)
+    expect((await database.seasons.get(season.id))?.dailySignals).toMatchObject([
+      { date: '2026-01-05', wakeWindowMet: true, morningEnergy: 3, control: 4 },
+    ])
+  })
+
   it('周复盘生成本地建议，响应建议不会自动修改活动', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
