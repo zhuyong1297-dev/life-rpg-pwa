@@ -977,17 +977,18 @@ function Navigation({
   onCreate: () => void
   characterNeedsAttention: boolean
 }) {
-  const items: Array<{ id: Page; label: string; icon: typeof Home }> = [
-    { id: 'today', label: '今天', icon: Home },
-    { id: 'character', label: '角色', icon: UserRound },
-    { id: 'review', label: '复盘', icon: ClipboardCheck },
-    { id: 'settings', label: '设置', icon: SettingsIcon },
+  const items: Array<{ id: Page; label: string; code: string; icon: typeof Home }> = [
+    { id: 'today', label: '今天', code: '01', icon: Home },
+    { id: 'character', label: '角色', code: '02', icon: UserRound },
+    { id: 'review', label: '复盘', code: '03', icon: ClipboardCheck },
+    { id: 'settings', label: '设置', code: '04', icon: SettingsIcon },
   ]
   return (
     <nav className="navigation" aria-label="主导航">
       <div className="brand-mark">
         <span className="brand-icon"><Zap aria-hidden="true" /></span>
-        <span className="brand-copy"><strong>地球 Online</strong><small>现实成长日志</small></span>
+        <span className="brand-copy"><small>EARTH / FIELD LOG</small><strong>地球 Online</strong><span>现实成长日志</span></span>
+        <span className="brand-edition">V4.1 · LOCAL</span>
       </div>
       {items.map((item, index) => {
         const Icon = item.icon
@@ -1004,6 +1005,7 @@ function Navigation({
             onClick={() => onChange(item.id)}
             aria-current={page === item.id ? 'page' : undefined}
           >
+            <span className="nav-index" aria-hidden="true">{item.code}</span>
             <span className="nav-icon-wrap">
               <Icon aria-hidden="true" />
               {item.id === 'character' && characterNeedsAttention && <span className="nav-attention" aria-label="有新的成长奖励" />}
@@ -1064,6 +1066,7 @@ function TodayPage({
               <p className="page-lead">把注意力留给真正重要的行动。</p>
               <p className="game-day-note"><CalendarDays aria-hidden="true" />本日结算至 {formatShortDate(addDays(today, 1))} 04:00</p>
             </div>
+            <span className="page-folio" aria-hidden="true">TODAY<br />{formatShortDate(today)}</span>
           </header>
           <SeasonTodaySummary season={season} today={today} activities={activities} completions={completions} onOpen={onOpenSeason} />
           <div className="mobile-status">
@@ -1193,7 +1196,7 @@ function ActivitySection({
       </div>
       <div className={variant === 'key' ? 'mission-list' : 'activity-list'}>
         {activities.length === 0 && <div className="empty-mission"><TargetMark /><strong>设定第一项主线</strong><p>{empty}</p></div>}
-        {activities.map((activity) => {
+        {activities.map((activity, index) => {
           const completion = activeCompletion(activity)
           const complete = Boolean(completion)
           const completionGoal = completion ? getCompletionTierGoal(completion, activity) : undefined
@@ -1201,6 +1204,7 @@ function ActivitySection({
           const reward = rewardTable[activity.difficulty]
           return (
             <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
+              {variant === 'key' && <span className="mission-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>}
               <div className="activity-copy">
                 {variant === 'key' && activity.domain && <div className="mission-meta"><DomainMark domain={activity.domain} /><span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span></div>}
                 <div className="activity-title-line">
@@ -1338,7 +1342,7 @@ function CharacterPage({
     })
   return (
     <div className="character-page">
-      <header className="page-header"><div><p className="eyebrow">冒险者档案</p><h1>角色</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
+      <header className="page-header"><div><p className="eyebrow">冒险者档案</p><h1>角色</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div><span className="page-folio" aria-hidden="true">PROFILE<br />{stageName}</span></header>
       <section className="character-hero">
         <div className="character-portrait-wrap"><span className="stage-badge">{stageName}</span><TravelerPortrait stage={stage} label={`${stageName}阶段的像素旅者`} /></div>
         <div className="character-progress">
@@ -1706,7 +1710,7 @@ function ReviewPage({
 
   return (
     <div className="review-page">
-      <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div></header>
+      <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div><span className="page-folio" aria-hidden="true">WEEKLY<br />REPORT</span></header>
       <CoachSuggestionSummary season={season} onOpen={onOpenSeason} />
       {activities.length === 0 ? (
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
@@ -1888,7 +1892,7 @@ function SettingsPage({
 
   return (
     <div className="settings-page">
-      <header className="page-header"><div><p className="eyebrow">系统与存档</p><h1>设置</h1><p className="page-lead">管理反馈方式、行动和本机数据。</p></div><SettingsIcon aria-hidden="true" className="header-icon" /></header>
+      <header className="page-header"><div><p className="eyebrow">系统与存档</p><h1>设置</h1><p className="page-lead">管理反馈方式、行动和本机数据。</p></div><span className="page-folio settings-folio" aria-hidden="true"><SettingsIcon />LOCAL<br />SYSTEM</span></header>
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>体验偏好</span><h2>即时反馈</h2></div></div>
         <SettingToggle
