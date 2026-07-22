@@ -120,6 +120,33 @@ test('目标规划器四步在窄屏和桌面均无横向溢出', async ({ page 
   await page.screenshot({ path: `test-results/coach-plan-step4-${testInfo.project.name}.png`, fullPage: true })
 })
 
+test('目标规划器标题在中等手机宽度保持横向完整', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', '只需固定验证一次中间断点')
+  await page.setViewportSize({ width: 500, height: 900 })
+  await openApp(page)
+  await page.getByRole('button', { name: '规划一个 28 天目标' }).click()
+  await expect(page.locator('.coach-plan-header')).toBeVisible()
+
+  const layout = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>('.coach-plan-header')!
+    const copy = header.querySelector<HTMLElement>(':scope > div')!
+    const heading = header.querySelector<HTMLElement>('h1')!
+    const headingStyle = getComputedStyle(heading)
+    return {
+      documentOverflow: document.documentElement.scrollWidth - window.innerWidth,
+      copyWidth: copy.getBoundingClientRect().width,
+      headingHeight: heading.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(headingStyle.lineHeight),
+      headerHeight: header.getBoundingClientRect().height,
+    }
+  })
+  expect(layout.documentOverflow).toBeLessThanOrEqual(1)
+  expect(layout.copyWidth).toBeGreaterThan(400)
+  expect(layout.headingHeight).toBeLessThanOrEqual(layout.lineHeight * 1.1)
+  expect(layout.headerHeight).toBeLessThan(220)
+  await page.screenshot({ path: 'test-results/coach-plan-header-midwidth.png' })
+})
+
 test('三层选择器在各视口完整可见', async ({ page }, testInfo) => {
   await openApp(page)
   await page.getByRole('button', { name: '创建行动' }).click()

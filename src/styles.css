@@ -147,14 +147,14 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .secondary-route .main-content { width: min(100%, 980px); padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
 .secondary-route .notice { position: relative; top: auto; }
 .coach-plan-screen { min-height: calc(100vh - 44px); }
-.coach-plan-header { min-height: 112px; padding: 18px 20px; display: grid; grid-template-columns: 110px minmax(0, 1fr) 150px; align-items: start; gap: 20px; border-radius: 8px; color: white; background: #1c3029; box-shadow: var(--shadow); }
-.coach-plan-header > div { min-width: 0; }
+.coach-plan-header { min-height: 132px; padding: 16px 20px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px 14px; border-radius: 8px; color: white; background: #1c3029; box-shadow: var(--shadow); }
+.coach-plan-header > div { min-width: 0; grid-column: 1 / -1; grid-row: 2; }
 .coach-plan-header .modal-kicker { color: #dfbd7f; }
-.coach-plan-header h1 { margin: 4px 0; font-size: 29px; line-height: 1.15; }
+.coach-plan-header h1 { margin: 4px 0; white-space: nowrap; font-size: 29px; line-height: 1.15; }
 .coach-plan-header p { margin: 0; color: #b8cbc4; font-size: 12px; line-height: 1.5; }
 .coach-back, .coach-restart { min-height: 44px; padding: 8px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #49645a; border-radius: 6px; background: transparent; color: white; cursor: pointer; }
 .coach-back { justify-self: start; }
-.coach-restart { justify-self: end; }
+.coach-restart { grid-column: 3; grid-row: 1; justify-self: end; }
 .coach-restart.confirming { border-color: #e2a7a0; color: #ffe6e2; background: rgba(185, 79, 71, 0.22); }
 .coach-back svg, .coach-restart svg { width: 17px; height: 17px; }
 .coach-steps { margin: 18px 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); list-style: none; }
@@ -805,11 +805,9 @@ label textarea { min-height: 84px; resize: vertical; }
 @media (max-width: 430px) {
   .main-content { padding: 18px 12px 156px; }
   .secondary-route .main-content { padding: 12px 10px calc(92px + env(safe-area-inset-bottom)); }
-  .coach-plan-header { padding: 14px; grid-template-columns: auto 1fr; gap: 10px; }
-  .coach-plan-header > div { grid-column: 1 / -1; grid-row: 2; }
+  .coach-plan-header { min-height: 124px; padding: 14px; gap: 10px; }
   .coach-plan-header h1 { font-size: 25px; }
   .coach-back, .coach-restart { font-size: 11px; }
-  .coach-restart { grid-column: 2; grid-row: 1; }
   .coach-steps { margin: 14px -2px; }
   .coach-steps li { font-size: 9px; }
   .coach-steps li > span { width: 30px; height: 30px; }
