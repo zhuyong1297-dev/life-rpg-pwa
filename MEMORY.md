@@ -85,3 +85,4 @@
 - `2026-07-21`：用户确认 V4.0.2 转为正式版；`main` 非强制快进到提交 `e0205bf`，Actions `29798063204` 完成正式部署。线上 Pixel 7 验证六个成长领域两列三行且无横向溢出；不可变 Release `v4.0.2` 指向同一提交，schema 7 与正式 IndexedDB 数据保持不变。
 - `2026-07-21`：V4.1.0 功能树 `ab1055f` 通过 67 项 Vitest/IndexedDB、87 项有效 Playwright、正式构建和隐私扫描；候选提交 `cb624bc` 经 Actions `29807734949` 部署到正式入口。线上隔离数据验证旧 schema 7 赛季可打开，刷新前后活动、赛季快照、账本均未改变，也未自动创建稳定生活蓝图；正式 Service Worker scope 和离线重启正常。
 - `2026-07-21`：V4.2.0 预览提交 `8e725fd` 通过 71 项 Vitest/IndexedDB、99 项有效 Playwright、正式/预览构建和隐私扫描，由 Actions `29829928910` 部署到 `/preview/`。线上验证目标规划器 Hash 二级页、独立数据库 `earth-online-preview-v2`、预览 Service Worker scope 和离线刷新正常；正式入口保持 V4.1.0、`earth-online-v2` 与根 scope。
+- `2026-07-22`：用户确认 V4.2.0 转为正式版；`main` 非强制快进到标题修复提交 `82440a8`，Actions `29880949190` 完成正式部署。线上验证 V4.2.0、`#/coach/plan`、正式数据库 `earth-online-v2`、根 Service Worker、断网刷新和 500px 标题布局；不可变 Release `v4.2.0` 指向同一提交。
