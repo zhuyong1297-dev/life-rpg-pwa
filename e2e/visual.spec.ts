@@ -327,3 +327,80 @@ test('旅程、商店和商品编辑弹层在各视口保持紧凑', async ({ pa
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/journey-${testInfo.project.name}.png` })
 })
+
+test('V4.3 设计契约覆盖 320、375、414、768 和 1440px', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', '精确断点只需固定验证一次')
+  const widths = [320, 375, 414, 768, 1440]
+
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: width < 768 ? 820 : 960 })
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await openApp(page)
+    await expectNoHorizontalOverflow(page)
+
+    const todayLayout = await page.evaluate(() => {
+      const visible = (element: Element) => {
+        const rect = element.getBoundingClientRect()
+        return rect.width > 0 && rect.height > 0
+      }
+      const undersizedButtons = [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .filter(visible)
+        .filter((button) => {
+          const rect = button.getBoundingClientRect()
+          return rect.width < 44 || rect.height < 44
+        })
+        .map((button) => button.getAttribute('aria-label') || button.textContent?.trim() || button.className)
+      const singleLineSelectors = '.nav-item, .primary-action, .secondary-action, .text-action, .season-direct-link, .segmented-control button, .rating-control button'
+      const wrappingControls = [...document.querySelectorAll<HTMLElement>(singleLineSelectors)]
+        .filter(visible)
+        .filter((element) => getComputedStyle(element).whiteSpace !== 'nowrap')
+        .map((element) => element.textContent?.trim())
+      const status = document.querySelector<HTMLElement>('.status-strip')?.getBoundingClientRect()
+      const keyHeading = [...document.querySelectorAll<HTMLElement>('h2')].find((heading) => heading.textContent?.includes('关键行动'))?.getBoundingClientRect()
+      return {
+        undersizedButtons,
+        wrappingControls,
+        statusHeight: status?.height,
+        keyHeadingTop: keyHeading?.top,
+        numericStyle: getComputedStyle(document.body).fontVariantNumeric,
+      }
+    })
+    expect(todayLayout.undersizedButtons).toEqual([])
+    expect(todayLayout.wrappingControls).toEqual([])
+    expect(todayLayout.numericStyle).toContain('tabular-nums')
+    if (width < 768) {
+      expect(todayLayout.statusHeight).toBeGreaterThanOrEqual(80)
+      expect(todayLayout.statusHeight).toBeLessThanOrEqual(90)
+      expect(todayLayout.keyHeadingTop).toBeLessThan(520)
+    } else {
+      expect(todayLayout.statusHeight).toBe(0)
+      await expect(page.locator('.today-sidebar')).toBeVisible()
+    }
+
+    await page.keyboard.press('Tab')
+    const focus = await page.evaluate(() => {
+      const style = getComputedStyle(document.activeElement as HTMLElement)
+      return { width: Number.parseFloat(style.outlineWidth), style: style.outlineStyle }
+    })
+    expect(focus.style).not.toBe('none')
+    expect(focus.width).toBeGreaterThanOrEqual(3)
+
+    await page.getByRole('button', { name: '角色' }).click()
+    await expect(page.getByRole('heading', { name: '旅者档案' })).toBeVisible()
+    const domainGrid = await page.evaluate(() => {
+      const items = [...document.querySelectorAll<HTMLElement>('.attribute-item')].map((item) => item.getBoundingClientRect())
+      return items.length === 6
+        && Math.abs(items[0].top - items[1].top) < 1
+        && items[1].left > items[0].left
+        && Math.abs(items[2].top - items[3].top) < 1
+        && Math.abs(items[4].top - items[5].top) < 1
+    })
+    expect(domainGrid).toBe(true)
+    await expectNoHorizontalOverflow(page)
+
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    const reducedDuration = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.progress-track span')!).transitionDuration) || 0)
+    expect(reducedDuration).toBeLessThanOrEqual(0.001)
+    await page.screenshot({ path: `test-results/v43-${width}px.png`, fullPage: true })
+  }
+})

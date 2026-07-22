@@ -345,7 +345,7 @@ function GrowthDomainMigration({
     <main className="migration-screen">
       <form className="migration-panel" onSubmit={submit}>
         <header className="migration-header">
-          <span className="modal-kicker">地球 Online V4.2.0</span>
+          <span className="modal-kicker">地球 Online {displayVersion}</span>
           <h1>建立六个成长领域</h1>
           <p>按行动最终改善的现实结果分类。建议值只来自旧属性映射，每一项仍需由你亲自确认。</p>
           <div className="migration-progress"><span>已确认 {confirmed.size} / {activities.length}</span><ProgressBar value={activities.length ? confirmed.size / activities.length : 1} label="迁移确认进度" compact /></div>
@@ -406,6 +406,7 @@ function GrowthDomainMigration({
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
+const displayVersion = isPreview ? 'V4.3.0 预览候选' : 'V4.2.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -1410,11 +1411,10 @@ function TodayPage({
             onPlan={onOpenCoach}
           />
           <div className="mobile-status">
-            <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} />
+            <TodayStatusPanel stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} compact />
           </div>
           <ActivitySection
             title="关键行动"
-            subtitle="主线委托"
             icon={<Star aria-hidden="true" />}
             variant="key"
             activities={keyActivities}
@@ -1425,7 +1425,6 @@ function TodayPage({
           />
           <ActivitySection
             title="其他习惯"
-            subtitle="日常委托"
             variant="regular"
             activities={otherHabits}
             activeCompletion={activeCompletion}
@@ -1435,7 +1434,6 @@ function TodayPage({
           />
           <ActivitySection
             title="一次性任务"
-            subtitle="临时委托"
             variant="regular"
             activities={tasks}
             activeCompletion={activeCompletion}
@@ -1462,6 +1460,7 @@ function TodayStatusPanel({
   coins,
   completed,
   total,
+  compact = false,
 }: {
   stage: number
   totalXp: number
@@ -1470,12 +1469,29 @@ function TodayStatusPanel({
   coins: number
   completed: number
   total: number
+  compact?: boolean
 }) {
   const keyProgress = total > 0 ? completed / total : 0
   const pendingVoucher = levelSystem?.milestones.find((milestone) => milestone.voucherMaxCost && !milestone.claimedAt)
   const nextRewardLevel = pendingVoucher?.level ?? getNextVoucherLevel(level.level)
   const nextRewardCost = pendingVoucher?.voucherMaxCost ?? getMilestoneVoucherCost(nextRewardLevel)
   const rewardXpRemaining = Math.max(0, getTotalXpForLevel(nextRewardLevel) - totalXp)
+  if (compact) {
+    return (
+      <section className="status-strip" aria-label="今日旅者状态">
+        <span className="status-strip-portrait"><TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} /></span>
+        <div className="status-strip-copy">
+          <span>旅者状态</span>
+          <strong>Lv.{level.level} · {level.current}/{level.needed} XP</strong>
+          <ProgressBar value={level.progress} label="" compact />
+        </div>
+        <dl className="status-strip-stats">
+          <div><dt>金币</dt><dd>{coins}</dd></div>
+          <div><dt>关键</dt><dd>{completed}/{total}</dd></div>
+        </dl>
+      </section>
+    )
+  }
   return (
     <section className="status-panel">
       <div className="status-identity">
@@ -1508,7 +1524,6 @@ function TargetMark() {
 
 function ActivitySection({
   title,
-  subtitle,
   icon,
   variant,
   activities,
@@ -1518,7 +1533,6 @@ function ActivitySection({
   empty,
 }: {
   title: string
-  subtitle: string
   icon?: React.ReactNode
   variant: 'key' | 'regular'
   activities: Activity[]
@@ -1531,7 +1545,7 @@ function ActivitySection({
   return (
     <section className={`content-section activity-section activity-section-${variant}`}>
       <div className="section-heading">
-        <div><span>{subtitle}</span><h2>{icon}{title}</h2></div>
+        <div><h2>{icon}{title}</h2></div>
         <span>{activities.length}</span>
       </div>
       <div className={variant === 'key' ? 'mission-list' : 'activity-list'}>
@@ -1681,7 +1695,7 @@ function CharacterPage({
     })
   return (
     <div className="character-page">
-      <header className="page-header"><div><p className="eyebrow">冒险者档案</p><h1>角色</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
+      <header className="page-header"><div><p className="eyebrow">角色 · 成长总览</p><h1>旅者档案</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
       <section className="character-hero">
         <div className="character-portrait-wrap"><span className="stage-badge">{stageName}</span><TravelerPortrait stage={stage} label={`${stageName}阶段的像素旅者`} /></div>
         <div className="character-progress">
@@ -2289,7 +2303,7 @@ function SettingsPage({
           </label>
         </div>
       </section>
-      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · V4.2.0{isPreview ? ' 预览版' : ''}</footer>
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · {displayVersion}</footer>
     </div>
   )
 }

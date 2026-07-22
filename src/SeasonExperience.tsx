@@ -294,7 +294,7 @@ function StableLifeCalibration({ onCancel, onConfirm }: { onCancel: () => void; 
       </div>
       <div className="confirmation-actions">
         <button type="button" onClick={onCancel}>返回</button>
-        <button className="primary-action" type="button" disabled={saving} onClick={() => { setSaving(true); void onConfirm().catch(() => setSaving(false)) }}><Sparkles aria-hidden="true" />{saving ? '正在校准…' : '启用稳定生活方案'}</button>
+        <button className="primary-action" type="button" aria-busy={saving} disabled={saving} onClick={() => { setSaving(true); void onConfirm().catch(() => setSaving(false)) }}><Sparkles aria-hidden="true" />{saving ? '正在校准…' : '启用稳定生活方案'}</button>
       </div>
     </section>
   )
@@ -325,7 +325,7 @@ function DailySignalEditor({
       <div className="signal-field"><strong>是否在 07:00–08:00 起床？</strong><div className="signal-binary" role="group" aria-label="起床时间是否达标"><button type="button" className={wakeWindowMet === true ? 'selected' : ''} onClick={() => setWakeWindowMet(true)}>是</button><button type="button" className={wakeWindowMet === false ? 'selected' : ''} onClick={() => setWakeWindowMet(false)}>否</button></div></div>
       <div className="signal-field"><strong>今天上午的精力</strong><small>1 很低 · 5 很好</small>{scale(morningEnergy, setMorningEnergy, '晨间精力')}</div>
       <div className="signal-field"><strong>今天的生活掌控感</strong><small>1 被推着走 · 5 主动选择</small>{scale(control, setControl, '生活掌控感')}</div>
-      <button className="primary-action" type="button" disabled={!valid || saving} onClick={() => {
+      <button className="primary-action" type="button" aria-busy={saving} disabled={!valid || saving} onClick={() => {
         if (wakeWindowMet === undefined) return
         setSaving(true)
         void onSave({ wakeWindowMet, morningEnergy, control }).catch(() => setSaving(false))
