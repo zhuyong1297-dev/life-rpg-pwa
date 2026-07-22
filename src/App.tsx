@@ -438,7 +438,7 @@ function GrowthDomainMigration({
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
-const displayVersion = isPreview ? 'V4.4.0 预览版' : 'V4.3.0'
+const displayVersion = isPreview ? 'V4.4.0 预览版' : 'V4.4.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
