@@ -2,13 +2,13 @@
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
 
-当前线上正式入口与手机预览均运行 V4.2.0。V4.2.0 增加目标规划器，把现实结果拆成 1～3 项明确行为；存在当前赛季时只保存下个赛季方案，不修改当前赛季、关键行动或成长历史。正式数据与预览数据继续完全隔离。
+当前线上正式入口与手机预览均运行 V4.3.0。V4.3.0 采用现代田野日志设计系统，压缩今天页首屏状态，重整旅者档案、周度账本、设置清单、四步规划器和迁移长文档；不改变目标规划、计分或个人数据。正式数据与预览数据继续完全隔离。
 
-`ui-redesign` 当前工作区是 V4.3.0 前端预览候选：采用现代田野日志设计系统，压缩今天页首屏状态，重整旅者档案、周度账本、设置清单、四步规划器和迁移长文档。确认并发布前，正式版本号、JSON schema 9 和备份 `appVersion` 仍保持 V4.2.0。
+V4.3.0 继续使用 JSON schema 9，并兼容恢复 V4.2.0 的 schema 9 备份；IndexedDB 表和正式数据库名称保持不变。
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
-正式版本：[地球 Online V4.2.0](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v4.2.0)
+正式版本：[地球 Online V4.3.0](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v4.3.0)
 
 手机预览地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
 

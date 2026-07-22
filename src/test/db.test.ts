@@ -808,8 +808,9 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 9, appVersion: '4.2.0', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 9, appVersion: '4.3.0', seasons: [{ id: season.id }] })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
+    await restoreBackup({ ...current, appVersion: '4.2.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 8, appVersion: '4.1.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.1' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.0' }, database)
