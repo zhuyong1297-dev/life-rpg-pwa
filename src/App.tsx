@@ -452,6 +452,8 @@ function App() {
   const [tierActivity, setTierActivity] = useState<Activity | null>(null)
   const [goalActivity, setGoalActivity] = useState<Activity | null>(null)
   const [completionActivity, setCompletionActivity] = useState<Activity | null>(null)
+  const [durationActivity, setDurationActivity] = useState<Activity | null>(null)
+  const [weeklyDetailActivity, setWeeklyDetailActivity] = useState<Activity | null>(null)
   const [archiveActivity, setArchiveActivity] = useState<Activity | null>(null)
   const [deleteActivity, setDeleteActivity] = useState<Activity | null>(null)
   const [activityManagerOpen, setActivityManagerOpen] = useState(false)
@@ -563,7 +565,10 @@ function App() {
   const keyActivities = enabledActivities
     .filter((activity) => activity.isKey && isDue(activity))
     .sort((left, right) => (seasonFocusOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (seasonFocusOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER))
-  const otherHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey)
+  const dailyHabits = enabledActivities.filter((activity) => activity.type === 'habit' && !activity.isKey && activity.schedule.kind === 'daily')
+  const weeklyHabits = enabledActivities
+    .filter((activity) => activity.type === 'habit' && activity.schedule.kind === 'weekly')
+    .sort((left, right) => Number(right.isKey) - Number(left.isKey))
   const tasks = enabledActivities.filter((activity) => activity.type === 'task' && !activity.isKey && isDue(activity))
   const reviewActivities = activeSeason
     ? activeSeason.focusActivities
@@ -691,7 +696,9 @@ function App() {
   }
 
   function requestCompletion(activity: Activity) {
-    if (isIncrementalGoal(activity)) void finishIncremental(activity, activity.goal.metric === 'combined' ? activity.goal.defaultDurationSeconds : undefined)
+    const incrementalGoal = currentIncrementalGoal(activity)
+    if (incrementalGoal?.metric === 'combined') setDurationActivity(activity)
+    else if (incrementalGoal) void finishIncremental(activity)
     else if (isTieredGoal(activity)) setTierActivity(activity)
     else if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
     else void finishActivity(activity)
@@ -795,15 +802,16 @@ function App() {
             levelSystem={levelSystem}
             coins={stats.coins}
             keyActivities={keyActivities}
-            otherHabits={otherHabits}
+            dailyHabits={dailyHabits}
+            weeklyHabits={weeklyHabits}
             tasks={tasks}
             season={activeSeason}
             activities={snapshot.activities}
             completions={snapshot.completions}
             activeCompletion={activeCompletion}
             onComplete={requestCompletion}
-            onIncremental={(activity, durationSeconds) => void finishIncremental(activity, durationSeconds)}
             onCompleted={setCompletionActivity}
+            onWeeklyDetails={setWeeklyDetailActivity}
             onCreate={() => setCreateOpen(true)}
             onOpenSeason={() => setSeasonHubOpen(true)}
             coachDraft={coachDraft}
@@ -990,6 +998,51 @@ function App() {
             }
           }}
         />
+      )}
+      {durationActivity && currentIncrementalGoal(durationActivity)?.metric === 'combined' && (
+        <IncrementalDurationPickerModal
+          activity={durationActivity}
+          goal={currentIncrementalGoal(durationActivity)!}
+          completions={snapshot.completions}
+          today={today}
+          onClose={() => setDurationActivity(null)}
+          onSelect={(seconds) => {
+            const activity = durationActivity
+            setDurationActivity(null)
+            void finishIncremental(activity, seconds)
+          }}
+        />
+      )}
+      {weeklyDetailActivity && (
+        currentIncrementalGoal(weeklyDetailActivity) ? (
+          <IncrementalProgressModal
+            activity={weeklyDetailActivity}
+            completions={snapshot.completions}
+            today={today}
+            onClose={() => setWeeklyDetailActivity(null)}
+            onUndo={async () => {
+              try {
+                await undoLatestIncrementalProgress(weeklyDetailActivity.id)
+                await refresh()
+                setNotice('已撤销本周最近一次记录；如涉及层次奖励，修正流水已同步追加')
+              } catch (error) {
+                setNotice(errorMessage(error))
+              }
+            }}
+          />
+        ) : (
+          <WeeklyActivityDetailModal
+            activity={weeklyDetailActivity}
+            completions={snapshot.completions}
+            today={today}
+            onClose={() => setWeeklyDetailActivity(null)}
+            onViewToday={() => {
+              const activity = weeklyDetailActivity
+              setWeeklyDetailActivity(null)
+              setCompletionActivity(activity)
+            }}
+          />
+        )
       )}
       {completionActivity && !currentIncrementalGoal(completionActivity) && activeCompletion(completionActivity) && (
         <CompletionActionsModal
@@ -1477,15 +1530,16 @@ function TodayPage({
   levelSystem,
   coins,
   keyActivities,
-  otherHabits,
+  dailyHabits,
+  weeklyHabits,
   tasks,
   season,
   activities,
   completions,
   activeCompletion,
   onComplete,
-  onIncremental,
   onCompleted,
+  onWeeklyDetails,
   onCreate,
   onOpenSeason,
   coachDraft,
@@ -1497,15 +1551,16 @@ function TodayPage({
   levelSystem?: LevelSystem
   coins: number
   keyActivities: Activity[]
-  otherHabits: Activity[]
+  dailyHabits: Activity[]
+  weeklyHabits: Activity[]
   tasks: Activity[]
   season?: Snapshot['seasons'][number]
   activities: Activity[]
   completions: Completion[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
-  onIncremental: (activity: Activity, durationSeconds?: number) => void
   onCompleted: (activity: Activity) => void
+  onWeeklyDetails: (activity: Activity) => void
   onCreate: () => void
   onOpenSeason: () => void
   coachDraft?: CoachPlanDraft
@@ -1514,9 +1569,9 @@ function TodayPage({
   const stage = getCharacterStage(level.level)
   const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
   const completedKeys = keyActivities.filter((activity) => {
-    if (!isIncrementalGoal(activity)) return Boolean(activeCompletion(activity))
     const goal = getIncrementalCycleGoal(activity, completions, cycleStart)
-    return Boolean(goal && calculateIncrementalProgress(goal, completions.filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)).highestTier)
+    if (!goal) return Boolean(activeCompletion(activity))
+    return Boolean(calculateIncrementalProgress(goal, completions.filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)).highestTier)
   }).length
   return (
     <div className="today-page">
@@ -1551,21 +1606,29 @@ function TodayPage({
             today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
-            onIncremental={onIncremental}
             onCompleted={onCompleted}
+            onWeeklyDetails={onWeeklyDetails}
             empty="还没有关键行动。从一个真正值得坚持的行为开始。"
           />
           <ActivitySection
-            title="其他习惯"
+            title="每日行动"
             variant="regular"
-            activities={otherHabits}
+            activities={dailyHabits}
             completions={completions}
             today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
-            onIncremental={onIncremental}
             onCompleted={onCompleted}
             empty=""
+          />
+          <WeeklyProgressSection
+            activities={weeklyHabits}
+            completions={completions}
+            today={today}
+            activeCompletion={activeCompletion}
+            onRecord={onComplete}
+            onDetails={onWeeklyDetails}
+            onCompleted={onCompleted}
           />
           <ActivitySection
             title="一次性任务"
@@ -1575,7 +1638,6 @@ function TodayPage({
             today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
-            onIncremental={onIncremental}
             onCompleted={onCompleted}
             empty=""
           />
@@ -1669,8 +1731,8 @@ function ActivitySection({
   today,
   activeCompletion,
   onComplete,
-  onIncremental,
   onCompleted,
+  onWeeklyDetails,
   empty,
 }: {
   title: string
@@ -1681,8 +1743,8 @@ function ActivitySection({
   today: string
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
-  onIncremental: (activity: Activity, durationSeconds?: number) => void
   onCompleted: (activity: Activity) => void
+  onWeeklyDetails?: (activity: Activity) => void
   empty: string
 }) {
   if (variant === 'regular' && activities.length === 0) return null
@@ -1695,18 +1757,14 @@ function ActivitySection({
       <div className={variant === 'key' ? 'mission-list' : 'activity-list'}>
         {activities.length === 0 && <div className="empty-mission"><TargetMark /><strong>设定第一项主线</strong><p>{empty}</p></div>}
         {activities.map((activity) => {
-          const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
-          const cycleCompletions = completions.filter((item) => item.activityId === activity.id && item.progress?.cycleStart === cycleStart)
-          const incrementalGoal = getIncrementalCycleGoal(activity, cycleCompletions, cycleStart)
-          const incremental = incrementalGoal ? calculateIncrementalProgress(incrementalGoal, cycleCompletions) : undefined
+          if (variant === 'key' && activity.schedule.kind === 'weekly') {
+            return <WeeklyKeyCard key={activity.id} activity={activity} completions={completions} today={today} activeCompletion={activeCompletion(activity)} onRecord={onComplete} onCompleted={onCompleted} onDetails={onWeeklyDetails ?? onCompleted} />
+          }
           const completion = activeCompletion(activity)
-          const complete = incremental ? incremental.maxReached : Boolean(completion)
+          const complete = Boolean(completion)
           const completionGoal = completion ? getCompletionTierGoal(completion, activity) : undefined
           const canUpgrade = Boolean(completion?.tier && completionGoal && completion.tier < getTierCount(completionGoal))
-          const reward = rewardTable[cycleCompletions[0]?.difficultySnapshot ?? activity.difficulty]
-          const frozenGoalLabel = incrementalGoal ? getTierLevels(incrementalGoal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(incrementalGoal, tier)}`).join(' · ') : undefined
-          const standard = incrementalGoal?.thresholds[1]
-          const frozenFrequencyLabel = incrementalGoal ? `每周 ${typeof standard === 'number' ? standard : standard!.count} 次` : undefined
+          const reward = rewardTable[activity.difficulty]
           return (
             <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
               <div className="activity-copy">
@@ -1714,58 +1772,246 @@ function ActivitySection({
                 <div className="activity-title-line">
                   <strong>{activity.title}</strong>
                   {variant === 'regular' && <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>}
-                  {!incremental && completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
-                  {incremental?.highestTier && <span className="tier-status">{tierLabels[incremental.highestTier]}</span>}
+                  {completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
                 </div>
                 {variant === 'regular' ? (
                   <>
-                    <span className="activity-frequency">{activityDomainLabel(activity)} · {frozenFrequencyLabel ?? activityFrequencyLabel(activity)}</span>
+                    <span className="activity-frequency">{activityDomainLabel(activity)} · {activityFrequencyLabel(activity)}</span>
                     <div className="activity-detail-line">
-                      <span className="activity-goal">{frozenGoalLabel ?? activityGoalLabel(activity)}</span>
+                      <span className="activity-goal">{activityGoalLabel(activity)}</span>
                       <span className="activity-row-reward"><Award aria-hidden="true" />{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP <Coins aria-hidden="true" />+{reward.coins}</span>
                     </div>
                   </>
-                ) : <span className="activity-schedule">{incrementalGoal ? `${frozenFrequencyLabel} · ${frozenGoalLabel}` : scheduleLabel(activity)}</span>}
+                ) : <span className="activity-schedule">{scheduleLabel(activity)}</span>}
                 {variant === 'key' && <div className="mission-reward"><Award aria-hidden="true" /><span>{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP</span><Coins aria-hidden="true" /><span>+{reward.coins}</span></div>}
-                {incremental && (
-                  <button type="button" className="weekly-progress-summary" onClick={() => onCompleted(activity)}>
-                    <span>{formatIncrementalSummary(incremental)}</span><small>查看本周记录与撤销</small>
-                  </button>
-                )}
                 {(activity.cue || activity.protocol) && <details className="activity-protocol"><summary>执行提示{activity.cue ? ` · ${activity.cue}` : ''}</summary>{activity.protocol && <p>{activity.protocol}</p>}</details>}
               </div>
-              {incremental && incrementalGoal ? (
-                <div className="incremental-actions">
-                  <button
-                    className="incremental-record-button"
-                    type="button"
-                    disabled={incremental.maxReached}
-                    onClick={() => onIncremental(activity, incrementalGoal.metric === 'combined' ? incrementalGoal.defaultDurationSeconds : undefined)}
-                  >
-                    {incremental.maxReached ? <><Check aria-hidden="true" />本周已完成</> : incrementalGoal.metric === 'combined' ? <>记录 1 次<small>{formatDurationSeconds(incrementalGoal.defaultDurationSeconds!)}</small></> : <>记录一次</>}
-                  </button>
-                  {incrementalGoal.metric === 'combined' && !incremental.maxReached && (incrementalGoal.durationOptionsSeconds?.length ?? 0) > 1 && (
-                    <details className="duration-menu">
-                      <summary role="button" title="选择其他时长" aria-label="选择其他记录时长"><ChevronRight aria-hidden="true" /></summary>
-                      <div>{incrementalGoal.durationOptionsSeconds!.slice(1).map((seconds) => <button type="button" key={seconds} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onIncremental(activity, seconds) }}>{formatDurationSeconds(seconds)}</button>)}</div>
-                    </details>
-                  )}
-                </div>
-              ) : (
-                <button
-                  className="complete-button"
-                  type="button"
-                  title={complete ? '查看完成记录' : `完成 ${activity.title}`}
-                  aria-label={complete ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}
-                  onClick={() => complete ? onCompleted(activity) : onComplete(activity)}
-                >
-                  {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
-                </button>
-              )}
+              <button
+                className="complete-button"
+                type="button"
+                title={complete ? '查看完成记录' : `完成 ${activity.title}`}
+                aria-label={complete ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}
+                onClick={() => complete ? onCompleted(activity) : onComplete(activity)}
+              >
+                {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+              </button>
             </article>
           )
         })}
       </div>
+    </section>
+  )
+}
+
+function weeklyCycleCompletions(activity: Activity, completions: Completion[], today: string) {
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycleEnd = addDays(cycleStart, 6)
+  return completions.filter((completion) => completion.activityId === activity.id && completion.occurredOn >= cycleStart && completion.occurredOn <= cycleEnd)
+}
+
+function weeklyDirectCompletions(activity: Activity, completions: Completion[], today: string) {
+  return weeklyCycleCompletions(activity, completions, today).filter(
+    (completion) => completion.status === 'active' && !completion.progress && (completion.activityRevision ?? 1) === (activity.revision ?? 1),
+  )
+}
+
+function WeeklyKeyCard({
+  activity,
+  completions,
+  today,
+  activeCompletion,
+  onRecord,
+  onCompleted,
+  onDetails,
+}: {
+  activity: Activity
+  completions: Completion[]
+  today: string
+  activeCompletion?: Completion
+  onRecord: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+  onDetails: (activity: Activity) => void
+}) {
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycle = weeklyCycleCompletions(activity, completions, today)
+  const goal = getIncrementalCycleGoal(activity, cycle, cycleStart)
+  const progress = goal ? calculateIncrementalProgress(goal, cycle) : undefined
+  const direct = goal ? [] : weeklyDirectCompletions(activity, completions, today)
+  const complete = progress?.maxReached ?? direct.length >= (activity.schedule.kind === 'weekly' ? activity.schedule.times : 1)
+  const summary = progress ? formatIncrementalCurrent(progress) : `本周 ${direct.length}/${activity.schedule.kind === 'weekly' ? activity.schedule.times : 1} 次`
+  const next = progress ? formatIncrementalNext(progress) : complete ? '本周计划已经完成' : `还差 ${(activity.schedule.kind === 'weekly' ? activity.schedule.times : 1) - direct.length} 次达到周计划`
+  const action = progress
+    ? progress.goal.metric === 'combined' ? '选择时长' : '记录一次'
+    : activeCompletion ? '查看今天' : isTieredGoal(activity) ? '选择层次' : '记录今天'
+  return (
+    <article className={`mission-card weekly-key-card${complete ? ' complete' : ''}`}>
+      <div className="activity-copy">
+        <div className="mission-meta">{activity.domain && <DomainMark domain={activity.domain} />}<span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span><span className="weekly-key-badge">每周</span></div>
+        <div className="activity-title-line"><strong>{activity.title}</strong>{progress?.highestTier && <span className="tier-status">{tierLabels[progress.highestTier]}</span>}</div>
+        <strong className="weekly-key-summary">{summary}</strong>
+        <span className="weekly-key-next">{next}</span>
+        <button className="weekly-detail-link" type="button" onClick={() => onDetails(activity)}><History aria-hidden="true" />查看本周详情</button>
+      </div>
+      <button className="weekly-record-button" type="button" disabled={complete} onClick={() => activeCompletion && !progress ? onCompleted(activity) : onRecord(activity)}>
+        {complete ? <><Check aria-hidden="true" />本周已完成</> : <><Plus aria-hidden="true" />{action}</>}
+      </button>
+    </article>
+  )
+}
+
+function formatIncrementalCurrent(progress: ReturnType<typeof calculateIncrementalProgress>) {
+  const finalTier = getTierLevels(progress.goal).at(-1)!
+  if (progress.goal.metric === 'count') return `本周 ${progress.totalCount}/${progress.goal.thresholds[finalTier - 1]}${progress.goal.unit}`
+  const finalThreshold = progress.goal.thresholds[finalTier - 1]
+  if (progress.goal.mode === 'per_occurrence') return `本周已记录 ${progress.totalCount} 次 · ${formatDurationSeconds(progress.totalDurationSeconds)}`
+  return `本周 ${progress.totalCount}/${finalThreshold.count} 次 · ${formatDurationSeconds(progress.totalDurationSeconds)}/${formatDurationSeconds(finalThreshold.durationSeconds)}`
+}
+
+function formatIncrementalNext(progress: ReturnType<typeof calculateIncrementalProgress>) {
+  return progress.maxReached ? '最高层已经达成' : formatIncrementalSummary(progress)
+}
+
+function WeeklyMilestoneTrack({
+  goal,
+  progress,
+  directCompletions,
+  scheduleTimes,
+}: {
+  goal?: NonNullable<ReturnType<typeof getIncrementalCycleGoal>>
+  progress?: ReturnType<typeof calculateIncrementalProgress>
+  directCompletions: Completion[]
+  scheduleTimes: number
+}) {
+  const directGoal = directCompletions.map((completion) => completion.tierGoalSnapshot).find(Boolean)
+  const activityGoal = goal ?? directGoal
+  const levels = activityGoal ? getTierLevels(activityGoal) : []
+  const highestDirectTier = directCompletions.reduce<TierLevel | undefined>((highest, completion) => completion.tier && (!highest || completion.tier > highest) ? completion.tier : highest, undefined)
+  const milestones = levels.length > 0
+    ? levels.map((tier) => ({
+      label: `${tierLabels[tier]}层`,
+      target: formatTierGoalValue(activityGoal!, tier),
+      reached: goal ? Boolean(progress?.highestTier && progress.highestTier >= tier) : Boolean(highestDirectTier && highestDirectTier >= tier),
+    }))
+    : [{ label: '周计划', target: `${scheduleTimes} 次`, reached: directCompletions.length >= scheduleTimes }]
+  return (
+    <div className={`weekly-milestone-track milestones-${milestones.length}`} aria-label="本周里程碑">
+      {milestones.map((milestone) => (
+        <div className={milestone.reached ? 'reached' : ''} key={milestone.label}>
+          <span className="weekly-milestone-node">{milestone.reached ? <Check aria-hidden="true" /> : null}</span>
+          <strong>{milestone.label}</strong>
+          <small>{milestone.target}</small>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function weeklyRewardSummary(
+  activity: Activity,
+  cycle: Completion[],
+  progress: ReturnType<typeof calculateIncrementalProgress> | undefined,
+  direct: Completion[],
+) {
+  if (progress) {
+    if (!progress.highestTier) return '达到基础层后获得奖励'
+    const difficulty = cycle[0]?.difficultySnapshot ?? activity.difficulty
+    const reward = getTierReward(difficulty, progress.highestTier, getTierCount(progress.goal))
+    return `本周已获 ${reward.xp} XP · ${reward.coins} 金币`
+  }
+  const earned = direct.reduce((total, completion) => {
+    const difficulty = completion.difficultySnapshot ?? activity.difficulty
+    const completionGoal = getCompletionTierGoal(completion, activity)
+    const reward = completion.tier && completionGoal
+      ? getTierReward(difficulty, completion.tier, getTierCount(completionGoal))
+      : rewardTable[difficulty]
+    return { xp: total.xp + reward.xp, coins: total.coins + reward.coins }
+  }, { xp: 0, coins: 0 })
+  return direct.length === 0 ? '完成一次即可获得对应奖励' : `本周已获 ${earned.xp} XP · ${earned.coins} 金币`
+}
+
+function WeeklyProgressRow({
+  activity,
+  completions,
+  today,
+  activeCompletion,
+  onRecord,
+  onDetails,
+  onCompleted,
+}: {
+  activity: Activity
+  completions: Completion[]
+  today: string
+  activeCompletion?: Completion
+  onRecord: (activity: Activity) => void
+  onDetails: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+}) {
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycle = weeklyCycleCompletions(activity, completions, today)
+  const goal = getIncrementalCycleGoal(activity, cycle, cycleStart)
+  const progress = goal ? calculateIncrementalProgress(goal, cycle) : undefined
+  const direct = goal ? [] : weeklyDirectCompletions(activity, completions, today)
+  const scheduleTimes = activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
+  const complete = progress?.maxReached ?? direct.length >= scheduleTimes
+  const summary = progress ? formatIncrementalCurrent(progress) : `本周 ${direct.length}/${scheduleTimes} 次`
+  const next = progress ? formatIncrementalNext(progress) : complete ? '本周计划已经完成' : `还差 ${scheduleTimes - direct.length} 次达到周计划`
+  const action = progress
+    ? progress.goal.metric === 'combined' ? '选择时长' : '记录一次'
+    : activeCompletion ? '查看今日记录' : isTieredGoal(activity) ? '选择层次' : '记录今天'
+  return (
+    <article className={`weekly-progress-item${complete ? ' complete' : ''}`}>
+      <div className="weekly-progress-header">
+        <div className="activity-title-line"><strong>{activity.title}</strong>{activity.isKey && <span className="weekly-key-label"><Star aria-hidden="true" />关键</span>}<span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span></div>
+        <DomainMark domain={activity.domain!} />
+      </div>
+      <div className="weekly-progress-copy"><strong>{summary}</strong><span>{next}</span></div>
+      <WeeklyMilestoneTrack goal={goal} progress={progress} directCompletions={direct} scheduleTimes={scheduleTimes} />
+      <div className="weekly-reward-status"><Award aria-hidden="true" /><span>{weeklyRewardSummary(activity, cycle, progress, direct)}</span></div>
+      <div className="weekly-progress-actions">
+        <button className="weekly-detail-button" type="button" onClick={() => onDetails(activity)}><History aria-hidden="true" />详情</button>
+        <button className="weekly-record-button" type="button" disabled={complete} onClick={() => activeCompletion && !progress ? onCompleted(activity) : onRecord(activity)}>
+          {complete ? <><Check aria-hidden="true" />本周已完成</> : <><Plus aria-hidden="true" />{action}</>}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function WeeklyProgressSection({
+  activities,
+  completions,
+  today,
+  activeCompletion,
+  onRecord,
+  onDetails,
+  onCompleted,
+}: {
+  activities: Activity[]
+  completions: Completion[]
+  today: string
+  activeCompletion: (activity: Activity) => Completion | undefined
+  onRecord: (activity: Activity) => void
+  onDetails: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (activities.length === 0) return null
+  const renderRow = (activity: Activity) => (
+    <WeeklyProgressRow key={activity.id} activity={activity} completions={completions} today={today} activeCompletion={activeCompletion(activity)} onRecord={onRecord} onDetails={onDetails} onCompleted={onCompleted} />
+  )
+  return (
+    <section className="content-section weekly-progress-section">
+      <div className="section-heading"><div><span>周一 04:00 更新</span><h2><CalendarDays aria-hidden="true" />本周进度</h2></div><span>{activities.length}</span></div>
+      <div className="weekly-progress-list">{activities.slice(0, 3).map(renderRow)}</div>
+      {activities.length > 3 && <button className="weekly-view-all" type="button" onClick={() => setShowAll(true)}>查看全部 {activities.length} 项<ChevronRight aria-hidden="true" /></button>}
+      {showAll && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal weekly-list-modal" role="dialog" aria-modal="true" aria-labelledby="weekly-list-title">
+            <div className="modal-header"><div><span className="modal-kicker">本周全部行动</span><h2 id="weekly-list-title">本周进度</h2></div><button className="icon-button" type="button" title="关闭" onClick={() => setShowAll(false)}><X aria-hidden="true" /></button></div>
+            <div className="weekly-progress-list">{activities.map(renderRow)}</div>
+          </section>
+        </div>
+      )}
     </section>
   )
 }
@@ -3004,6 +3250,78 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />设为关键行为</label>
         <button className="primary-action" type="submit"><Check aria-hidden="true" />保存修改</button>
       </form>
+    </div>
+  )
+}
+
+function IncrementalDurationPickerModal({
+  activity,
+  goal,
+  completions,
+  today,
+  onClose,
+  onSelect,
+}: {
+  activity: Activity
+  goal: NonNullable<ReturnType<typeof getIncrementalCycleGoal>>
+  completions: Completion[]
+  today: string
+  onClose: () => void
+  onSelect: (seconds: number) => void
+}) {
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycle = completions.filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)
+  const progress = calculateIncrementalProgress(goal, cycle)
+  const options = goal.metric === 'combined' ? goal.durationOptionsSeconds ?? [] : []
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal duration-picker-modal" role="dialog" aria-modal="true" aria-labelledby="duration-picker-title">
+        <div className="modal-header"><div><span className="modal-kicker">记录本周进度</span><h2 id="duration-picker-title">{activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="duration-picker-summary"><strong>{formatIncrementalCurrent(progress)}</strong><span>{formatIncrementalNext(progress)}</span></div>
+        <WeeklyMilestoneTrack goal={goal} progress={progress} directCompletions={[]} scheduleTimes={activity.schedule.kind === 'weekly' ? activity.schedule.times : 1} />
+        <div className="duration-options">
+          <span className="form-section-label">选择本次实际时长</span>
+          {options.map((seconds) => (
+            <button type="button" key={seconds} onClick={() => onSelect(seconds)}>
+              <span>{formatDurationSeconds(seconds)}</span>{goal.metric === 'combined' && seconds === goal.defaultDurationSeconds && <small>常用</small>}
+            </button>
+          ))}
+        </div>
+        <p className="modal-description">打开此窗口不会记录数据；点选时长后立即记录一次并关闭。</p>
+      </section>
+    </div>
+  )
+}
+
+function WeeklyActivityDetailModal({
+  activity,
+  completions,
+  today,
+  onClose,
+  onViewToday,
+}: {
+  activity: Activity
+  completions: Completion[]
+  today: string
+  onClose: () => void
+  onViewToday: () => void
+}) {
+  const cycle = weeklyDirectCompletions(activity, completions, today).sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  const todayCompletion = cycle.find((completion) => completion.occurredOn === today)
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="weekly-detail-title">
+        <div className="modal-header"><div><span className="modal-kicker">本周行动详情</span><h2 id="weekly-detail-title">{activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="weekly-progress-hero"><strong>本周 {cycle.length}/{activity.schedule.kind === 'weekly' ? activity.schedule.times : 1} 次</strong><span>{activityGoalLabel(activity)}</span></div>
+        {isTieredGoal(activity) && <WeeklyMilestoneTrack directCompletions={cycle} scheduleTimes={activity.schedule.kind === 'weekly' ? activity.schedule.times : 1} />}
+        <div className="weekly-progress-records">
+          <span className="form-section-label">有效记录</span>
+          {cycle.length === 0 ? <p className="empty-state">本周还没有记录</p> : cycle.map((completion) => (
+            <div key={completion.id}><span>{formatShortDate(completion.occurredOn)}</span><strong>{completion.tier ? `${tierLabels[completion.tier]}层` : '已完成'}{completion.durationMinutes ? ` · ${completion.durationMinutes} 分钟` : ''}</strong></div>
+          ))}
+        </div>
+        {todayCompletion && <button className="secondary-action" type="button" onClick={onViewToday}><CheckCircle2 aria-hidden="true" />查看或取消今天的记录</button>}
+      </section>
     </div>
   )
 }

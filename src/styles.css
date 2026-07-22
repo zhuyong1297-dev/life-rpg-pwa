@@ -448,21 +448,52 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .activity-protocol { margin-top: 6px; color: var(--muted); font-size: 10px; }
 .activity-protocol summary { width: fit-content; max-width: 100%; overflow-wrap: anywhere; color: var(--forest); font-weight: 800; cursor: pointer; }
 .activity-protocol p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
-.weekly-progress-summary { width: fit-content; max-width: 100%; padding: 6px 8px; display: grid; justify-items: start; gap: 2px; border: 1px solid var(--color-accent-rule); border-radius: 5px; background: var(--forest-soft); color: var(--forest); text-align: left; cursor: pointer; }
-.weekly-progress-summary span { font-size: 11px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
-.weekly-progress-summary small { color: var(--muted); font-size: 9px; }
-.incremental-actions { position: relative; flex: 0 0 auto; display: grid; grid-template-columns: minmax(92px, 116px) 44px; align-items: stretch; gap: 5px; }
-.incremental-record-button { min-height: 48px; padding: 7px 9px; display: grid; place-content: center; gap: 1px; border: 1px solid var(--forest); border-radius: 6px; background: var(--forest); color: var(--color-on-accent); font-size: 12px; font-weight: 800; line-height: 1.2; cursor: pointer; }
-.incremental-record-button small { color: var(--color-accent-rule); font-size: 10px; }
-.incremental-record-button svg { width: 17px; height: 17px; margin: 0 auto; }
-.incremental-record-button:disabled { border-color: var(--color-rule-strong); background: var(--surface-soft); color: var(--muted); }
-.duration-menu { position: relative; }
-.duration-menu summary { width: 44px; min-height: 48px; display: grid; place-items: center; border: 1px solid var(--color-rule-strong); border-radius: 6px; background: var(--surface); color: var(--forest); cursor: pointer; list-style: none; }
-.duration-menu summary::-webkit-details-marker { display: none; }
-.duration-menu[open] summary svg { transform: rotate(90deg); }
-.duration-menu > div { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 5px); width: 132px; padding: 5px; display: grid; gap: 3px; border: 1px solid var(--color-rule-strong); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-raised); }
-.duration-menu > div button { min-height: 40px; padding: 7px 9px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
-.duration-menu > div button:active { background: var(--forest-soft); }
+.weekly-key-card { min-height: 126px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(104px, auto); }
+.weekly-key-badge, .weekly-key-label { display: inline-flex; align-items: center; gap: 4px; color: var(--gold); font-size: 10px; font-weight: 800; }
+.weekly-key-label svg { width: 13px; height: 13px; fill: currentColor; }
+.weekly-key-summary { color: var(--forest); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.weekly-key-next { color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.weekly-detail-link, .weekly-detail-button { width: fit-content; min-height: 44px; padding: 6px 0; display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--forest); font-size: 11px; font-weight: 800; cursor: pointer; }
+.weekly-detail-link svg, .weekly-detail-button svg { width: 14px; height: 14px; }
+.weekly-record-button { min-height: 44px; padding: 8px 11px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--forest); border-radius: 6px; background: var(--forest); color: var(--color-on-accent); font-size: 12px; font-weight: 800; line-height: 1.25; cursor: pointer; }
+.weekly-record-button svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.weekly-record-button:disabled { border-color: var(--color-rule-strong); background: var(--surface-soft); color: var(--muted); cursor: default; }
+.weekly-progress-list { display: grid; }
+.weekly-progress-item { min-width: 0; padding: 14px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px 18px; border-bottom: 1px solid var(--line); }
+.weekly-progress-header { grid-column: 1 / -1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.weekly-progress-copy { min-width: 0; display: grid; gap: 3px; }
+.weekly-progress-copy strong { color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.weekly-progress-copy span { color: var(--muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.weekly-milestone-track { grid-column: 1 / -1; position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding-top: 2px; }
+.weekly-milestone-track.milestones-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.weekly-milestone-track.milestones-1 { grid-template-columns: minmax(0, 1fr); }
+.weekly-milestone-track > div { position: relative; min-width: 0; padding-top: 21px; display: grid; gap: 2px; color: var(--muted); text-align: center; }
+.weekly-milestone-track > div::before { content: ""; position: absolute; top: 8px; left: 0; right: 0; height: 2px; background: var(--color-rule-strong); }
+.weekly-milestone-track > div:first-child::before { left: 50%; }
+.weekly-milestone-track > div:last-child::before { right: 50%; }
+.weekly-milestone-track > div:only-child::before { display: none; }
+.weekly-milestone-node { position: absolute; z-index: 1; top: 2px; left: calc(50% - 7px); width: 14px; height: 14px; display: grid; place-items: center; border: 2px solid var(--color-rule-strong); border-radius: 50%; background: var(--surface); }
+.weekly-milestone-node svg { width: 9px; height: 9px; }
+.weekly-milestone-track > div.reached { color: var(--forest); }
+.weekly-milestone-track > div.reached::before { background: var(--color-accent-mid); }
+.weekly-milestone-track > div.reached .weekly-milestone-node { border-color: var(--forest); background: var(--forest); color: var(--color-on-accent); }
+.weekly-milestone-track strong { font-size: 10px; }
+.weekly-milestone-track small { min-width: 0; color: inherit; font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+.weekly-reward-status { min-width: 0; display: flex; align-items: center; gap: 5px; color: var(--gold); font-size: 11px; font-weight: 800; }
+.weekly-reward-status svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.weekly-reward-status span { overflow-wrap: anywhere; }
+.weekly-progress-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.weekly-view-all { width: 100%; min-height: 44px; margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: var(--forest); font-size: 12px; font-weight: 800; cursor: pointer; }
+.weekly-view-all svg { width: 16px; height: 16px; }
+.weekly-list-modal { max-height: min(92vh, 860px); }
+.duration-picker-summary { padding: 11px 12px; display: grid; gap: 3px; border-left: 3px solid var(--forest); background: var(--forest-soft); }
+.duration-picker-summary strong { color: var(--forest); overflow-wrap: anywhere; }
+.duration-picker-summary span { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.duration-options { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.duration-options .form-section-label { grid-column: 1 / -1; margin: 0 0 2px; }
+.duration-options button { min-height: 52px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--color-rule-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font-weight: 800; cursor: pointer; }
+.duration-options button:active { border-color: var(--forest); background: var(--forest-soft); }
+.duration-options small { padding: 2px 5px; border-radius: 4px; background: var(--gold-soft); color: var(--gold); font-size: 10px; }
 .difficulty, .tier-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 800; white-space: nowrap; }
 .difficulty { background: var(--surface-soft); color: var(--muted); }
 .difficulty-普通 { color: var(--forest); background: var(--forest-soft); }
@@ -913,6 +944,8 @@ label textarea { min-height: 84px; resize: vertical; }
   .season-summary:hover, .coach-template-grid button:hover, .focus-picker button:hover, .tier-choice:hover, .domain-choice-grid button:hover { border-color: var(--forest); background: var(--forest-soft); }
   .primary-action:hover { background: var(--forest-strong); }
   .secondary-action:hover, .season-hub-actions button:hover, .suggestion-actions button:hover, .suggestion-response button:hover { border-color: var(--color-accent-rule); background: var(--forest-soft); }
+  .weekly-detail-link:hover, .weekly-detail-button:hover, .weekly-view-all:hover { color: var(--forest-strong); text-decoration: underline; text-underline-offset: 3px; }
+  .duration-options button:hover { border-color: var(--forest); background: var(--forest-soft); }
   .text-action:hover { color: var(--forest-strong); text-decoration: underline; text-underline-offset: 3px; }
   .feature-summary:hover, .activity-management-summary:hover { border-color: var(--color-rule-strong); background: var(--surface-soft); }
 }
@@ -945,6 +978,7 @@ label textarea { min-height: 84px; resize: vertical; }
   .feature-modal { width: min(100%, 680px); }
   .season-hub-modal { width: min(100%, 720px); }
   .activity-manager-modal { width: min(100%, 680px); }
+  .weekly-list-modal { width: min(100%, 680px); }
   .feedback-overlay { left: auto; right: 24px; bottom: 24px; width: min(600px, calc(100vw - 292px)); }
 }
 
@@ -1027,9 +1061,11 @@ label textarea { min-height: 84px; resize: vertical; }
   .data-actions { grid-template-columns: 1fr; }
   .tier-threshold-grid, .tier-threshold-grid.tiers-2 { grid-template-columns: 1fr; }
   .combined-tier-row { grid-template-columns: 1fr; }
-  .activity-row:has(.incremental-actions), .mission-card:has(.incremental-actions) { flex-wrap: wrap; }
-  .activity-row:has(.incremental-actions) > .activity-copy, .mission-card:has(.incremental-actions) > .activity-copy { flex-basis: 100%; }
-  .incremental-actions { width: 100%; grid-template-columns: minmax(0, 1fr) 44px; }
+  .weekly-key-card { grid-template-columns: minmax(0, 1fr) 104px; }
+  .weekly-key-card .weekly-record-button { width: 104px; padding-inline: 8px; }
+  .weekly-progress-item { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .weekly-progress-actions { justify-content: space-between; }
+  .weekly-progress-actions .weekly-record-button { min-width: 118px; }
   .weekly-progress-records > div { align-items: flex-start; flex-direction: column; gap: 3px; }
   .weekly-progress-records > div strong { text-align: left; }
   .tier-choice { align-items: flex-start; }
@@ -1067,6 +1103,8 @@ label textarea { min-height: 84px; resize: vertical; }
   .character-hero { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 10px; }
   .character-level-line strong { font-size: 25px; }
   .coin-balance { padding: 5px 6px; }
+  .weekly-key-card { grid-template-columns: minmax(0, 1fr); }
+  .weekly-key-card .weekly-record-button { width: 100%; }
   .report-stat-grid { grid-template-columns: 1fr; }
 }
 
