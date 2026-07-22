@@ -59,6 +59,7 @@ import {
   acknowledgeLevelMilestone,
   claimMilestoneReward,
   redeemReward,
+  recordIncrementalProgress,
   respondToSeasonSuggestion,
   permanentlyDeleteActivity,
   saveWeeklyReview,
@@ -70,6 +71,7 @@ import {
   setSeasonDailyFocus,
   setTargetReward,
   undoCompletion,
+  undoLatestIncrementalProgress,
   updateHabit,
   restoreActivity,
   syncLevelMilestones,
@@ -87,6 +89,7 @@ import {
   createCoachPlanDraft,
   domainLabel,
   calculateStats,
+  calculateIncrementalProgress,
   difficulties,
   growthDomainDetails,
   growthDomains,
@@ -104,10 +107,12 @@ import {
   getTierCount,
   getTierLevels,
   getTierReward,
+  getIncrementalCycleGoal,
   identityMessage,
   formatDurationSeconds,
   isDurationGoal,
   isTieredGoal,
+  isIncrementalGoal,
   effectiveGameDate,
   localDate,
   nextGameDayBoundary,
@@ -174,11 +179,15 @@ const defaultPreferences: Preferences = { notifications: false, vibration: true,
 
 interface AwardFeedback {
   completionId: string
+  activityId?: string
+  incremental?: boolean
   title: string
   domain: GrowthDomain
   xp: number
   coins: number
   durationMinutes?: number
+  durationSeconds?: number
+  progressLabel?: string
   tier?: TierLevel
   achievedLabel?: string
   upgraded?: boolean
@@ -195,6 +204,7 @@ interface ReviewDraft {
 }
 
 type StringTriple = [string, string, string]
+type StringQuad = [string, string, string, string]
 type CombinedThresholdDraft = { count: string; durationSeconds: string }
 
 interface TierGoalDraft {
@@ -208,6 +218,8 @@ interface TierGoalDraft {
   combinedMode: CombinedMode
   combinedTimeUnit: TimeInputUnit
   combinedThresholds: [CombinedThresholdDraft, CombinedThresholdDraft, CombinedThresholdDraft]
+  progressMode: 'direct' | 'incremental'
+  durationOptionsSeconds: StringQuad
 }
 
 function defaultTierGoalDraft(): TierGoalDraft {
@@ -226,6 +238,8 @@ function defaultTierGoalDraft(): TierGoalDraft {
       { count: '5', durationSeconds: '60' },
       { count: '5', durationSeconds: '120' },
     ],
+    progressMode: 'direct',
+    durationOptionsSeconds: ['1800', '', '', ''],
   }
 }
 
@@ -235,7 +249,7 @@ function tierGoalDraftFromGoal(goal: TieredGoal): TierGoalDraft {
   if (goal.metric === 'count') {
     const countThresholds = [...draft.countThresholds]
     goal.thresholds.forEach((value, index) => { countThresholds[index] = String(value) })
-    return { ...draft, tierCount, metric: 'count', countUnit: goal.unit, countThresholds: countThresholds as StringTriple }
+    return { ...draft, tierCount, metric: 'count', countUnit: goal.unit, countThresholds: countThresholds as StringTriple, progressMode: goal.progressMode === 'incremental' ? 'incremental' : 'direct' }
   }
   if (goal.metric === 'duration') {
     const multiplier = goal.unit === '分钟' ? 60 : 1
@@ -255,6 +269,10 @@ function tierGoalDraftFromGoal(goal: TieredGoal): TierGoalDraft {
     combinedTimeUnit: goal.inputUnit,
     countUnit: goal.countUnit,
     combinedThresholds: draft.combinedThresholds.map((value, index) => goal.thresholds[index] === undefined ? value : ({ count: String(goal.thresholds[index].count), durationSeconds: String(goal.thresholds[index].durationSeconds) })) as TierGoalDraft['combinedThresholds'],
+    progressMode: goal.progressMode === 'incremental' ? 'incremental' : 'direct',
+    durationOptionsSeconds: goal.metric === 'combined' && goal.durationOptionsSeconds
+      ? [0, 1, 2, 3].map((index) => String(goal.durationOptionsSeconds?.[index] ?? '')) as StringQuad
+      : draft.durationOptionsSeconds,
   }
 }
 
@@ -268,12 +286,18 @@ function tierGoalDraftFromLegacy(activity: Activity): TierGoalDraft {
 function buildTierGoal(draft: TierGoalDraft): TieredGoal {
   const takeTiers = <T,>(values: T[]): [T, T] | [T, T, T] => values.slice(0, draft.tierCount) as [T, T] | [T, T, T]
   if (draft.advanced) {
+    const durations = draft.durationOptionsSeconds.map(Number).filter((value) => Number.isInteger(value) && value > 0)
     return {
       kind: 'tiered',
       metric: 'combined',
       mode: draft.combinedMode,
       countUnit: draft.countUnit,
       inputUnit: draft.combinedTimeUnit,
+      ...(draft.progressMode === 'incremental' ? {
+        progressMode: 'incremental' as const,
+        defaultDurationSeconds: durations[0],
+        durationOptionsSeconds: durations,
+      } : {}),
       thresholds: takeTiers(draft.combinedThresholds.map((value) => ({
         count: Number(value.count),
         durationSeconds: Number(value.durationSeconds),
@@ -281,7 +305,7 @@ function buildTierGoal(draft: TierGoalDraft): TieredGoal {
     }
   }
   if (draft.metric === 'count') {
-    return { kind: 'tiered', metric: 'count', unit: draft.countUnit, thresholds: takeTiers(draft.countThresholds.map(Number)) }
+    return { kind: 'tiered', metric: 'count', unit: draft.countUnit, thresholds: takeTiers(draft.countThresholds.map(Number)), ...(draft.progressMode === 'incremental' ? { progressMode: 'incremental' as const } : {}) }
   }
   return {
     kind: 'tiered',
@@ -290,6 +314,14 @@ function buildTierGoal(draft: TierGoalDraft): TieredGoal {
     inputUnit: draft.timeUnit,
     thresholds: takeTiers(draft.durationSeconds.map(Number)),
   }
+}
+
+function draftUsesIncremental(draft: TierGoalDraft, weekly: boolean) {
+  return weekly && draft.progressMode === 'incremental' && (draft.advanced || draft.metric === 'count')
+}
+
+function draftStandardCount(draft: TierGoalDraft) {
+  return Number(draft.advanced ? draft.combinedThresholds[1].count : draft.countThresholds[1])
 }
 
 function timeInputValue(seconds: string, unit: TimeInputUnit) {
@@ -406,7 +438,7 @@ function GrowthDomainMigration({
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
-const displayVersion = isPreview ? 'V4.3.0 预览版' : 'V4.3.0'
+const displayVersion = isPreview ? 'V4.4.0 预览版' : 'V4.3.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -425,6 +457,7 @@ function App() {
   const [activityManagerOpen, setActivityManagerOpen] = useState(false)
   const [seasonHubOpen, setSeasonHubOpen] = useState(false)
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
+  const progressLocks = useRef(new Set<string>())
   const [clock, setClock] = useState(() => new Date())
 
   useEffect(() => {
@@ -488,6 +521,8 @@ function App() {
     (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
   ))
   const today = effectiveGameDate(clock, gameDayBoundaryActivatedAt)
+  const currentCycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const currentIncrementalGoal = (activity: Activity) => getIncrementalCycleGoal(activity, snapshot.completions, currentCycleStart)
   const growthDomainCandidates = useMemo(() => {
     const settledTaskIds = new Set(snapshot.completions.filter((completion) => completion.status === 'active' && completion.occurredOn < today).map((completion) => completion.activityId))
     return snapshot.activities.filter((activity) => !activity.domain && (activity.type === 'habit' || !settledTaskIds.has(activity.id)))
@@ -595,8 +630,69 @@ function App() {
     }
   }
 
+  async function finishIncremental(activity: Activity, durationSeconds?: number) {
+    if (progressLocks.current.has(activity.id)) return
+    progressLocks.current.add(activity.id)
+    const preparedAudio = preferences.sound ? prepareCompletionAudio() : undefined
+    try {
+      const result = await recordIncrementalProgress(activity.id, durationSeconds, crypto.randomUUID())
+      if (!result.recorded) return
+      const nextEvents = result.event ? [...snapshot.ledgerEvents, result.event] : snapshot.ledgerEvents
+      const nextStats = calculateStats(nextEvents)
+      const nextLevel = getLevel(nextStats.totalXp)
+      const leveledUp = nextLevel.level > level.level
+      const progressLabel = formatIncrementalSummary(result.progress)
+      setFeedback({
+        completionId: result.completion.id,
+        activityId: activity.id,
+        incremental: true,
+        title: activity.title,
+        domain: activity.domain!,
+        xp: result.event?.xpDelta ?? 0,
+        coins: result.event?.coinDelta ?? 0,
+        durationSeconds,
+        tier: result.progress.highestTier,
+        progressLabel,
+        upgraded: result.upgraded,
+        leveledUp,
+        level: nextLevel,
+        rewardGoal: result.event && targetReward
+          ? { title: targetReward.title, remaining: Math.max(0, targetReward.cost - nextStats.coins) }
+          : undefined,
+      })
+      await refresh()
+      void sendCompletionFeedback(preferences, {
+        title: activity.title,
+        xp: result.event?.xpDelta ?? 0,
+        coins: result.event?.coinDelta ?? 0,
+        domain: activity.domain!,
+        durationSeconds,
+        tier: result.progress.highestTier,
+        progressLabel,
+        upgraded: result.upgraded,
+        leveledUp,
+      }, preparedAudio).then(async (feedbackResult) => {
+        const vibrationFailed = feedbackResult.vibration === false
+        const soundFailed = feedbackResult.sound === false
+        if (!vibrationFailed && !soundFailed) return
+        await updatePreferences({
+          ...preferences,
+          vibration: vibrationFailed ? false : preferences.vibration,
+          sound: soundFailed ? false : preferences.sound,
+        })
+        await refresh()
+        setNotice(`${[vibrationFailed ? '振动' : '', soundFailed ? '声音' : ''].filter(Boolean).join('和')}在当前设备不可用，已自动关闭`)
+      }).catch((error: unknown) => setNotice(errorMessage(error)))
+    } catch (error) {
+      setNotice(errorMessage(error))
+    } finally {
+      progressLocks.current.delete(activity.id)
+    }
+  }
+
   function requestCompletion(activity: Activity) {
-    if (isTieredGoal(activity)) setTierActivity(activity)
+    if (isIncrementalGoal(activity)) void finishIncremental(activity, activity.goal.metric === 'combined' ? activity.goal.defaultDurationSeconds : undefined)
+    else if (isTieredGoal(activity)) setTierActivity(activity)
     else if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
     else void finishActivity(activity)
   }
@@ -604,7 +700,8 @@ function App() {
   async function undoLast() {
     if (!feedback) return
     try {
-      await undoCompletion(feedback.completionId)
+      if (feedback.incremental && feedback.activityId) await undoLatestIncrementalProgress(feedback.activityId)
+      else await undoCompletion(feedback.completionId)
       setFeedback(null)
       await refresh()
       setNotice('已撤销，本次成长已用修正流水抵消')
@@ -705,6 +802,7 @@ function App() {
             completions={snapshot.completions}
             activeCompletion={activeCompletion}
             onComplete={requestCompletion}
+            onIncremental={(activity, durationSeconds) => void finishIncremental(activity, durationSeconds)}
             onCompleted={setCompletionActivity}
             onCreate={() => setCreateOpen(true)}
             onOpenSeason={() => setSeasonHubOpen(true)}
@@ -876,7 +974,24 @@ function App() {
           }}
         />
       )}
-      {completionActivity && activeCompletion(completionActivity) && (
+      {completionActivity && currentIncrementalGoal(completionActivity) && (
+        <IncrementalProgressModal
+          activity={completionActivity}
+          completions={snapshot.completions}
+          today={today}
+          onClose={() => setCompletionActivity(null)}
+          onUndo={async () => {
+            try {
+              await undoLatestIncrementalProgress(completionActivity.id)
+              await refresh()
+              setNotice('已撤销本周最近一次记录；如涉及层次奖励，修正流水已同步追加')
+            } catch (error) {
+              setNotice(errorMessage(error))
+            }
+          }}
+        />
+      )}
+      {completionActivity && !currentIncrementalGoal(completionActivity) && activeCompletion(completionActivity) && (
         <CompletionActionsModal
           activity={completionActivity}
           completion={activeCompletion(completionActivity)!}
@@ -1277,7 +1392,14 @@ function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBeha
       const goal = TieredGoalSchema.parse(buildTierGoal(goalDraft))
       if (!behavior.title.trim() || !behavior.cue.trim() || !behavior.protocol.trim()) throw new Error('请填写名称、触发条件和执行协议')
       setLocalError('')
-      onChange({ ...behavior, goal, confirmed: true })
+      onChange({
+        ...behavior,
+        goal,
+        schedule: behavior.schedule.kind === 'weekly' && 'progressMode' in goal && goal.progressMode === 'incremental'
+          ? { kind: 'weekly', times: typeof goal.thresholds[1] === 'number' ? goal.thresholds[1] : goal.thresholds[1].count }
+          : behavior.schedule,
+        confirmed: true,
+      })
     } catch (confirmError) {
       setLocalError(errorMessage(confirmError))
     }
@@ -1288,10 +1410,10 @@ function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBeha
       <label className="full-field">行为名称<input maxLength={60} value={behavior.title} onChange={(event) => change({ title: event.target.value })} /></label>
       <div className="field-grid"><label>成长领域<select value={behavior.domain} onChange={(event) => change({ domain: event.target.value as GrowthDomain })}>{growthDomains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}</select></label><label>难度<select value={behavior.difficulty} onChange={(event) => change({ difficulty: event.target.value as Difficulty })}>{difficulties.map((difficulty) => <option key={difficulty}>{difficulty}</option>)}</select></label></div>
       <p className="domain-definition"><strong>{growthDomainDetails[behavior.domain].description}</strong><span>例如：{growthDomainDetails[behavior.domain].examples}</span></p>
-      <div className="field-grid"><label>频率<select value={behavior.schedule.kind} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && <label>每周次数<input type="number" min={1} max={7} value={behavior.schedule.times} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
+      <div className="field-grid"><label>频率<select value={behavior.schedule.kind} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(goalDraft, true) ? 999 : 7} value={draftUsesIncremental(goalDraft, true) ? draftStandardCount(goalDraft) : behavior.schedule.times} disabled={draftUsesIncremental(goalDraft, true)} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
       <label className="full-field">触发条件<input maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="什么时候、什么之后开始" /></label>
       <label className="full-field">执行协议<textarea maxLength={280} value={behavior.protocol} onChange={(event) => change({ protocol: event.target.value })} placeholder="具体做什么，走神或中断后怎样返回" /></label>
-      <div className="coach-goal-box"><strong>分层最低标准</strong><TierGoalFields value={goalDraft} onChange={(next) => { setGoalDraft(next); change({}) }} /></div>
+      <div className="coach-goal-box"><strong>分层最低标准</strong><TierGoalFields value={goalDraft} weekly={behavior.schedule.kind === 'weekly'} onChange={(next) => { setGoalDraft(next); change({}) }} /></div>
       {localError && <p className="coach-inline-error" role="alert">{localError}</p>}
       <button className="secondary-action" type="button" onClick={confirm}><Check aria-hidden="true" />确认这个行为</button>
     </article>
@@ -1362,6 +1484,7 @@ function TodayPage({
   completions,
   activeCompletion,
   onComplete,
+  onIncremental,
   onCompleted,
   onCreate,
   onOpenSeason,
@@ -1381,6 +1504,7 @@ function TodayPage({
   completions: Completion[]
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
+  onIncremental: (activity: Activity, durationSeconds?: number) => void
   onCompleted: (activity: Activity) => void
   onCreate: () => void
   onOpenSeason: () => void
@@ -1388,7 +1512,12 @@ function TodayPage({
   onOpenCoach: () => void
 }) {
   const stage = getCharacterStage(level.level)
-  const completedKeys = keyActivities.filter((activity) => Boolean(activeCompletion(activity))).length
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const completedKeys = keyActivities.filter((activity) => {
+    if (!isIncrementalGoal(activity)) return Boolean(activeCompletion(activity))
+    const goal = getIncrementalCycleGoal(activity, completions, cycleStart)
+    return Boolean(goal && calculateIncrementalProgress(goal, completions.filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)).highestTier)
+  }).length
   return (
     <div className="today-page">
       <div className="today-layout">
@@ -1418,8 +1547,11 @@ function TodayPage({
             icon={<Star aria-hidden="true" />}
             variant="key"
             activities={keyActivities}
+            completions={completions}
+            today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
+            onIncremental={onIncremental}
             onCompleted={onCompleted}
             empty="还没有关键行动。从一个真正值得坚持的行为开始。"
           />
@@ -1427,8 +1559,11 @@ function TodayPage({
             title="其他习惯"
             variant="regular"
             activities={otherHabits}
+            completions={completions}
+            today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
+            onIncremental={onIncremental}
             onCompleted={onCompleted}
             empty=""
           />
@@ -1436,8 +1571,11 @@ function TodayPage({
             title="一次性任务"
             variant="regular"
             activities={tasks}
+            completions={completions}
+            today={today}
             activeCompletion={activeCompletion}
             onComplete={onComplete}
+            onIncremental={onIncremental}
             onCompleted={onCompleted}
             empty=""
           />
@@ -1527,8 +1665,11 @@ function ActivitySection({
   icon,
   variant,
   activities,
+  completions,
+  today,
   activeCompletion,
   onComplete,
+  onIncremental,
   onCompleted,
   empty,
 }: {
@@ -1536,8 +1677,11 @@ function ActivitySection({
   icon?: React.ReactNode
   variant: 'key' | 'regular'
   activities: Activity[]
+  completions: Completion[]
+  today: string
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
+  onIncremental: (activity: Activity, durationSeconds?: number) => void
   onCompleted: (activity: Activity) => void
   empty: string
 }) {
@@ -1551,11 +1695,18 @@ function ActivitySection({
       <div className={variant === 'key' ? 'mission-list' : 'activity-list'}>
         {activities.length === 0 && <div className="empty-mission"><TargetMark /><strong>设定第一项主线</strong><p>{empty}</p></div>}
         {activities.map((activity) => {
+          const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+          const cycleCompletions = completions.filter((item) => item.activityId === activity.id && item.progress?.cycleStart === cycleStart)
+          const incrementalGoal = getIncrementalCycleGoal(activity, cycleCompletions, cycleStart)
+          const incremental = incrementalGoal ? calculateIncrementalProgress(incrementalGoal, cycleCompletions) : undefined
           const completion = activeCompletion(activity)
-          const complete = Boolean(completion)
+          const complete = incremental ? incremental.maxReached : Boolean(completion)
           const completionGoal = completion ? getCompletionTierGoal(completion, activity) : undefined
           const canUpgrade = Boolean(completion?.tier && completionGoal && completion.tier < getTierCount(completionGoal))
-          const reward = rewardTable[activity.difficulty]
+          const reward = rewardTable[cycleCompletions[0]?.difficultySnapshot ?? activity.difficulty]
+          const frozenGoalLabel = incrementalGoal ? getTierLevels(incrementalGoal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(incrementalGoal, tier)}`).join(' · ') : undefined
+          const standard = incrementalGoal?.thresholds[1]
+          const frozenFrequencyLabel = incrementalGoal ? `每周 ${typeof standard === 'number' ? standard : standard!.count} 次` : undefined
           return (
             <article className={`${variant === 'key' ? 'mission-card' : 'activity-row'}${complete ? ' complete' : ''}`} key={activity.id}>
               <div className="activity-copy">
@@ -1563,29 +1714,54 @@ function ActivitySection({
                 <div className="activity-title-line">
                   <strong>{activity.title}</strong>
                   {variant === 'regular' && <span className={`difficulty difficulty-${activity.difficulty}`}>{activity.difficulty}</span>}
-                  {completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
+                  {!incremental && completion?.tier && <span className="tier-status">{tierLabels[completion.tier]}</span>}
+                  {incremental?.highestTier && <span className="tier-status">{tierLabels[incremental.highestTier]}</span>}
                 </div>
                 {variant === 'regular' ? (
                   <>
-                    <span className="activity-frequency">{activityDomainLabel(activity)} · {activityFrequencyLabel(activity)}</span>
+                    <span className="activity-frequency">{activityDomainLabel(activity)} · {frozenFrequencyLabel ?? activityFrequencyLabel(activity)}</span>
                     <div className="activity-detail-line">
-                      <span className="activity-goal">{activityGoalLabel(activity)}</span>
+                      <span className="activity-goal">{frozenGoalLabel ?? activityGoalLabel(activity)}</span>
                       <span className="activity-row-reward"><Award aria-hidden="true" />{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP <Coins aria-hidden="true" />+{reward.coins}</span>
                     </div>
                   </>
-                ) : <span className="activity-schedule">{scheduleLabel(activity)}</span>}
+                ) : <span className="activity-schedule">{incrementalGoal ? `${frozenFrequencyLabel} · ${frozenGoalLabel}` : scheduleLabel(activity)}</span>}
                 {variant === 'key' && <div className="mission-reward"><Award aria-hidden="true" /><span>{isTieredGoal(activity) ? '最高 ' : '+'}{reward.xp} XP</span><Coins aria-hidden="true" /><span>+{reward.coins}</span></div>}
+                {incremental && (
+                  <button type="button" className="weekly-progress-summary" onClick={() => onCompleted(activity)}>
+                    <span>{formatIncrementalSummary(incremental)}</span><small>查看本周记录与撤销</small>
+                  </button>
+                )}
                 {(activity.cue || activity.protocol) && <details className="activity-protocol"><summary>执行提示{activity.cue ? ` · ${activity.cue}` : ''}</summary>{activity.protocol && <p>{activity.protocol}</p>}</details>}
               </div>
-              <button
-                className="complete-button"
-                type="button"
-                title={complete ? '查看完成记录' : `完成 ${activity.title}`}
-                aria-label={complete ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}
-                onClick={() => complete ? onCompleted(activity) : onComplete(activity)}
-              >
-                {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
-              </button>
+              {incremental && incrementalGoal ? (
+                <div className="incremental-actions">
+                  <button
+                    className="incremental-record-button"
+                    type="button"
+                    disabled={incremental.maxReached}
+                    onClick={() => onIncremental(activity, incrementalGoal.metric === 'combined' ? incrementalGoal.defaultDurationSeconds : undefined)}
+                  >
+                    {incremental.maxReached ? <><Check aria-hidden="true" />本周已完成</> : incrementalGoal.metric === 'combined' ? <>记录 1 次<small>{formatDurationSeconds(incrementalGoal.defaultDurationSeconds!)}</small></> : <>记录一次</>}
+                  </button>
+                  {incrementalGoal.metric === 'combined' && !incremental.maxReached && (incrementalGoal.durationOptionsSeconds?.length ?? 0) > 1 && (
+                    <details className="duration-menu">
+                      <summary role="button" title="选择其他时长" aria-label="选择其他记录时长"><ChevronRight aria-hidden="true" /></summary>
+                      <div>{incrementalGoal.durationOptionsSeconds!.slice(1).map((seconds) => <button type="button" key={seconds} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onIncremental(activity, seconds) }}>{formatDurationSeconds(seconds)}</button>)}</div>
+                    </details>
+                  )}
+                </div>
+              ) : (
+                <button
+                  className="complete-button"
+                  type="button"
+                  title={complete ? '查看完成记录' : `完成 ${activity.title}`}
+                  aria-label={complete ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}
+                  onClick={() => complete ? onCompleted(activity) : onComplete(activity)}
+                >
+                  {canUpgrade ? <Zap aria-hidden="true" /> : complete ? <Check aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+                </button>
+              )}
             </article>
           )
         })}
@@ -1935,11 +2111,11 @@ function ActionLogModal({ months, today, onClose }: { months: JourneyMonth[]; to
 
 function JourneyEntryDetails({ entry }: { entry: JourneyEntry }) {
   if (entry.kind !== 'action') return <article className="journey-milestone"><Gift aria-hidden="true" /><div><strong>{entry.title}</strong><span>永久里程碑</span></div></article>
-  const hasDetails = Boolean(entry.note || entry.durationMinutes || (entry.tier && entry.tierGoalSnapshot))
+  const hasDetails = Boolean(entry.note || entry.durationMinutes || entry.durationSeconds || entry.count || (entry.tier && entry.tierGoalSnapshot))
   const classification = entry.domain ? domainLabel(entry.domain) : entry.attribute ? `${entry.attribute} · 旧体系` : '未分类'
-  const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{classification}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>+{entry.xp} XP · +{entry.coins}</b></div>
+  const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{entry.progressLabel ?? classification}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>{entry.xp > 0 || entry.coins > 0 ? `+${entry.xp} XP · +${entry.coins}` : '进度已记录'}</b></div>
   if (!hasDetails) return <article className="journey-entry">{main}</article>
-  return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.note && <p>成果：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.tier && entry.tierGoalSnapshot && <p>完成标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
+  return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.note && <p>成果：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.durationSeconds && <p>当日累计时长：{formatDurationSeconds(entry.durationSeconds)}</p>}{entry.count && <p>当日完成次数：{entry.count}</p>}{entry.tier && entry.tierGoalSnapshot && <p>已达标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
 }
 
 function RewardEditorModal({ reward, target, onClose, onSave }: { reward?: Reward; target: boolean; onClose: () => void; onSave: (input: RewardInput) => Promise<void> }) {
@@ -2005,17 +2181,31 @@ function ReviewPage({
         completion.occurredOn >= weekStart &&
         completion.occurredOn <= weekEnd,
     )
-    const completed = new Set(matchingCompletions.map((completion) => completion.occurredOn)).size
-    const planned = activity.schedule.kind === 'daily' ? 7 : activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
-    const actualDurationMinutes = matchingCompletions.reduce((total, completion) => total + (completion.durationMinutes ?? 0), 0)
-    const plannedDurationMinutes = isDurationGoal(activity) ? planned * activity.goal.count : undefined
+    const incrementalGoal = getIncrementalCycleGoal(activity, matchingCompletions, weekStart)
+    const incremental = incrementalGoal ? calculateIncrementalProgress(incrementalGoal, matchingCompletions) : undefined
+    const completed = incremental ? incremental.totalCount : new Set(matchingCompletions.map((completion) => completion.occurredOn)).size
+    const standard = incrementalGoal?.thresholds[1]
+    const planned = incrementalGoal ? (typeof standard === 'number' ? standard : standard!.count) : activity.schedule.kind === 'daily' ? 7 : activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
+    const actualDurationMinutes = incremental ? Math.floor(incremental.totalDurationSeconds / 60) : matchingCompletions.reduce((total, completion) => total + (completion.durationMinutes ?? 0), 0)
+    const plannedDurationMinutes = incrementalGoal?.metric === 'combined'
+      ? (() => {
+        const combinedStandard = incrementalGoal.thresholds[1]
+        return Math.ceil((incrementalGoal.mode === 'per_occurrence' ? combinedStandard.count * combinedStandard.durationSeconds : combinedStandard.durationSeconds) / 60)
+      })()
+      : isDurationGoal(activity) ? planned * activity.goal.count : undefined
     const tierCount = Math.max(
       isTieredGoal(activity) ? getTierCount(activity.goal) : 2,
       ...matchingCompletions.map((completion) => completion.tierGoalSnapshot ? getTierCount(completion.tierGoalSnapshot) : 2),
     ) as 2 | 3
     const reviewTiers = tierLevels.slice(0, tierCount)
-    const tierCounts = reviewTiers.map((tier) => matchingCompletions.filter((completion) => completion.tier === tier).length) as [number, number] | [number, number, number]
-    const achievement = matchingCompletions.reduce(
+    const tierCounts = (incremental
+      ? reviewTiers.map((tier) => incremental.highestTier === tier ? 1 : 0)
+      : reviewTiers.map((tier) => matchingCompletions.filter((completion) => completion.tier === tier).length)) as [number, number] | [number, number, number]
+    const achievement = incremental ? {
+      count: incremental.totalCount,
+      durationSeconds: incremental.totalDurationSeconds,
+      countUnit: incremental.goal.metric === 'count' ? incremental.goal.unit : incremental.goal.countUnit,
+    } : matchingCompletions.reduce(
       (total, completion) => {
         if (!completion.tier) return total
         const goal = getCompletionTierGoal(completion, activity)
@@ -2468,7 +2658,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
       domain,
       difficulty,
       goal,
-      schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
+      schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
       plannedOn: type === 'task' ? plannedOn : undefined,
       isKey,
       enabled: true,
@@ -2488,7 +2678,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
           <>
             <div className="field-grid">
               <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周</option></select></label>
-              {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={7} value={weeklyTimes} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
+              {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? 999 : 7} value={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, goalMode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
             </div>
             <div className="goal-type-block">
               <span>目标类型</span>
@@ -2498,7 +2688,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
               </div>
             </div>
             {goalMode === 'tiered' && (
-              <TierGoalFields value={tierDraft} onChange={setTierDraft} />
+              <TierGoalFields value={tierDraft} weekly={frequency === 'weekly'} onChange={setTierDraft} />
             )}
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
@@ -2523,7 +2713,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
   )
 }
 
-function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (value: TierGoalDraft) => void }) {
+function TierGoalFields({ value, weekly = false, onChange }: { value: TierGoalDraft; weekly?: boolean; onChange: (value: TierGoalDraft) => void }) {
   const set = (next: Partial<TierGoalDraft>) => onChange({ ...value, ...next })
   const levels = tierLevels.slice(0, value.tierCount)
   return (
@@ -2539,6 +2729,16 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
         <span><strong>高级设置</strong><small>组合次数和时间</small></span>
         <input type="checkbox" role="switch" checked={value.advanced} onChange={(event) => set({ advanced: event.target.checked })} />
       </label>
+      {weekly && (value.advanced || value.metric === 'count') && (
+        <div className="goal-type-block">
+          <span>记录方式</span>
+          <div className="segmented-control" aria-label="记录方式">
+            <button type="button" className={value.progressMode === 'direct' ? 'selected' : ''} onClick={() => set({ progressMode: 'direct' })}>直接选层</button>
+            <button type="button" className={value.progressMode === 'incremental' ? 'selected' : ''} onClick={() => set({ progressMode: 'incremental' })}>逐次累计</button>
+          </div>
+          {value.progressMode === 'incremental' && <span className="field-hint">每次真实完成都可记录；达到新层次时才发奖励。</span>}
+        </div>
+      )}
       {!value.advanced ? (
         <>
           <div className="goal-type-block">
@@ -2656,6 +2856,31 @@ function TierGoalFields({ value, onChange }: { value: TierGoalDraft; onChange: (
             ))}
           </div>
           <span className="field-hint">次数和时间不能下降，每升一层至少增加一项</span>
+          {weekly && value.progressMode === 'incremental' && (
+            <div className="quick-duration-fields">
+              <strong>快捷时长</strong>
+              <span className="field-hint">第一个是主按钮默认值，另外最多填写三个备用值。</span>
+              <div className="field-grid">
+                {value.durationOptionsSeconds.map((seconds, index) => (
+                  <label key={index}>{index === 0 ? '默认时长' : `备用 ${index}`}（{value.combinedTimeUnit}）
+                    <input
+                      type="number"
+                      min={1}
+                      max={value.combinedTimeUnit === '分钟' ? 1440 : 86_400}
+                      step={1}
+                      required={index === 0}
+                      value={timeInputValue(seconds, value.combinedTimeUnit)}
+                      onChange={(event) => {
+                        const next = [...value.durationOptionsSeconds] as StringQuad
+                        next[index] = timeInputSeconds(event.target.value, value.combinedTimeUnit)
+                        set({ durationOptionsSeconds: next })
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -2741,7 +2966,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
       protocol: protocol.trim() || undefined,
       domain,
       difficulty,
-      schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: weeklyTimes },
+      schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
       goal,
       isKey,
     })
@@ -2764,7 +2989,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         <p className="domain-definition"><strong>{growthDomainDetails[domain].description}</strong><span>例如：{growthDomainDetails[domain].examples}</span></p>
         <div className="field-grid">
           <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>
-          {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={7} required value={weeklyTimes} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
+          {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, mode === 'tiered') ? 999 : 7} required value={draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, mode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
         </div>
         <span className="form-section-label">目标设置</span>
         <div className="segmented-control" aria-label="目标设置">
@@ -2774,11 +2999,60 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         </div>
         {mode === 'legacy' && activity.goal.kind !== 'tiered' && <p className="legacy-goal">当前目标：{activity.goal.count}{activity.goal.unit}</p>}
         {mode === 'tiered' && (
-          <TierGoalFields value={tierDraft} onChange={setTierDraft} />
+          <TierGoalFields value={tierDraft} weekly={frequency === 'weekly'} onChange={setTierDraft} />
         )}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />设为关键行为</label>
         <button className="primary-action" type="submit"><Check aria-hidden="true" />保存修改</button>
       </form>
+    </div>
+  )
+}
+
+function IncrementalProgressModal({
+  activity,
+  completions,
+  today,
+  onClose,
+  onUndo,
+}: {
+  activity: Activity
+  completions: Completion[]
+  today: string
+  onClose: () => void
+  onUndo: () => Promise<void>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycle = completions
+    .filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)
+    .sort((left, right) => (right.progress?.sequence ?? 0) - (left.progress?.sequence ?? 0))
+  const goal = getIncrementalCycleGoal(activity, cycle, cycleStart)
+  if (!goal) return null
+  const progress = calculateIncrementalProgress(goal, cycle)
+  const active = cycle.filter((completion) => completion.status === 'active')
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal compact-modal" aria-labelledby="weekly-progress-title">
+        <div className="modal-header"><div><span className="modal-kicker">本周逐次累计</span><h2 id="weekly-progress-title">{activity.title}</h2></div><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="weekly-progress-hero"><strong>{formatIncrementalSummary(progress)}</strong><span>{formatShortDate(cycleStart)} 至 {formatShortDate(addDays(cycleStart, 6))}</span></div>
+        <div className="weekly-tier-progress">
+          {getTierLevels(goal).map((tier) => {
+            const reached = Boolean(progress.highestTier && tier <= progress.highestTier)
+            return <div className={reached ? 'reached' : ''} key={tier}><CheckCircle2 aria-hidden="true" /><span><strong>{tierLabels[tier]}层</strong><small>{formatTierGoalValue(goal, tier)}</small></span></div>
+          })}
+        </div>
+        <div className="weekly-progress-records">
+          <span className="form-section-label">有效记录</span>
+          {active.length === 0 ? <p className="empty-state">本周还没有记录</p> : active.map((completion) => (
+            <div key={completion.id}><span>{formatShortDate(completion.occurredOn)} · 第 {completion.progress!.sequence} 次{completion.progress?.imported ? ' · 由旧层次导入' : ''}</span><strong>+{completion.progress!.countDelta} 次{completion.progress?.durationSeconds ? ` · ${formatDurationSeconds(completion.progress.durationSeconds)}` : ''}</strong></div>
+          ))}
+        </div>
+        {active.length > 0 && (!confirming ? (
+          <button className="danger-action" type="button" onClick={() => setConfirming(true)}><RotateCcw aria-hidden="true" />撤销最近一次</button>
+        ) : (
+          <div className="cancel-confirmation" role="alert"><strong>撤销本周最近一次记录？</strong><p>只有最后一条有效进度会被撤销；如果它触发了层次奖励，系统会追加修正流水。</p><div className="confirmation-actions"><button type="button" onClick={() => setConfirming(false)}>返回</button><button className="danger-action" type="button" onClick={() => void onUndo().then(() => setConfirming(false))}>确认撤销</button></div></div>
+        ))}
+      </section>
     </div>
   )
 }
@@ -2921,12 +3195,13 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
     <aside className={condensed ? 'feedback-overlay condensed' : 'feedback-overlay'} role="status" aria-live="assertive">
       <span className="feedback-portrait"><TravelerPortrait stage={stage} label="像素旅者成长反馈" /></span>
       <div className="feedback-copy">
-        <span>{feedback.leveledUp ? `角色升级 · Lv.${feedback.level.level}` : feedback.upgraded ? '委托升级' : '委托完成'}</span>
+        <span>{feedback.leveledUp ? `角色升级 · Lv.${feedback.level.level}` : feedback.upgraded ? '委托升级' : feedback.incremental && feedback.xp === 0 ? '进度已记录' : '委托完成'}</span>
         <strong>{feedback.title}</strong>
-        <div className="reward-gains"><b>+{feedback.xp} XP</b>{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{domainLabel(feedback.domain)}</b></div>
+        <div className="reward-gains">{feedback.xp > 0 && <b>+{feedback.xp} XP</b>}{feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}<b>{feedback.progressLabel ?? domainLabel(feedback.domain)}</b></div>
         <div className="feedback-detail">
           {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
-          {feedback.tier && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
+          {feedback.durationSeconds && <p className="feedback-duration">本次记录 {formatDurationSeconds(feedback.durationSeconds)}</p>}
+          {feedback.tier && feedback.achievedLabel && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
           <p>{identityMessage(feedback.domain)}</p>
           {feedback.rewardGoal && (
             <p className="feedback-goal">
@@ -2993,6 +3268,23 @@ function activityGoalLabel(activity: Activity) {
   }
   const duration = goal.kind === 'duration' || goal.unit === '分钟'
   return `目标 ${goal.count}${duration ? ' 分钟' : goal.unit}`
+}
+
+function formatIncrementalSummary(progress: ReturnType<typeof calculateIncrementalProgress>) {
+  if (progress.maxReached) {
+    const time = progress.totalDurationSeconds > 0 ? ` · ${formatDurationSeconds(progress.totalDurationSeconds)}` : ''
+    return `本周已完成 · ${progress.totalCount} 次${time}`
+  }
+  const tier = progress.nextTier ?? getTierLevels(progress.goal).at(-1)!
+  if (progress.goal.metric === 'count') {
+    const threshold = progress.goal.thresholds[tier - 1]
+    return `距离${tierLabels[tier]}层：${progress.totalCount}/${threshold}${progress.goal.unit}`
+  }
+  const threshold = progress.goal.thresholds[tier - 1]
+  if (progress.goal.mode === 'per_occurrence') {
+    return `${tierLabels[tier]}层：${progress.qualifiedCounts[tier] ?? 0}/${threshold.count} 次达到每次 ${formatDurationSeconds(threshold.durationSeconds)}`
+  }
+  return `本周 ${progress.totalCount}/${threshold.count} 次 · ${formatDurationSeconds(progress.totalDurationSeconds)}/${formatDurationSeconds(threshold.durationSeconds)}`
 }
 
 function formatChineseDate(date: string) {

@@ -448,6 +448,21 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .activity-protocol { margin-top: 6px; color: var(--muted); font-size: 10px; }
 .activity-protocol summary { width: fit-content; max-width: 100%; overflow-wrap: anywhere; color: var(--forest); font-weight: 800; cursor: pointer; }
 .activity-protocol p { margin: 5px 0 0; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+.weekly-progress-summary { width: fit-content; max-width: 100%; padding: 6px 8px; display: grid; justify-items: start; gap: 2px; border: 1px solid var(--color-accent-rule); border-radius: 5px; background: var(--forest-soft); color: var(--forest); text-align: left; cursor: pointer; }
+.weekly-progress-summary span { font-size: 11px; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
+.weekly-progress-summary small { color: var(--muted); font-size: 9px; }
+.incremental-actions { position: relative; flex: 0 0 auto; display: grid; grid-template-columns: minmax(92px, 116px) 44px; align-items: stretch; gap: 5px; }
+.incremental-record-button { min-height: 48px; padding: 7px 9px; display: grid; place-content: center; gap: 1px; border: 1px solid var(--forest); border-radius: 6px; background: var(--forest); color: var(--color-on-accent); font-size: 12px; font-weight: 800; line-height: 1.2; cursor: pointer; }
+.incremental-record-button small { color: var(--color-accent-rule); font-size: 10px; }
+.incremental-record-button svg { width: 17px; height: 17px; margin: 0 auto; }
+.incremental-record-button:disabled { border-color: var(--color-rule-strong); background: var(--surface-soft); color: var(--muted); }
+.duration-menu { position: relative; }
+.duration-menu summary { width: 44px; min-height: 48px; display: grid; place-items: center; border: 1px solid var(--color-rule-strong); border-radius: 6px; background: var(--surface); color: var(--forest); cursor: pointer; list-style: none; }
+.duration-menu summary::-webkit-details-marker { display: none; }
+.duration-menu[open] summary svg { transform: rotate(90deg); }
+.duration-menu > div { position: absolute; z-index: 5; right: 0; bottom: calc(100% + 5px); width: 132px; padding: 5px; display: grid; gap: 3px; border: 1px solid var(--color-rule-strong); border-radius: 6px; background: var(--surface); box-shadow: var(--shadow-raised); }
+.duration-menu > div button { min-height: 40px; padding: 7px 9px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.duration-menu > div button:active { background: var(--forest-soft); }
 .difficulty, .tier-status { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 800; white-space: nowrap; }
 .difficulty { background: var(--surface-soft); color: var(--muted); }
 .difficulty-普通 { color: var(--forest); background: var(--forest-soft); }
@@ -783,6 +798,8 @@ label textarea { min-height: 84px; resize: vertical; }
 .combined-tier-list { margin-top: 14px; display: grid; gap: 10px; }
 .combined-tier-row { display: grid; grid-template-columns: 58px repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px; padding: 10px; background: var(--surface-soft); border-radius: 6px; }
 .combined-tier-row > strong { align-self: center; color: var(--forest); font-size: 13px; }
+.quick-duration-fields { margin-top: 14px; padding: 12px; display: grid; gap: 6px; background: var(--surface-soft); border-radius: 6px; }
+.quick-duration-fields > strong { color: var(--forest); }
 .legacy-goal { padding: 12px; color: var(--blue); background: var(--blue-soft); border-radius: 6px; }
 .tier-choice-list { display: grid; gap: 10px; }
 .tier-choice { width: 100%; min-height: 72px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); text-align: left; cursor: pointer; }
@@ -795,6 +812,19 @@ label textarea { min-height: 84px; resize: vertical; }
 .completion-summary > div { min-width: 0; display: grid; gap: 4px; }
 .completion-summary strong { overflow-wrap: anywhere; }
 .completion-summary span { color: var(--muted); font-size: 12px; }
+.weekly-progress-hero { padding: 14px; display: grid; gap: 4px; background: var(--forest-soft); border: 1px solid var(--color-accent-rule); border-radius: 6px; }
+.weekly-progress-hero strong { color: var(--forest); line-height: 1.4; overflow-wrap: anywhere; }
+.weekly-progress-hero span { color: var(--muted); font-size: 11px; }
+.weekly-tier-progress { margin-top: 12px; display: grid; gap: 6px; }
+.weekly-tier-progress > div { min-height: 48px; padding: 8px 10px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); }
+.weekly-tier-progress > div.reached { border-color: var(--color-accent-rule); color: var(--forest); background: var(--forest-soft); }
+.weekly-tier-progress svg { width: 18px; flex: 0 0 auto; }
+.weekly-tier-progress span { min-width: 0; display: grid; gap: 2px; }
+.weekly-tier-progress small { color: var(--muted); overflow-wrap: anywhere; }
+.weekly-progress-records { margin: 14px 0; display: grid; gap: 0; }
+.weekly-progress-records > div { min-height: 46px; padding: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.weekly-progress-records > div span { color: var(--muted); }
+.weekly-progress-records > div strong { text-align: right; }
 .completion-upgrades { margin-top: 16px; }
 .danger-action { min-height: 44px; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--color-danger-rule); border-radius: 6px; background: var(--color-danger-paper); color: var(--coral); font-weight: 800; cursor: pointer; }
 .modal > .danger-action { width: 100%; margin-top: 18px; }
@@ -997,6 +1027,11 @@ label textarea { min-height: 84px; resize: vertical; }
   .data-actions { grid-template-columns: 1fr; }
   .tier-threshold-grid, .tier-threshold-grid.tiers-2 { grid-template-columns: 1fr; }
   .combined-tier-row { grid-template-columns: 1fr; }
+  .activity-row:has(.incremental-actions), .mission-card:has(.incremental-actions) { flex-wrap: wrap; }
+  .activity-row:has(.incremental-actions) > .activity-copy, .mission-card:has(.incremental-actions) > .activity-copy { flex-basis: 100%; }
+  .incremental-actions { width: 100%; grid-template-columns: minmax(0, 1fr) 44px; }
+  .weekly-progress-records > div { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .weekly-progress-records > div strong { text-align: left; }
   .tier-choice { align-items: flex-start; }
   .manage-row { align-items: flex-start; padding: 9px 0; }
   .manage-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 92px; }

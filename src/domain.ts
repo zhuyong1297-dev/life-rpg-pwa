@@ -17,6 +17,7 @@ export type TierLevel = (typeof tierLevels)[number]
 export type TierMetric = 'duration' | 'count'
 export type TimeInputUnit = (typeof timeInputUnits)[number]
 export type CombinedMode = (typeof combinedModes)[number]
+export type ProgressMode = 'incremental'
 
 export const growthDomainDetails: Record<GrowthDomain, { label: string; description: string; examples: string; identity: string }> = {
   health: { label: '健康', description: '改善身体状态与恢复能力', examples: '运动、睡眠、饮食、卫生', identity: '你正在照顾并增强自己的身体' },
@@ -65,7 +66,7 @@ const timestamp = z.string().datetime()
 
 export const ScheduleSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('daily') }),
-  z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(7) }),
+  z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(999) }),
   z.object({ kind: z.literal('once') }),
 ])
 
@@ -97,6 +98,7 @@ const CountTieredGoalSchema = z
     metric: z.literal('count'),
     unit: z.string().trim().min(1).max(12),
     thresholds: ScalarThresholdsSchema,
+    progressMode: z.literal('incremental').optional(),
   })
   .superRefine((goal, context) => validateScalarThresholds(goal.thresholds, 999, context))
 
@@ -136,13 +138,26 @@ const CombinedTieredGoalSchema = z
     mode: z.enum(combinedModes),
     countUnit: z.string().trim().min(1).max(12),
     inputUnit: z.enum(timeInputUnits),
+    progressMode: z.literal('incremental').optional(),
+    defaultDurationSeconds: z.number().int().min(1).max(86_400).optional(),
+    durationOptionsSeconds: z.array(z.number().int().min(1).max(86_400)).min(1).max(4).optional(),
     thresholds: z.union([
       z.tuple([CombinedThresholdSchema, CombinedThresholdSchema]),
       z.tuple([CombinedThresholdSchema, CombinedThresholdSchema, CombinedThresholdSchema]),
     ]),
   })
   .superRefine((goal, context) => {
-    if (goal.inputUnit === '分钟' && goal.thresholds.some((value) => value.durationSeconds % 60 !== 0)) {
+    if (goal.progressMode === 'incremental') {
+      if (!goal.defaultDurationSeconds || goal.durationOptionsSeconds?.[0] !== goal.defaultDurationSeconds) {
+        context.addIssue({ code: 'custom', path: ['defaultDurationSeconds'], message: '逐次累计组合目标必须把默认时长放在快捷时长首位' })
+      }
+      if (goal.durationOptionsSeconds && new Set(goal.durationOptionsSeconds).size !== goal.durationOptionsSeconds.length) {
+        context.addIssue({ code: 'custom', path: ['durationOptionsSeconds'], message: '快捷时长不能重复' })
+      }
+    } else if (goal.defaultDurationSeconds !== undefined || goal.durationOptionsSeconds !== undefined) {
+      context.addIssue({ code: 'custom', path: ['progressMode'], message: '快捷时长只用于逐次累计目标' })
+    }
+    if (goal.inputUnit === '分钟' && (goal.thresholds.some((value) => value.durationSeconds % 60 !== 0) || goal.durationOptionsSeconds?.some((value) => value % 60 !== 0))) {
       context.addIssue({ code: 'custom', path: ['thresholds'], message: '分钟输入必须换算为完整的整数分钟' })
     }
     goal.thresholds.forEach((threshold, index) => {
@@ -199,7 +214,7 @@ const CoachPlanNewBehaviorSchema = z.object({
   goal: TieredGoalSchema,
   schedule: z.union([
     z.object({ kind: z.literal('daily') }),
-    z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(7) }),
+    z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(999) }),
   ]),
   confirmed: z.boolean(),
 })
@@ -318,9 +333,36 @@ export const ActivitySchema = z
     if (activity.goal.kind !== 'tiered' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') && (!Number.isInteger(activity.goal.count) || activity.goal.count > 1440)) {
       context.addIssue({ code: 'custom', path: ['goal', 'count'], message: '时长目标必须是 1 至 1440 分钟的整数' })
     }
+    const incremental = activity.goal.kind === 'tiered' && 'progressMode' in activity.goal && activity.goal.progressMode === 'incremental'
+    if (incremental && (activity.type !== 'habit' || activity.schedule.kind !== 'weekly' || (activity.goal.kind === 'tiered' && activity.goal.metric === 'duration'))) {
+      context.addIssue({ code: 'custom', path: ['goal', 'progressMode'], message: '逐次累计只适用于每周次数或组合分层习惯' })
+    }
+    if (activity.schedule.kind === 'weekly' && !incremental && activity.schedule.times > 7) {
+      context.addIssue({ code: 'custom', path: ['schedule', 'times'], message: '直接选层的每周计划最多 7 次' })
+    }
+    if (incremental && activity.schedule.kind === 'weekly' && activity.goal.kind === 'tiered' && activity.goal.metric !== 'duration') {
+      const standard = activity.goal.thresholds[1]
+      const standardCount = typeof standard === 'number' ? standard : standard.count
+      if (activity.schedule.times !== standardCount) {
+        context.addIssue({ code: 'custom', path: ['schedule', 'times'], message: '逐次累计的每周计划次数必须等于标准层次数' })
+      }
+    }
   })
 
 export type Activity = z.infer<typeof ActivitySchema>
+
+export const IncrementalProgressSchema = z.object({
+  mode: z.literal('weekly_incremental'),
+  cycleStart: dateString,
+  countDelta: z.number().int().min(1).max(999),
+  durationSeconds: z.number().int().min(0).max(86_400).optional(),
+  perOccurrenceDurationSeconds: z.number().int().min(1).max(86_400).optional(),
+  sequence: z.number().int().positive(),
+  requestId: z.string().min(1),
+  imported: z.boolean().optional(),
+})
+
+export type IncrementalProgress = z.infer<typeof IncrementalProgressSchema>
 
 export const CompletionSchema = z
   .object({
@@ -341,6 +383,7 @@ export const CompletionSchema = z
     attributeSnapshot: z.enum(attributes).optional(),
     domainSnapshot: z.enum(growthDomains).optional(),
     difficultySnapshot: z.enum(difficulties).optional(),
+    progress: IncrementalProgressSchema.optional(),
     createdAt: timestamp,
     undoneAt: timestamp.optional(),
   })
@@ -353,8 +396,20 @@ export const CompletionSchema = z
     if (completion.tier && !completion.tierGoalSnapshot && legacyValues.every((value) => value === undefined)) {
       context.addIssue({ code: 'custom', path: ['tier'], message: '分层完成必须保存目标快照' })
     }
-    if (!completion.tier && (completion.tierGoalSnapshot || legacyValues.some((value) => value !== undefined))) {
+    if (!completion.tier && !completion.progress && (completion.tierGoalSnapshot || legacyValues.some((value) => value !== undefined))) {
       context.addIssue({ code: 'custom', path: ['tier'], message: '目标快照缺少完成层次' })
+    }
+    if (completion.progress) {
+      const goal = completion.tierGoalSnapshot
+      if (!goal || !('progressMode' in goal) || goal.progressMode !== 'incremental') {
+        context.addIssue({ code: 'custom', path: ['progress'], message: '逐次进度必须保存可累计的每周目标快照' })
+      }
+      if (goal?.metric === 'count' && (completion.progress.durationSeconds !== undefined || completion.progress.perOccurrenceDurationSeconds !== undefined)) {
+        context.addIssue({ code: 'custom', path: ['progress', 'durationSeconds'], message: '纯次数进度不能保存时长' })
+      }
+      if (goal?.metric === 'combined' && completion.progress.durationSeconds === undefined) {
+        context.addIssue({ code: 'custom', path: ['progress', 'durationSeconds'], message: '组合进度必须保存本次时长' })
+      }
     }
     if (completion.tier && completion.tierMetric && completion.tierUnit && completion.tierThresholds && completion.achievedValue) {
       const goal = TieredGoalSchema.safeParse({ kind: 'tiered', metric: completion.tierMetric, unit: completion.tierUnit, thresholds: completion.tierThresholds })
@@ -641,6 +696,9 @@ export interface JourneyEntry {
   tier?: TierLevel
   note?: string
   durationMinutes?: number
+  durationSeconds?: number
+  count?: number
+  progressLabel?: string
   tierGoalSnapshot?: TieredGoal
   level?: number
 }
@@ -671,8 +729,9 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
     .filter((event) => event.kind === 'reward' && !correctedRewards.has(event.id))
     .forEach((event) => rewardsByCompletion.set(event.sourceId, [...(rewardsByCompletion.get(event.sourceId) ?? []), event]))
 
-  const entries: JourneyEntry[] = completions
-    .filter((completion) => completion.status === 'active')
+  const activeCompletions = completions.filter((completion) => completion.status === 'active')
+  const entries: JourneyEntry[] = activeCompletions
+    .filter((completion) => !completion.progress)
     .flatMap((completion) => {
       const rewards = rewardsByCompletion.get(completion.id) ?? []
       if (rewards.length === 0) return []
@@ -693,6 +752,45 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
         tierGoalSnapshot: completion.tierGoalSnapshot,
       }]
     })
+
+  const progressGroups = new Map<string, Completion[]>()
+  activeCompletions.filter((completion) => completion.progress).forEach((completion) => {
+    const key = `${completion.activityId}:${completion.occurredOn}:${completion.progress!.cycleStart}`
+    progressGroups.set(key, [...(progressGroups.get(key) ?? []), completion])
+  })
+  for (const [key, group] of progressGroups) {
+    const first = [...group].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0]
+    const goal = first.tierGoalSnapshot
+    if (!goal || !('progressMode' in goal) || goal.progressMode !== 'incremental') continue
+    const progress = calculateIncrementalProgress(goal as IncrementalTieredGoal, group)
+    const cumulative = calculateIncrementalProgress(
+      goal as IncrementalTieredGoal,
+      activeCompletions.filter((completion) => completion.activityId === first.activityId && completion.progress?.cycleStart === first.progress?.cycleStart && completion.occurredOn <= first.occurredOn),
+    )
+    const cumulativeLabel = cumulative.goal.metric === 'count'
+      ? `${cumulative.totalCount}/${cumulative.goal.thresholds[1]}${cumulative.goal.unit}`
+      : (() => {
+        const standard = cumulative.goal.thresholds[1]
+        return `${cumulative.totalCount}/${standard.count} 次${cumulative.goal.mode === 'total' ? ` · ${formatDurationSeconds(cumulative.totalDurationSeconds)}/${formatDurationSeconds(standard.durationSeconds)}` : ''}`
+      })()
+    const rewards = group.flatMap((completion) => rewardsByCompletion.get(completion.id) ?? [])
+    entries.push({
+      id: `action:${key}`,
+      kind: 'action',
+      occurredOn: first.occurredOn,
+      createdAt: [...group].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0].createdAt,
+      title: first.titleSnapshot ?? rewards[0]?.title ?? '累计行动',
+      attribute: first.attributeSnapshot ?? rewards[0]?.attribute,
+      domain: first.domainSnapshot ?? rewards[0]?.domain,
+      xp: rewards.reduce((total, event) => total + event.xpDelta, 0),
+      coins: rewards.reduce((total, event) => total + event.coinDelta, 0),
+      tier: progress.highestTier,
+      durationSeconds: progress.totalDurationSeconds || undefined,
+      count: progress.totalCount,
+      progressLabel: `完成 ${progress.totalCount} 次${progress.totalDurationSeconds ? ` · ${formatDurationSeconds(progress.totalDurationSeconds)}` : ''} · 本周累计 ${cumulativeLabel}`,
+      tierGoalSnapshot: goal,
+    })
+  }
 
   const eventById = new Map(events.map((event) => [event.id, event]))
   for (const milestone of levelSystem?.milestones ?? []) {
@@ -823,6 +921,62 @@ export function isDurationGoal(activity: Activity): activity is Activity & { goa
 
 export function isTieredGoal(activity: Activity): activity is Activity & { goal: TieredGoal } {
   return activity.goal.kind === 'tiered'
+}
+
+export type IncrementalTieredGoal =
+  | (Extract<TieredGoal, { metric: 'count' }> & { progressMode: 'incremental' })
+  | (Extract<TieredGoal, { metric: 'combined' }> & { progressMode: 'incremental' })
+
+export function isIncrementalGoal(activity: Activity): activity is Activity & { goal: IncrementalTieredGoal; schedule: { kind: 'weekly'; times: number } } {
+  return activity.goal.kind === 'tiered' && 'progressMode' in activity.goal && activity.goal.progressMode === 'incremental' && activity.schedule.kind === 'weekly'
+}
+
+export interface IncrementalProgressSummary {
+  goal: IncrementalTieredGoal
+  totalCount: number
+  totalDurationSeconds: number
+  highestTier?: TierLevel
+  nextTier?: TierLevel
+  qualifiedCounts: Partial<Record<TierLevel, number>>
+  maxReached: boolean
+}
+
+export function calculateIncrementalProgress(goal: IncrementalTieredGoal, completions: Completion[]): IncrementalProgressSummary {
+  const active = completions.filter((completion) => completion.status === 'active' && completion.progress)
+  const totalCount = active.reduce((total, completion) => total + (completion.progress?.countDelta ?? 0), 0)
+  const totalDurationSeconds = active.reduce((total, completion) => total + (completion.progress?.durationSeconds ?? 0), 0)
+  const qualifiedCounts: Partial<Record<TierLevel, number>> = {}
+  const reached = goal.metric === 'count'
+    ? getTierLevels(goal).filter((tier) => {
+      const threshold = goal.thresholds[tier - 1]
+      qualifiedCounts[tier] = totalCount
+      return totalCount >= threshold
+    })
+    : getTierLevels(goal).filter((tier) => {
+    const threshold = goal.thresholds[tier - 1]
+    if (goal.mode === 'total') {
+      qualifiedCounts[tier] = totalCount
+      return totalCount >= threshold.count && totalDurationSeconds >= threshold.durationSeconds
+    }
+    const qualified = active.reduce((total, completion) => {
+      const duration = completion.progress?.perOccurrenceDurationSeconds ?? completion.progress?.durationSeconds ?? 0
+      return total + (duration >= threshold.durationSeconds ? completion.progress?.countDelta ?? 0 : 0)
+    }, 0)
+    qualifiedCounts[tier] = qualified
+    return qualified >= threshold.count
+  })
+  const highestTier = reached.at(-1)
+  const levels = getTierLevels(goal)
+  const nextTier = levels.find((tier) => !highestTier || tier > highestTier)
+  return { goal, totalCount, totalDurationSeconds, highestTier, nextTier, qualifiedCounts, maxReached: highestTier === levels.at(-1) }
+}
+
+export function getIncrementalCycleGoal(activity: Activity, completions: Completion[], cycleStart: string): IncrementalTieredGoal | undefined {
+  const snapshot = completions
+    .filter((completion) => completion.activityId === activity.id && completion.progress?.cycleStart === cycleStart)
+    .sort((left, right) => (left.progress?.sequence ?? 0) - (right.progress?.sequence ?? 0))[0]?.tierGoalSnapshot
+  if (snapshot && 'progressMode' in snapshot && snapshot.progressMode === 'incremental') return snapshot as IncrementalTieredGoal
+  return isIncrementalGoal(activity) ? activity.goal : undefined
 }
 
 export function getTierLevels(goal: TieredGoal): TierLevel[] {

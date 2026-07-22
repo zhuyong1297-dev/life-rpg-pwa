@@ -21,6 +21,7 @@ import {
   permanentlyDeleteActivity,
   claimMilestoneReward,
   redeemReward,
+  recordIncrementalProgress,
   respondToSeasonSuggestion,
   restoreActivity,
   saveWeeklyReview,
@@ -32,12 +33,13 @@ import {
   syncLevelMilestones,
   stableLifeBlueprint,
   undoCompletion,
+  undoLatestIncrementalProgress,
   updateActivityGoal,
   updateHabit,
   updateReward,
   type NewActivity,
 } from '../db'
-import { calculateStats, createCoachPlanDraft, growthDomains, type CoachPlanDraft } from '../domain'
+import { calculateStats, createCoachPlanDraft, getJourneyMonths, growthDomains, type CoachPlanDraft } from '../domain'
 import { getSeasonEvidence } from '../season'
 
 let database: LifeRpgDatabase
@@ -303,6 +305,158 @@ describe('IndexedDB 事务', () => {
     await completeActivity(activity.id, '2026-01-05', { tier: 3 }, database)
     expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 20, coins: 10 })
     expect(await database.completions.toCollection().first()).toMatchObject({ tier: 3, tierGoalSnapshot: activity.goal })
+  })
+
+  it('每周纯次数逐次记录并只在跨层时发奖', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5], progressMode: 'incremental' },
+    }, database)
+    const first = await recordIncrementalProgress(activity.id, undefined, 'request-1', '2026-01-05', database)
+    const second = await recordIncrementalProgress(activity.id, undefined, 'request-2', '2026-01-05', database)
+    const third = await recordIncrementalProgress(activity.id, undefined, 'request-3', '2026-01-05', database)
+    expect(first).toMatchObject({ recorded: true, awarded: true, progress: { totalCount: 1, highestTier: 1 } })
+    expect(second).toMatchObject({ recorded: true, awarded: false, progress: { totalCount: 2, highestTier: 1 } })
+    expect(third).toMatchObject({ recorded: true, awarded: true, upgraded: true, progress: { totalCount: 3, highestTier: 2 } })
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 8, coins: 5 })
+
+    const duplicate = await recordIncrementalProgress(activity.id, undefined, 'request-3', '2026-01-05', database)
+    expect(duplicate.recorded).toBe(false)
+    expect(await database.completions.count()).toBe(3)
+    const journey = getJourneyMonths(await database.completions.toArray(), await database.ledgerEvents.toArray())
+    expect(journey[0]).toMatchObject({ actionCount: 1, xp: 8, coins: 5 })
+    expect(journey[0].days[0].entries[0]).toMatchObject({ count: 3, progressLabel: '完成 3 次 · 本周累计 3/3次' })
+  })
+
+  it('每次固定时长按各层门槛分别统计合格次数', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: {
+        kind: 'tiered', metric: 'combined', mode: 'per_occurrence', countUnit: '次', inputUnit: '分钟', progressMode: 'incremental',
+        defaultDurationSeconds: 1200, durationOptionsSeconds: [1200, 600, 1800],
+        thresholds: [
+          { count: 1, durationSeconds: 600 },
+          { count: 3, durationSeconds: 1200 },
+          { count: 5, durationSeconds: 1800 },
+        ],
+      },
+    }, database)
+    await recordIncrementalProgress(activity.id, 600, 'fixed-1', '2026-01-05', database)
+    await recordIncrementalProgress(activity.id, 1200, 'fixed-2', '2026-01-05', database)
+    const third = await recordIncrementalProgress(activity.id, 1200, 'fixed-3', '2026-01-06', database)
+    const fourth = await recordIncrementalProgress(activity.id, 1200, 'fixed-4', '2026-01-06', database)
+    expect(third.awarded).toBe(false)
+    expect(fourth).toMatchObject({ awarded: true, progress: { totalCount: 4, highestTier: 2, qualifiedCounts: { 1: 4, 2: 3, 3: 0 } } })
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 8, coins: 5 })
+  })
+
+  it('累计总量同时满足次数和总时长后才跨层', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: {
+        kind: 'tiered', metric: 'combined', mode: 'total', countUnit: '次', inputUnit: '分钟', progressMode: 'incremental',
+        defaultDurationSeconds: 1800, durationOptionsSeconds: [1800, 600, 3600],
+        thresholds: [
+          { count: 1, durationSeconds: 1800 },
+          { count: 3, durationSeconds: 7200 },
+          { count: 5, durationSeconds: 10_800 },
+        ],
+      },
+    }, database)
+    expect((await recordIncrementalProgress(activity.id, 600, 'total-1', '2026-01-05', database)).awarded).toBe(false)
+    expect((await recordIncrementalProgress(activity.id, 1800, 'total-2', '2026-01-05', database))).toMatchObject({ awarded: true, progress: { highestTier: 1, totalDurationSeconds: 2400 } })
+    expect((await recordIncrementalProgress(activity.id, 3600, 'total-3', '2026-01-06', database)).awarded).toBe(false)
+    expect((await recordIncrementalProgress(activity.id, 1800, 'total-4', '2026-01-06', database))).toMatchObject({ awarded: true, progress: { highestTier: 2, totalDurationSeconds: 7800 } })
+  })
+
+  it('撤销最近一次会回退进度和跨层奖励，随后可以重做', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5], progressMode: 'incremental' },
+    }, database)
+    await recordIncrementalProgress(activity.id, undefined, 'undo-1', '2026-01-05', database)
+    await recordIncrementalProgress(activity.id, undefined, 'undo-2', '2026-01-05', database)
+    await recordIncrementalProgress(activity.id, undefined, 'undo-3', '2026-01-05', database)
+    expect(await undoLatestIncrementalProgress(activity.id, '2026-01-05', database)).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 6, coins: 5 })
+    const active = await database.completions.where('status').equals('active').toArray()
+    expect(active.reduce((total, completion) => total + (completion.progress?.countDelta ?? 0), 0)).toBe(2)
+    await recordIncrementalProgress(activity.id, undefined, 'undo-4', '2026-01-05', database)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 8, coins: 5 })
+  })
+
+  it('启用逐次累计会把本周唯一旧层次折算为导入进度', async () => {
+    const activity = await createActivity({
+        ...dailyHabit,
+        schedule: { kind: 'weekly', times: 5 },
+        goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5] },
+      }, database)
+    const old = await completeActivity(activity.id, '2026-01-05', { tier: 1 }, database)
+    if (!old.awarded) throw new Error('测试前置完成失败')
+    const ledgerBefore = await database.ledgerEvents.toArray()
+    const updated = await updateHabit(activity.id, {
+      title: activity.title, cue: activity.cue, protocol: activity.protocol, domain: activity.domain,
+      difficulty: activity.difficulty, schedule: { kind: 'weekly', times: 3 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5], progressMode: 'incremental' },
+      isKey: activity.isKey,
+    }, database, '2026-01-07')
+    expect(await database.completions.get(old.completion.id)).toMatchObject({ progress: { countDelta: 1, imported: true, cycleStart: '2026-01-05' } })
+    expect(await database.ledgerEvents.toArray()).toEqual(ledgerBefore)
+    expect(updated.schedule).toEqual({ kind: 'weekly', times: 3 })
+  })
+
+  it('周一 04:00 后的游戏日会开始新的累计周期', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5], progressMode: 'incremental' },
+    }, database)
+    await recordIncrementalProgress(activity.id, undefined, 'week-1', '2026-01-11', database)
+    const next = await recordIncrementalProgress(activity.id, undefined, 'week-2', '2026-01-12', database)
+    expect(next.progress).toMatchObject({ totalCount: 1, highestTier: 1 })
+    expect((await database.completions.toArray()).map((item) => item.progress?.cycleStart)).toEqual(['2026-01-05', '2026-01-12'])
+  })
+
+  it('一次记录跨过多个层次时只发最高层净奖励并在最高层封顶', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 1 },
+      goal: {
+        kind: 'tiered', metric: 'combined', mode: 'total', countUnit: '次', inputUnit: '分钟', progressMode: 'incremental',
+        defaultDurationSeconds: 1800, durationOptionsSeconds: [1800],
+        thresholds: [
+          { count: 1, durationSeconds: 600 },
+          { count: 1, durationSeconds: 1200 },
+          { count: 1, durationSeconds: 1800 },
+        ],
+      },
+    }, database)
+    const result = await recordIncrementalProgress(activity.id, 1800, 'multi-tier', '2026-01-05', database)
+    expect(result).toMatchObject({ awarded: true, progress: { highestTier: 3, maxReached: true }, event: { xpDelta: 10, coinDelta: 5 } })
+    await expect(recordIncrementalProgress(activity.id, 1800, 'after-max', '2026-01-05', database)).rejects.toThrow('本周已完成')
+    expect(await database.ledgerEvents.count()).toBe(1)
+  })
+
+  it('本周首次记录后冻结目标和难度，编辑只在下周生效', async () => {
+    const activity = await createActivity({
+      ...dailyHabit,
+      schedule: { kind: 'weekly', times: 3 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 3, 5], progressMode: 'incremental' },
+    }, database)
+    await recordIncrementalProgress(activity.id, undefined, 'frozen-1', '2026-01-05', database)
+    await updateHabit(activity.id, {
+      title: '新版本习惯', cue: undefined, protocol: undefined, domain: 'health', difficulty: 'Boss',
+      schedule: { kind: 'weekly', times: 2 },
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 2, 3], progressMode: 'incremental' },
+      isKey: false,
+    }, database, '2026-01-05')
+    expect((await recordIncrementalProgress(activity.id, undefined, 'frozen-2', '2026-01-06', database)).awarded).toBe(false)
+    expect((await recordIncrementalProgress(activity.id, undefined, 'frozen-3', '2026-01-07', database))).toMatchObject({ event: { xpDelta: 2, coinDelta: 0 } })
+    expect((await recordIncrementalProgress(activity.id, undefined, 'next-week', '2026-01-12', database))).toMatchObject({ event: { xpDelta: 30, coinDelta: 25 }, progress: { totalCount: 1 } })
   })
 
   it('撤销三层完成会抵消首次和全部升级奖励', async () => {
@@ -800,7 +954,7 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 9 备份保存规划草稿并兼容 schema 5 至 schema 8', async () => {
+  it('schema 10 备份保存逐次进度和规划草稿并兼容 schema 5 至 schema 9', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
@@ -808,9 +962,10 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 9, appVersion: '4.3.0', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 10, appVersion: '4.4.0', seasons: [{ id: season.id }] })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
-    await restoreBackup({ ...current, appVersion: '4.2.0' }, database)
+    await restoreBackup({ ...current, schemaVersion: 9, appVersion: '4.3.0' }, database)
+    await restoreBackup({ ...current, schemaVersion: 9, appVersion: '4.2.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 8, appVersion: '4.1.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.1' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.0' }, database)

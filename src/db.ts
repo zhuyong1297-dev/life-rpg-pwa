@@ -2,6 +2,7 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   ActivitySchema,
   type Activity,
+  CompletionSchema,
   CoachPlanDraftSchema,
   type CoachPlanDraft,
   type GrowthDomain,
@@ -18,6 +19,7 @@ import {
   type WeeklyReview,
   WeeklyReviewSchema,
   calculateStats,
+  calculateIncrementalProgress,
   addDays,
   createLevelSystem,
   getLevel,
@@ -30,9 +32,12 @@ import {
   getGameDayActivation,
   getTierCount,
   getTierLevels,
+  getIncrementalCycleGoal,
   isDurationGoal,
   isTieredGoal,
+  isIncrementalGoal,
   startOfWeek,
+  type IncrementalTieredGoal,
   LevelSystemSchema,
 } from './domain'
 import {
@@ -582,7 +587,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
 
 export type HabitUpdate = Pick<Activity, 'title' | 'cue' | 'protocol' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
-export async function updateHabit(activityId: string, input: HabitUpdate, database = db) {
+export async function updateHabit(activityId: string, input: HabitUpdate, database = db, occurredOn?: string) {
   return database.transaction('rw', database.activities, database.completions, database.settings, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity || activity.type !== 'habit' || activity.archivedAt) throw new Error('找不到可编辑的习惯')
@@ -606,6 +611,39 @@ export async function updateHabit(activityId: string, input: HabitUpdate, databa
       })))
     }
     const updated = ActivitySchema.parse({ ...activity, ...input, revision: (activity.revision ?? 1) + 1 })
+    if (!isIncrementalGoal(activity) && isIncrementalGoal(updated)) {
+      const eventDate = occurredOn ?? await currentGameDate(database)
+      const cycleStart = startOfWeek(new Date(`${eventDate}T12:00:00`))
+      const oldCompletions = await database.completions
+        .where('activityId')
+        .equals(activityId)
+        .and((completion) => completion.status === 'active' && completion.occurredOn >= cycleStart && Boolean(completion.tier) && !completion.progress)
+        .toArray()
+      if (oldCompletions.length > 1) throw new Error('本周已有多条旧完成，请下周一 04:00 后启用逐次累计')
+      if (oldCompletions.length === 1) {
+        const completion = oldCompletions[0]
+        const tier = completion.tier!
+        const threshold = updated.goal.thresholds[tier - 1]
+        const countDelta = typeof threshold === 'number' ? threshold : threshold.count
+        const durationSeconds = typeof threshold === 'number'
+          ? undefined
+          : updated.goal.metric === 'combined' && updated.goal.mode === 'per_occurrence' ? threshold.count * threshold.durationSeconds : threshold.durationSeconds
+        await database.completions.put(CompletionSchema.parse({
+          ...completion,
+          tierGoalSnapshot: updated.goal,
+          progress: {
+            mode: 'weekly_incremental',
+            cycleStart,
+            countDelta,
+            durationSeconds,
+            perOccurrenceDurationSeconds: typeof threshold === 'number' || updated.goal.metric !== 'combined' || updated.goal.mode === 'total' ? undefined : threshold.durationSeconds,
+            sequence: 1,
+            requestId: `import:${completion.id}`,
+            imported: true,
+          },
+        }))
+      }
+    }
     await database.activities.put(updated)
     return updated
   })
@@ -719,6 +757,7 @@ export async function completeActivity(
     const activity = await database.activities.get(activityId)
     if (!activity || !activity.enabled) throw new Error('这项行动不存在或已暂停')
     if (!activity.domain) throw new Error('请先完成成长领域迁移')
+    if (isIncrementalGoal(activity)) throw new Error('逐次累计目标请使用进度记录')
     const requestedDetails = typeof noteOrDetails === 'string' ? { note: noteOrDetails } : (noteOrDetails ?? {})
     const active = await database.completions
       .where('activityId')
@@ -810,6 +849,129 @@ export async function completeActivity(
     await database.completions.add(completion)
     await database.ledgerEvents.add(event)
     return { awarded: true as const, upgraded: false as const, completion, event, activity }
+  })
+}
+
+export async function recordIncrementalProgress(
+  activityId: string,
+  durationSeconds: number | undefined = undefined,
+  requestId: string = crypto.randomUUID(),
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  return database.transaction('rw', database.activities, database.completions, database.ledgerEvents, database.settings, async () => {
+    const eventDate = occurredOn ?? await currentGameDate(database)
+    const activity = await database.activities.get(activityId)
+    if (!activity || !activity.enabled || activity.archivedAt) throw new Error('这项行动不存在或已暂停')
+    if (!activity.domain) throw new Error('请先完成成长领域迁移')
+
+    const duplicate = await database.completions
+      .where('activityId')
+      .equals(activityId)
+      .and((completion) => completion.progress?.requestId === requestId)
+      .first()
+    if (duplicate) return { recorded: false as const, awarded: false as const, completion: duplicate, activity }
+
+    const cycleStart = startOfWeek(new Date(`${eventDate}T12:00:00`))
+    const cycleCompletions = await database.completions
+      .where('activityId')
+      .equals(activityId)
+      .and((completion) => completion.progress?.cycleStart === cycleStart)
+      .toArray()
+    const goal = getIncrementalCycleGoal(activity, cycleCompletions, cycleStart)
+    if (!goal) throw new Error('这项行动没有启用逐次累计')
+    const before = calculateIncrementalProgress(goal, cycleCompletions)
+    if (before.maxReached) throw new Error('本周已完成最高层')
+
+    if (goal.metric === 'combined') {
+      if (!Number.isInteger(durationSeconds) || !durationSeconds || !goal.durationOptionsSeconds?.includes(durationSeconds)) {
+        throw new Error('请选择已配置的本次时长')
+      }
+    } else if (durationSeconds !== undefined) {
+      throw new Error('纯次数目标不需要记录时长')
+    }
+
+    const createdAt = new Date().toISOString()
+    const completionDraft = CompletionSchema.parse({
+      id: `progress:${activityId}:${cycleStart}:${requestId}`,
+      activityId,
+      occurredOn: eventDate,
+      status: 'active',
+      tierGoalSnapshot: goal,
+      activityRevision: cycleCompletions[0]?.activityRevision ?? activity.revision ?? 1,
+      titleSnapshot: cycleCompletions[0]?.titleSnapshot ?? activity.title,
+      domainSnapshot: cycleCompletions[0]?.domainSnapshot ?? activity.domain,
+      difficultySnapshot: cycleCompletions[0]?.difficultySnapshot ?? activity.difficulty,
+      progress: {
+        mode: 'weekly_incremental',
+        cycleStart,
+        countDelta: 1,
+        durationSeconds: goal.metric === 'combined' ? durationSeconds : undefined,
+        perOccurrenceDurationSeconds: goal.metric === 'combined' && goal.mode === 'per_occurrence' ? durationSeconds : undefined,
+        sequence: Math.max(0, ...cycleCompletions.map((item) => item.progress?.sequence ?? 0)) + 1,
+        requestId,
+      },
+      createdAt,
+    })
+    const after = calculateIncrementalProgress(goal, [...cycleCompletions, completionDraft])
+    const completion = CompletionSchema.parse({ ...completionDraft, tier: after.highestTier })
+    const crossed = after.highestTier && after.highestTier !== before.highestTier
+    const previousXp = before.highestTier ? getTierReward(completion.difficultySnapshot!, before.highestTier, getTierCount(goal)).xp : 0
+    const reward = after.highestTier ? getTierReward(completion.difficultySnapshot!, after.highestTier, getTierCount(goal)) : undefined
+    const event = crossed && reward ? LedgerEventSchema.parse({
+      id: `reward:${completion.id}:tier:${after.highestTier}`,
+      kind: 'reward',
+      sourceId: completion.id,
+      occurredOn: eventDate,
+      title: `${completion.titleSnapshot}（${after.highestTier === 1 ? '基础' : after.highestTier === 2 ? '标准' : '突破'}）`,
+      domain: completion.domainSnapshot,
+      xpDelta: reward.xp - previousXp,
+      coinDelta: before.highestTier ? 0 : reward.coins,
+      createdAt,
+    }) : undefined
+    await database.completions.add(completion)
+    if (event) await database.ledgerEvents.add(event)
+    return { recorded: true as const, awarded: Boolean(event), upgraded: Boolean(event && before.highestTier), completion, event, activity, progress: after }
+  })
+}
+
+export async function undoLatestIncrementalProgress(
+  activityId: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  const cycleStart = startOfWeek(new Date(`${eventDate}T12:00:00`))
+  return database.transaction('rw', database.completions, database.ledgerEvents, async () => {
+    const active = await database.completions
+      .where('activityId')
+      .equals(activityId)
+      .and((completion) => completion.status === 'active' && completion.progress?.cycleStart === cycleStart)
+      .toArray()
+    const latest = active.sort((left, right) => (right.progress?.sequence ?? 0) - (left.progress?.sequence ?? 0))[0]
+    if (!latest) return false
+    const rewards = await database.ledgerEvents
+      .where('sourceId')
+      .equals(latest.id)
+      .and((event) => event.kind === 'reward')
+      .toArray()
+    const createdAt = new Date().toISOString()
+    await database.completions.update(latest.id, { status: 'undone', undoneAt: createdAt })
+    if (rewards.length > 0) {
+      await database.ledgerEvents.bulkAdd(rewards.map((reward) => LedgerEventSchema.parse({
+        id: `correction:${reward.id}`,
+        kind: 'correction',
+        sourceId: reward.id,
+        occurredOn: latest.occurredOn,
+        title: `撤销：${reward.title}`,
+        attribute: reward.attribute,
+        domain: reward.domain,
+        xpDelta: -reward.xpDelta,
+        coinDelta: -reward.coinDelta,
+        createdAt,
+      })))
+    }
+    return true
   })
 }
 

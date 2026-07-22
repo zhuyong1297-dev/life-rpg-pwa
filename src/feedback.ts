@@ -1,4 +1,4 @@
-import { domainLabel, tierLabels, type FeedbackIntensity, type GrowthDomain, type Preferences, type TierLevel } from './domain'
+import { domainLabel, formatDurationSeconds, tierLabels, type FeedbackIntensity, type GrowthDomain, type Preferences, type TierLevel } from './domain'
 
 let completionAudioContext: AudioContext | undefined
 
@@ -75,7 +75,7 @@ export function playCompletionVibration(kind: FeedbackKind = 'completion', inten
 
 export async function sendCompletionFeedback(
   preferences: Preferences,
-  detail: { title: string; xp: number; coins: number; domain: GrowthDomain; durationMinutes?: number; tier?: TierLevel; upgraded?: boolean; leveledUp?: boolean },
+  detail: { title: string; xp: number; coins: number; domain: GrowthDomain; durationMinutes?: number; durationSeconds?: number; tier?: TierLevel; progressLabel?: string; upgraded?: boolean; leveledUp?: boolean },
   preparedAudio?: Promise<boolean>,
 ) {
   const kind: FeedbackKind = detail.leveledUp ? 'level-up' : detail.upgraded ? 'tier-up' : 'completion'
@@ -86,9 +86,9 @@ export async function sendCompletionFeedback(
   }
   try {
     const registration = await navigator.serviceWorker.ready
-    const rewards = [`+${detail.xp} XP`, detail.coins > 0 ? `+${detail.coins} 金币` : '', domainLabel(detail.domain)].filter(Boolean).join(' · ')
-    await registration.showNotification(detail.upgraded ? '习惯层次已升级' : '行动已完成', {
-      body: `${rewards}${detail.tier ? ` · ${tierLabels[detail.tier]}层` : ''}${detail.durationMinutes ? ` · ${detail.durationMinutes} 分钟` : ''}`,
+    const rewards = [detail.xp > 0 ? `+${detail.xp} XP` : '', detail.coins > 0 ? `+${detail.coins} 金币` : '', detail.progressLabel ?? domainLabel(detail.domain)].filter(Boolean).join(' · ')
+    await registration.showNotification(detail.upgraded ? '习惯层次已升级' : detail.progressLabel ? '本周进度已记录' : '行动已完成', {
+      body: `${rewards}${detail.tier ? ` · ${tierLabels[detail.tier]}层` : ''}${detail.durationMinutes ? ` · ${detail.durationMinutes} 分钟` : ''}${detail.durationSeconds ? ` · ${formatDurationSeconds(detail.durationSeconds)}` : ''}`,
       icon: `${import.meta.env.BASE_URL}app-icon.png`,
       badge: `${import.meta.env.BASE_URL}app-icon.png`,
       tag: `completion-${Date.now()}`,
