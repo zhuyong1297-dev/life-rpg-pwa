@@ -200,9 +200,11 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .key-progress .progress-track span { background: var(--color-accent-mid); }
 .next-reward-summary { margin-top: 14px; padding-top: 12px; display: flex; gap: 9px; align-items: flex-start; border-top: 1px solid var(--color-night-rule); }
 .next-reward-summary > svg { width: 17px; height: 17px; color: var(--color-night-reward); }
-.next-reward-summary > div { min-width: 0; display: grid; gap: 3px; }
+.next-reward-summary > button { min-width: 0; min-height: 44px; padding: 0; display: grid; align-content: center; gap: 3px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .next-reward-summary span { color: var(--color-on-accent); font-size: 11px; font-weight: 800; line-height: 1.45; }
 .next-reward-summary small { color: var(--color-night-muted); font-size: 10px; line-height: 1.45; }
+.status-strip-reward { grid-column: 1 / -1; min-height: 44px; margin: 0 -2px -2px; padding: 6px 8px; display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; gap: 7px; border: 0; border-top: 1px solid var(--line); color: var(--gold); background: transparent; font-size: 11px; font-weight: 800; text-align: left; }
+.status-strip-reward svg { width: 16px; height: 16px; }
 .sidebar-create { width: 100%; margin-top: 12px; }
 .sidebar-note { margin: 12px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 11px; }
 .sidebar-note svg { width: 15px; height: 15px; }
@@ -939,6 +941,107 @@ label textarea { min-height: 84px; resize: vertical; }
   to { transform: rotate(360deg); }
 }
 
+/* V4.5 愿望驱动奖励商店 */
+.reward-page { min-height: calc(100vh - 44px); }
+.secondary-header { min-height: 96px; margin-bottom: 14px; padding: 15px 18px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; color: var(--color-on-accent); background: var(--color-night); border-radius: var(--radius-md); box-shadow: var(--shadow-raised); }
+.secondary-header > div { min-width: 0; }
+.secondary-header .eyebrow { color: var(--color-night-reward); }
+.secondary-header h1 { margin: 3px 0 0; font-family: var(--font-display); font-size: 30px; line-height: 1.15; }
+.secondary-header .icon-button { color: var(--color-on-accent); border-color: var(--color-night-rule); }
+.back-button { min-height: 44px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--color-night-rule); border-radius: var(--radius-sm); color: var(--color-on-accent); background: transparent; cursor: pointer; }
+.reward-fund-strip { min-height: 74px; margin-bottom: 12px; padding: 12px 16px; display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; color: var(--color-reward-deep); background: var(--color-reward-soft); border: 1px solid var(--color-reward-rule); border-radius: var(--radius-md); }
+.reward-fund-strip > div { min-width: 0; display: grid; align-content: center; gap: 3px; }
+.reward-fund-strip span { color: var(--color-reward-ink); font-size: 11px; }
+.reward-fund-strip strong { font-size: 23px; }
+.reward-fund-strip b { font-size: 15px; }
+.reward-tabs { position: sticky; z-index: var(--z-sticky); top: 0; margin-bottom: 14px; padding: 4px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; background: var(--color-control); border-radius: var(--radius-md); }
+.reward-tabs button { position: relative; min-width: 0; padding: 0 10px; display: inline-flex; justify-content: center; align-items: center; gap: 7px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; font-weight: 800; cursor: pointer; }
+.reward-tabs button.selected { color: var(--forest); background: var(--surface); box-shadow: var(--shadow-control); }
+.reward-tabs button b { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 9px; color: white; background: var(--coral); font-size: 10px; }
+.reward-view { display: grid; gap: 18px; }
+.reward-search { position: relative; display: block; }
+.reward-search > svg { position: absolute; z-index: 1; left: 12px; top: 50%; width: 17px; height: 17px; color: var(--muted); transform: translateY(-50%); }
+.reward-search input { width: 100%; min-height: 44px; margin: 0; padding: 9px 12px 9px 38px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+.claim-alert { width: 100%; min-height: 66px; padding: 11px 14px; display: grid; grid-template-columns: 38px minmax(0, 1fr) 20px; align-items: center; gap: 10px; border: 1px solid var(--color-info-rule); border-radius: var(--radius-md); color: var(--color-info); background: var(--blue-soft); text-align: left; cursor: pointer; }
+.claim-alert.overdue { color: var(--color-danger-ink); border-color: var(--color-danger-rule); background: var(--color-danger-soft); }
+.claim-alert span { min-width: 0; display: grid; gap: 2px; }
+.claim-alert small { color: var(--muted); }
+.primary-wish { overflow: hidden; display: grid; grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1.2fr); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-raised); }
+.primary-wish-media { min-height: 280px; background: var(--color-reward-soft); }
+.primary-wish-media img, .wish-image-field img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.wish-placeholder { width: 100%; height: 100%; min-height: 86px; display: grid; place-items: center; color: var(--gold); background: linear-gradient(135deg, var(--color-reward-soft), var(--surface)); }
+.wish-placeholder svg { width: 42px; height: 42px; }
+.primary-wish-copy { min-width: 0; padding: 24px; display: grid; align-content: center; gap: 12px; }
+.wish-kicker { color: var(--gold); font-size: 11px; font-weight: 900; }
+.primary-wish h2 { margin: 0; font-family: var(--font-display); font-size: 29px; overflow-wrap: anywhere; }
+.primary-wish p { margin: 0; color: var(--muted); line-height: 1.65; }
+.wish-progress-copy, .wish-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
+.wish-progress-copy b { color: var(--gold); }
+.wish-meta { color: var(--muted); }
+.wish-progress { height: 10px; overflow: hidden; border-radius: 5px; background: var(--color-track); }
+.wish-progress i { display: block; height: 100%; background: var(--color-reward-bright); border-radius: inherit; }
+.reward-empty-goal { min-height: 250px; padding: 28px; display: grid; place-items: center; align-content: center; gap: 9px; text-align: center; border: 1px dashed var(--color-reward-rule); border-radius: var(--radius-md); background: var(--color-reward-highlight); }
+.reward-empty-goal > svg { width: 40px; height: 40px; color: var(--gold); }
+.reward-empty-goal h2, .reward-empty-goal p { margin: 0; }
+.reward-empty-goal p { max-width: 520px; color: var(--muted); }
+.reward-empty-goal button, .reward-section-title button, .queue-actions > button:last-child, .wish-row-actions > button:not(.icon-button), .claim-card-actions button, .repeat-choice button { padding: 0 14px; border: 1px solid var(--color-accent-rule); border-radius: var(--radius-sm); color: var(--forest); background: var(--forest-soft); font-weight: 800; cursor: pointer; }
+.reward-section-title { min-height: 48px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.reward-section-title > div { min-width: 0; }
+.reward-section-title span { color: var(--muted); font-size: 10px; font-weight: 800; }
+.reward-section-title h2 { margin: 1px 0 8px; font-size: 22px; }
+.reward-section-title > b { color: var(--muted); }
+.reward-section-title button { display: inline-flex; align-items: center; gap: 5px; }
+.reward-queue, .legacy-wishes { display: grid; gap: 0; }
+.queue-row { min-height: 72px; padding: 9px 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+.queue-order { width: 30px; height: 30px; display: grid; place-items: center; color: var(--gold); background: var(--color-reward-soft); border-radius: 50%; font-weight: 900; }
+.queue-row > div:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.queue-row > div:nth-child(2) strong { overflow-wrap: anywhere; }
+.queue-row > div:nth-child(2) span { color: var(--muted); font-size: 11px; }
+.queue-actions { display: flex; align-items: center; gap: 3px; }
+.legacy-wishes > p { margin: 8px 0; color: var(--muted); font-size: 12px; }
+.wish-list { display: grid; }
+.wish-row { min-height: 92px; padding: 10px 0; display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.wish-thumb { width: 70px; height: 70px; overflow: hidden; border-radius: var(--radius-sm); }
+.wish-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.wish-row-copy { min-width: 0; display: grid; gap: 3px; }
+.wish-row-copy > span { color: var(--gold); font-size: 10px; font-weight: 800; }
+.wish-row-copy > strong { overflow-wrap: anywhere; font-size: 16px; }
+.wish-row-copy > small { color: var(--muted); }
+.wish-row-actions { display: flex; align-items: center; gap: 3px; }
+.inspiration-library, .claim-history { border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.inspiration-library > summary, .claim-history > summary { min-height: 50px; padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--forest); font-weight: 900; cursor: pointer; }
+.inspiration-library > p { margin: 0; padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
+.inspiration-library > button { width: 100%; min-height: 64px; padding: 9px 14px; display: grid; grid-template-columns: minmax(0, 1fr) 20px; text-align: left; border: 0; border-top: 1px solid var(--line); background: transparent; cursor: pointer; }
+.inspiration-library > button strong, .inspiration-library > button span { grid-column: 1; }
+.inspiration-library > button span { color: var(--muted); font-size: 11px; }
+.inspiration-library > button svg { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.claim-list { display: grid; gap: 10px; }
+.claim-card { min-height: 116px; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; border: 1px solid var(--color-reward-rule); border-radius: var(--radius-md); background: var(--color-reward-highlight); }
+.claim-card.overdue { border-color: var(--color-danger-rule); background: var(--color-danger-soft); }
+.claim-card h3 { margin: 4px 0 7px; font-size: 20px; }
+.claim-card p { margin: 0; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
+.claim-card p svg { width: 15px; height: 15px; }
+.claim-card-actions { display: grid; gap: 5px; }
+.claim-card-actions .danger-text { color: var(--color-danger-ink); border-color: transparent; background: transparent; }
+.claim-history > p { min-height: 44px; margin: 0 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--line); }
+.claim-history > p b { color: var(--muted); font-size: 11px; }
+.wish-editor { width: min(100%, 620px); }
+.wish-image-field { min-height: 128px; position: relative; overflow: hidden; display: grid; place-items: center; border: 1px dashed var(--color-reward-rule); border-radius: var(--radius-md); color: var(--gold); background: var(--color-reward-highlight); cursor: pointer; }
+.wish-image-field > span { display: grid; place-items: center; gap: 5px; font-weight: 800; }
+.wish-image-field > span small { color: var(--muted); font-weight: 400; }
+.wish-image-field input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.two-column-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.two-column-fields label { min-width: 0; display: grid; gap: 6px; font-size: 12px; font-weight: 800; }
+.two-column-fields input { width: 100%; min-height: 44px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.reserve-summary { padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--color-reward-soft); border-radius: var(--radius-sm); }
+.reserve-summary span { display: flex; align-items: center; gap: 5px; color: var(--color-reward-deep); font-weight: 900; }
+.reserve-summary small { grid-column: 1 / -1; color: var(--muted); }
+.form-detail-note svg { width: 15px; height: 15px; vertical-align: text-bottom; }
+.satisfaction-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.satisfaction-grid button { min-width: 0; height: 62px; display: grid; place-items: center; border: 1px solid var(--color-reward-rule); border-radius: var(--radius-sm); color: var(--gold); background: var(--color-reward-highlight); font-size: 20px; font-weight: 900; cursor: pointer; }
+.satisfaction-grid small { min-height: 12px; color: var(--muted); font-size: 9px; }
+.repeat-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover, .nav-item:not(.active):hover { background: var(--surface-soft); }
   .season-summary:hover, .coach-template-grid button:hover, .focus-picker button:hover, .tier-choice:hover, .domain-choice-grid button:hover { border-color: var(--forest); background: var(--forest-soft); }
@@ -1005,6 +1108,32 @@ label textarea { min-height: 84px; resize: vertical; }
   .coach-plan-footer > span { display: none; }
   .coach-plan-footer > button { width: 100%; }
   .coach-plan-footer > button:last-child { justify-self: stretch; }
+  .secondary-header { min-height: 82px; padding: 10px; grid-template-columns: 68px minmax(0, 1fr) 44px; gap: 8px; }
+  .secondary-header h1 { font-size: 23px; }
+  .secondary-header .eyebrow { font-size: 9px; }
+  .secondary-header { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .back-button { width: 44px; padding: 0; justify-content: center; font-size: 0; }
+  .reward-fund-strip { min-height: 68px; padding: 9px 10px; gap: 6px; }
+  .reward-fund-strip strong { font-size: 19px; }
+  .reward-fund-strip b { font-size: 12px; }
+  .reward-tabs button { padding: 0 4px; font-size: 12px; }
+  .primary-wish { grid-template-columns: 1fr; }
+  .primary-wish-media { min-height: 154px; max-height: 210px; }
+  .primary-wish-copy { padding: 16px 14px; gap: 10px; }
+  .primary-wish h2 { font-size: 24px; }
+  .queue-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .queue-order { width: 26px; height: 26px; }
+  .queue-actions { grid-column: 2; justify-content: flex-end; }
+  .wish-row { grid-template-columns: 58px minmax(0, 1fr); gap: 9px; }
+  .wish-thumb { width: 58px; height: 58px; }
+  .wish-row-actions { grid-column: 1 / -1; justify-content: flex-end; }
+  .claim-card { grid-template-columns: 1fr; }
+  .claim-card-actions { grid-template-columns: 1fr 1fr; }
+  .two-column-fields { grid-template-columns: 1fr; }
+  .wish-editor .segmented-control { grid-template-columns: 1fr; }
+  .satisfaction-grid { gap: 4px; }
+  .satisfaction-grid button { height: 56px; }
+  .repeat-choice { grid-template-columns: 1fr; }
   .page-header { margin-bottom: 16px; }
   .page-header h1 { font-size: 27px; }
   .page-lead { font-size: 13px; }
@@ -1106,6 +1235,12 @@ label textarea { min-height: 84px; resize: vertical; }
   .weekly-key-card { grid-template-columns: minmax(0, 1fr); }
   .weekly-key-card .weekly-record-button { width: 100%; }
   .report-stat-grid { grid-template-columns: 1fr; }
+  .secondary-header { grid-template-columns: 44px minmax(0, 1fr) 44px; }
+  .secondary-header h1 { font-size: 21px; }
+  .reward-fund-strip span { font-size: 9px; }
+  .reward-fund-strip strong { font-size: 17px; }
+  .reward-tabs button { gap: 3px; font-size: 11px; }
+  .reward-tabs button svg { width: 17px; height: 17px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

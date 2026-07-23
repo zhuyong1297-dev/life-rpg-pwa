@@ -5,8 +5,10 @@ import {
   activateCoachPlanDraft,
   activateGrowthDomains,
   acknowledgeLevelMilestone,
+  applyRewardBudgetRollover,
   archiveActivity,
   calibrateSeasonWithStableLife,
+  cancelRewardClaim,
   cancelTodayCompletion,
   completeSeason,
   completeActivity,
@@ -14,6 +16,7 @@ import {
   createSeason,
   createReward,
   currentGameDate,
+  fulfillRewardClaim,
   getCoachPlanDraft,
   getGrowthDomainMigrationCandidates,
   getSnapshot,
@@ -22,12 +25,14 @@ import {
   claimMilestoneReward,
   redeemReward,
   recordIncrementalProgress,
+  reserveRewardClaim,
   respondToSeasonSuggestion,
   restoreActivity,
   saveWeeklyReview,
   saveSeasonDailySignal,
   saveCoachPlanDraft,
   setRewardEnabled,
+  setRewardQueue,
   setSeasonDailyFocus,
   setTargetReward,
   syncLevelMilestones,
@@ -58,6 +63,13 @@ const dailyHabit: NewActivity = {
 const tieredHabit: NewActivity = {
   ...dailyHabit,
   goal: { kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] },
+}
+
+const configuredReward = {
+  reason: '完成后会让我真正感到放松',
+  cashCostCents: 0,
+  horizon: 'near' as const,
+  repeatPolicy: { kind: 'repeatable' as const, cooldownDays: 7 },
 }
 
 function readyCoachDraft(behaviors: CoachPlanDraft['behaviors']): CoachPlanDraft {
@@ -819,7 +831,7 @@ describe('IndexedDB 事务', () => {
   })
 
   it('余额不足拒绝兑换，余额足够时追加负金币流水', async () => {
-    const reward = (await database.rewards.toArray())[0]
+    const reward = await createReward({ title: '一次真实体验', cost: 30, target: true, ...configuredReward }, database)
     await expect(redeemReward(reward.id, database)).rejects.toThrow('金币余额不足')
     const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
     await completeActivity(activity.id, '2026-01-05', '完成了可验证成果', database)
@@ -829,29 +841,66 @@ describe('IndexedDB 事务', () => {
   })
 
   it('奖励商品支持新增、目标唯一、编辑、停用和恢复，历史兑换不重写', async () => {
-    const reward = await createReward({ title: '短暂休息', cost: 30, target: true }, database)
-    expect((await database.settings.get('meta'))?.value).toMatchObject({ targetRewardId: reward.id })
+    const reward = await createReward({ title: '短暂休息', cost: 30, target: true, ...configuredReward }, database)
+    expect(await database.settings.get('rewardSystem')).toMatchObject({ value: { activeRewardId: reward.id } })
 
-    const second = await createReward({ title: '一次体验', cost: 80, target: true }, database)
-    expect((await database.settings.get('meta'))?.value).toMatchObject({ targetRewardId: second.id })
+    const second = await createReward({ title: '一次体验', cost: 80, target: true, ...configuredReward }, database)
+    expect(await database.settings.get('rewardSystem')).toMatchObject({ value: { activeRewardId: second.id } })
     await setTargetReward(reward.id, database)
 
     const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
     await completeActivity(activity.id, '2026-01-05', '成果一', database)
     await completeActivity(activity.id, '2026-01-06', '成果二', database)
     const redemption = await redeemReward(reward.id, database)
-    expect(redemption).toMatchObject({ title: '兑换：短暂休息', coinDelta: -30 })
+    if (!redemption) throw new Error('测试锁定奖励失败')
+    expect(redemption).toMatchObject({ title: '锁定奖励：短暂休息', coinDelta: -30 })
 
-    await updateReward(reward.id, { title: '更名后的休息', cost: 80, target: true }, database)
-    expect(await database.ledgerEvents.get(redemption.id)).toMatchObject({ title: '兑换：短暂休息', coinDelta: -30 })
+    await updateReward(reward.id, { title: '更名后的休息', cost: 80, target: true, ...configuredReward }, database)
+    expect(await database.ledgerEvents.get(redemption.id)).toMatchObject({ title: '锁定奖励：短暂休息', coinDelta: -30 })
     expect(await database.rewards.get(reward.id)).toMatchObject({ title: '更名后的休息', cost: 80 })
 
     await setRewardEnabled(reward.id, false, database)
-    const metaAfterDisable = await database.settings.get('meta')
-    expect(metaAfterDisable?.key === 'meta' ? metaAfterDisable.value.targetRewardId : undefined).toBeUndefined()
-    await expect(setTargetReward(reward.id, database)).rejects.toThrow('只能把启用中的商品设为当前目标')
+    expect(await database.settings.get('rewardSystem')).not.toMatchObject({ value: { activeRewardId: reward.id } })
+    await expect(setTargetReward(reward.id, database)).rejects.toThrow('候选队列只能包含')
     await setRewardEnabled(reward.id, true, database)
     expect(await database.rewards.get(reward.id)).toMatchObject({ enabled: true })
+  })
+
+  it('奖励锁定与取消幂等，并原子扣还金币和奖励基金', async () => {
+    const activity = await createActivity({ ...dailyHabit, difficulty: 'Boss' }, database)
+    await completeActivity(activity.id, '2026-01-05', '完成真实成果', database)
+    await completeActivity(activity.id, '2026-01-06', '完成第二份成果', database)
+    const reward = await createReward({
+      title: '去看一场展览',
+      cost: 30,
+      target: true,
+      ...configuredReward,
+      cashCostCents: 10_000,
+    }, database)
+    await setRewardQueue(reward.id, [], database)
+    const input = { plannedFor: '2026-07-25', requestId: 'same-request' }
+    const first = await reserveRewardClaim(reward.id, input, database, new Date('2026-07-23T08:00:00.000Z'))
+    const second = await reserveRewardClaim(reward.id, input, database, new Date('2026-07-23T08:00:01.000Z'))
+    expect(second.claim.id).toBe(first.claim.id)
+    expect(await database.rewardClaims.count()).toBe(1)
+    expect(await database.ledgerEvents.where('kind').equals('redemption').count()).toBe(1)
+    expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(20)
+    expect(await database.settings.get('rewardSystem')).toMatchObject({ value: { availableCents: 30_000 } })
+
+    await cancelRewardClaim(first.claim.id, database, new Date('2026-07-24T08:00:00.000Z'))
+    await cancelRewardClaim(first.claim.id, database, new Date('2026-07-24T08:00:01.000Z'))
+    expect(await database.ledgerEvents.where('kind').equals('redemption_refund').count()).toBe(1)
+    expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(50)
+    expect(await database.settings.get('rewardSystem')).toMatchObject({ value: { availableCents: 40_000 } })
+  })
+
+  it('奖励基金按游戏月补充且累计不超过 1200 元', async () => {
+    const stored = await database.settings.get('rewardSystem')
+    if (stored?.key !== 'rewardSystem') throw new Error('奖励系统未初始化')
+    await database.settings.put({ ...stored, value: { ...stored.value, lastFundedMonth: '2026-01', availableCents: 100_000 } })
+    const rolled = await applyRewardBudgetRollover(database, new Date('2026-04-10T08:00:00.000Z'))
+    expect(rolled).toMatchObject({ lastFundedMonth: '2026-04', availableCents: 120_000 })
+    expect(await applyRewardBudgetRollover(database, new Date('2026-04-20T08:00:00.000Z'))).toEqual(rolled)
   })
 
   it('旧 schema 5 偏好缺少反馈强度时恢复为清晰档', async () => {
@@ -897,11 +946,11 @@ describe('IndexedDB 事务', () => {
     }
     const created = await syncLevelMilestones(database, new Date(Date.now() + 11_000))
     expect(created).toMatchObject([{ level: 2 }, { level: 3, voucherMaxCost: 30 }])
-    const reward = await database.rewards.get('reward-entertainment')
-    if (!reward) throw new Error('测试奖励不存在')
+    const reward = await createReward({ title: '阶段体验', cost: 30, target: false, ...configuredReward }, database)
     const coins = calculateStats(await database.ledgerEvents.toArray()).coins
-    await claimMilestoneReward(3, reward.id, database)
+    const reserved = await claimMilestoneReward(3, reward.id, database)
     expect(calculateStats(await database.ledgerEvents.toArray()).coins).toBe(coins)
+    await fulfillRewardClaim(reserved.claim.id, 5, true, database)
     expect(await database.ledgerEvents.get('milestone:level:3')).toMatchObject({
       kind: 'milestone',
       coinDelta: 0,
@@ -954,7 +1003,7 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 10 备份保存逐次进度和规划草稿并兼容 schema 5 至 schema 9', async () => {
+  it('schema 11 备份保存奖励券与规划草稿并兼容 schema 5 至 schema 10', async () => {
     const activity = await createActivity(dailyHabit, database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
@@ -962,9 +1011,10 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 10, appVersion: '4.4.0', seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '4.5.0', rewardClaims: [], seasons: [{ id: season.id }] })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
     await restoreBackup({ ...current, schemaVersion: 9, appVersion: '4.3.0' }, database)
+    await restoreBackup({ ...current, schemaVersion: 10, appVersion: '4.4.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 9, appVersion: '4.2.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 8, appVersion: '4.1.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 7, appVersion: '4.0.1' }, database)

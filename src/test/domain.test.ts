@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CoachPlanDraftSchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, createCoachPlanDraft, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CoachPlanDraftSchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, createCoachPlanDraft, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getRewardPriceSuggestions, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('目标规划草稿允许未完成状态，但 ready 必须通过现实检查', () => {
@@ -227,6 +227,52 @@ describe('领域规则', () => {
       coins: -2,
       attributeXp: Object.fromEntries(attributes.map((attribute) => [attribute, 0])),
       domainXp: Object.fromEntries(growthDomains.map((domain) => [domain, 0])),
+    })
+  })
+
+  it('奖励愿望价格按 28 个游戏日净金币速度建议，数据不足时回退', () => {
+    expect(getRewardPriceSuggestions([], '2026-07-23')).toMatchObject({ near: 30, medium: 80, far: 200, observedDays: 0 })
+    const events: LedgerEvent[] = Array.from({ length: 28 }, (_, index) => ({
+      id: `reward-${index}`,
+      kind: 'reward',
+      sourceId: `completion-${index}`,
+      occurredOn: `2026-07-${String(index + 1).padStart(2, '0')}`,
+      title: '有效行动',
+      domain: 'health',
+      xpDelta: 5,
+      coinDelta: 10,
+      createdAt: `2026-07-${String(index + 1).padStart(2, '0')}T08:00:00.000Z`,
+    }))
+    events.push({
+      id: 'correction',
+      kind: 'correction',
+      sourceId: 'reward-0',
+      occurredOn: '2026-07-01',
+      title: '撤销',
+      domain: 'health',
+      xpDelta: -5,
+      coinDelta: -10,
+      createdAt: '2026-07-01T09:00:00.000Z',
+    })
+    events.push({
+      id: 'redemption',
+      kind: 'redemption',
+      sourceId: 'claim',
+      occurredOn: '2026-07-20',
+      title: '锁定奖励',
+      xpDelta: 0,
+      coinDelta: -80,
+      createdAt: '2026-07-20T10:00:00.000Z',
+    })
+    expect(getRewardPriceSuggestions(events, '2026-07-28')).toMatchObject({ near: 70, medium: 205, far: 540, observedDays: 28 })
+
+    const firstTwoWeeks = events.filter((event) => event.kind === 'reward' && event.occurredOn <= '2026-07-14')
+    expect(getRewardPriceSuggestions(firstTwoWeeks, '2026-07-14')).toMatchObject({
+      near: 70,
+      medium: 210,
+      far: 560,
+      dailyCoins: 10,
+      observedDays: 14,
     })
   })
 

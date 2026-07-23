@@ -346,21 +346,20 @@ test('创建、角色、复盘、设置和编辑界面在各视口完整可见',
   await page.screenshot({ path: `test-results/edit-${testInfo.project.name}.png` })
 })
 
-test('旅程、商店和商品编辑弹层在各视口保持紧凑', async ({ page }, testInfo) => {
+test('旅程、愿望页和愿望编辑弹层在各视口保持紧凑', async ({ page }, testInfo) => {
   await openApp(page)
   await createVisualActivity(page, '用于旅程章节的示例行动')
   await page.getByRole('button', { name: '完成 用于旅程章节的示例行动' }).click()
   await page.getByRole('button', { name: '角色' }).click()
 
-  await page.getByRole('button', { name: '查看奖励商店' }).click()
-  await page.getByRole('button', { name: /全部 3/ }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
   await expectNoHorizontalOverflow(page)
-  await page.screenshot({ path: `test-results/reward-shop-${testInfo.project.name}.png` })
-  await page.getByTitle('新增奖励商品').click()
+  await page.screenshot({ path: `test-results/reward-wishes-${testInfo.project.name}.png`, fullPage: true })
+  await page.getByTitle('新增愿望').click()
   await expectNoHorizontalOverflow(page)
-  await page.screenshot({ path: `test-results/reward-editor-${testInfo.project.name}.png` })
-  await page.locator('.nested-modal').getByRole('button', { name: '关闭', exact: true }).click()
-  await page.locator('.shop-modal').getByRole('button', { name: '关闭', exact: true }).click()
+  await page.screenshot({ path: `test-results/wish-editor-${testInfo.project.name}.png` })
+  await page.locator('.wish-editor').getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '返回' }).click()
 
   await page.getByRole('button', { name: '行动日志' }).click()
   await expect(page.locator('.action-log-modal')).toBeVisible()

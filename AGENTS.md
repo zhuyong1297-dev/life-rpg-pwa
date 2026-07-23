@@ -7,8 +7,8 @@
 ## 技术与数据边界
 
 - 技术栈：React、TypeScript、Vite、Dexie、Zod、Lucide、Vitest、Playwright 和普通 CSS；不增加后端、账号、云同步或状态管理框架。
-- IndexedDB 是唯一事实来源。当前契约为 Dexie version 3、七张表、JSON schema 10，并兼容恢复 schema 1 至 9。
-- 完成、撤销和兑换使用追加式账本；不得重写历史事件。活动编辑和删除前必须保留完成、领域、难度、目标与复盘快照。
+- IndexedDB 是唯一事实来源。当前契约为 Dexie version 4、八张表、JSON schema 11，并兼容恢复 schema 1 至 10。
+- 完成、撤销、奖励锁定和退款使用追加式账本；不得重写历史事件。活动编辑和删除前必须保留完成、领域、难度、目标与复盘快照。
 - 导入先完整校验，再在单个事务中整体替换；任何跨表业务操作必须原子、幂等并覆盖失败回滚。
 - 游戏日以设备本地 `04:00` 分界，真实 ISO 时间戳不偏移，已有 `occurredOn` 永不重写。
 - `main` 部署正式路径 `/life-rpg-pwa/`，数据库为 `earth-online-v2`；`ui-redesign` 部署 `/life-rpg-pwa/preview/`，使用 `earth-online-preview-v2` 和独立 manifest、Service Worker scope。

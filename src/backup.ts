@@ -1,5 +1,18 @@
 import { z } from 'zod'
-import { ActivitySchema, CompletionSchema, LedgerEventSchema, RewardSchema, SettingSchema, WeeklyReviewSchema, calculateStats, createLevelSystem, getGameDayActivation } from './domain'
+import {
+  ActivitySchema,
+  CompletionSchema,
+  LedgerEventSchema,
+  RewardClaimSchema,
+  RewardSchema,
+  RewardSystemSchema,
+  SettingSchema,
+  WeeklyReviewSchema,
+  calculateStats,
+  createLevelSystem,
+  gameDate,
+  getGameDayActivation,
+} from './domain'
 import { db, getSnapshot, type LifeRpgDatabase } from './db'
 import { SeasonSchema } from './season'
 
@@ -7,14 +20,15 @@ const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().in
 
 export const BackupSchema = z
   .object({
-    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0')]),
+    schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11)]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0'), z.literal('4.5.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
     completions: z.array(CompletionSchema),
     ledgerEvents: z.array(LedgerEventSchema),
     rewards: z.array(RewardSchema),
+    rewardClaims: z.array(RewardClaimSchema).default([]),
     weeklyReviews: z.array(WeeklyReviewSchema),
     seasons: z.array(SeasonSchema).default([]),
     settings: z.array(SettingSchema),
@@ -31,6 +45,7 @@ export const BackupSchema = z
       8: ['4.1.0'],
       9: ['4.2.0', '4.3.0'],
       10: ['4.4.0'],
+      11: ['4.5.0'],
     }
     if (!compatibleAppVersions[backup.schemaVersion].includes(backup.appVersion)) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
@@ -40,6 +55,7 @@ export const BackupSchema = z
       ['completions', backup.completions],
       ['ledgerEvents', backup.ledgerEvents],
       ['rewards', backup.rewards],
+      ['rewardClaims', backup.rewardClaims],
       ['weeklyReviews', backup.weeklyReviews],
       ['seasons', backup.seasons],
       ['settings', backup.settings],
@@ -54,6 +70,13 @@ export const BackupSchema = z
     const targetRewardId = meta?.key === 'meta' ? meta.value.targetRewardId : undefined
     if (targetRewardId && !backup.rewards.some((reward) => reward.id === targetRewardId && reward.enabled)) {
       context.addIssue({ code: 'custom', path: ['settings'], message: '当前奖励目标不存在或已停用' })
+    }
+    const rewardSystem = backup.settings.find((setting) => setting.key === 'rewardSystem')
+    if (rewardSystem?.key === 'rewardSystem') {
+      const rewardIds = [rewardSystem.value.activeRewardId, ...rewardSystem.value.queueIds].filter(Boolean)
+      if (rewardIds.some((id) => !backup.rewards.some((reward) => reward.id === id && reward.enabled))) {
+        context.addIssue({ code: 'custom', path: ['settings'], message: '奖励目标或候选队列包含不存在或已停用的愿望' })
+      }
     }
     if (backup.seasons.filter((season) => season.status === 'active').length > 1) {
       context.addIssue({ code: 'custom', path: ['seasons'], message: '备份中只能存在一个进行中的成长赛季' })
@@ -70,8 +93,8 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
   const snapshot = await getSnapshot(database)
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
-    schemaVersion: 10,
-    appVersion: '4.4.0',
+    schemaVersion: 11,
+    appVersion: '4.5.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,
@@ -83,7 +106,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
   const currentMeta = await database.settings.get('meta')
   const deviceGameDayActivation = currentMeta?.key === 'meta' ? currentMeta.value.gameDayBoundaryActivatedAt : undefined
   const meta = backup.settings.find((setting) => setting.key === 'meta')
-  const settings = meta?.key === 'meta'
+  let settings = meta?.key === 'meta'
     ? backup.settings.map((setting) => setting.key === 'meta'
       ? {
           ...setting,
@@ -95,6 +118,27 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
         }
       : setting)
     : [...backup.settings, { key: 'meta' as const, value: { levelSystem: createLevelSystem(backup.summary.totalXp), gameDayBoundaryActivatedAt: deviceGameDayActivation ?? getGameDayActivation() } }]
+  if (!settings.some((setting) => setting.key === 'rewardSystem')) {
+    const legacyTarget = meta?.key === 'meta' ? meta.value.targetRewardId : undefined
+    settings = [
+      ...settings,
+      {
+        key: 'rewardSystem' as const,
+        value: RewardSystemSchema.parse({
+          version: 1,
+          activatedAt: new Date().toISOString(),
+          activeRewardId: legacyTarget && backup.rewards.some((reward) => reward.id === legacyTarget && reward.enabled)
+            ? legacyTarget
+            : undefined,
+          queueIds: [],
+          monthlyAllowanceCents: 40_000,
+          maxFundCents: 120_000,
+          availableCents: 40_000,
+          lastFundedMonth: gameDate().slice(0, 7),
+        }),
+      },
+    ]
+  }
   await database.transaction(
     'rw',
     [
@@ -102,6 +146,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
       database.completions,
       database.ledgerEvents,
       database.rewards,
+      database.rewardClaims,
       database.weeklyReviews,
       database.seasons,
       database.settings,
@@ -112,6 +157,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
         database.completions.clear(),
         database.ledgerEvents.clear(),
         database.rewards.clear(),
+        database.rewardClaims.clear(),
         database.weeklyReviews.clear(),
         database.seasons.clear(),
         database.settings.clear(),
@@ -120,6 +166,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
       await database.completions.bulkAdd(backup.completions)
       await database.ledgerEvents.bulkAdd(backup.ledgerEvents)
       await database.rewards.bulkAdd(backup.rewards)
+      await database.rewardClaims.bulkAdd(backup.rewardClaims)
       await database.weeklyReviews.bulkAdd(backup.weeklyReviews)
       await database.seasons.bulkAdd(backup.seasons)
       await database.settings.bulkAdd(settings)
@@ -129,7 +176,7 @@ export async function restoreBackup(input: unknown, database: LifeRpgDatabase = 
 }
 
 export async function createLedgerMarkdown(database: LifeRpgDatabase = db) {
-  const { ledgerEvents } = await getSnapshot(database)
+  const { ledgerEvents, rewardClaims } = await getSnapshot(database)
   const stats = calculateStats(ledgerEvents)
   const rows = [...ledgerEvents]
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -137,6 +184,9 @@ export async function createLedgerMarkdown(database: LifeRpgDatabase = db) {
       (event) =>
         `| ${event.occurredOn} | ${event.kind} | ${event.title.replaceAll('|', '\\|')} | ${event.domain ?? event.attribute ?? '-'} | ${event.xpDelta} | ${event.coinDelta} |`,
     )
+  const claimRows = [...rewardClaims]
+    .sort((a, b) => b.reservedAt.localeCompare(a.reservedAt))
+    .map((claim) => `| ${claim.reservedOn} | ${claim.titleSnapshot.replaceAll('|', '\\|')} | ${claim.status} | ${claim.plannedFor} | ${claim.coinCostSnapshot} | ¥${(claim.cashCostCentsSnapshot / 100).toFixed(2)} |`)
   return [
     '# 地球 Online 账本导出',
     '',
@@ -147,6 +197,12 @@ export async function createLedgerMarkdown(database: LifeRpgDatabase = db) {
     '| 日期 | 类型 | 标题 | 成长领域 | XP | 金币 |',
     '|---|---|---|---|---:|---:|',
     ...rows,
+    '',
+    '## 奖励券',
+    '',
+    '| 锁定日期 | 愿望 | 状态 | 计划兑现 | 金币 | 预留预算 |',
+    '|---|---|---|---|---:|---:|',
+    ...claimRows,
     '',
   ].join('\n')
 }

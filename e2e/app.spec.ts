@@ -740,19 +740,22 @@ test('schema 7 旧赛季缺少每日状态字段时仍可打开', async ({ page 
   await expect(page.getByRole('heading', { name: '记录今天的现实状态' })).toBeVisible()
 })
 
-test('奖励商店支持紧凑入口、新增编辑、目标和停用恢复', async ({ page }) => {
+test('奖励愿望支持二级页面、新增编辑、目标和停用恢复', async ({ page }) => {
   await page.getByRole('button', { name: '角色' }).click()
   await expect(page.locator('.shop-summary')).toBeVisible()
-  await page.getByRole('button', { name: '查看奖励商店' }).click()
-  await page.getByRole('button', { name: /全部 3/ }).click()
-  await page.getByTitle('新增奖励商品').click()
-  await page.getByLabel('商品名称').fill('周末电影')
-  await page.getByLabel('设为当前奖励目标').check()
-  await page.getByRole('button', { name: '保存商品' }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  await expect(page).toHaveURL(/#\/rewards$/)
+  await page.getByTitle('新增愿望').click()
+  await page.locator('.wish-image-field input').setInputFiles('public/app-icon.png')
+  await expect(page.locator('.wish-image-field img')).toHaveAttribute('src', /^data:image\/webp;base64,/)
+  await page.getByLabel('名称').fill('周末电影')
+  await page.getByLabel('为什么期待它').fill('完整看完一部真正期待的电影')
+  await page.getByLabel('预计成本（元）').fill('20')
+  await page.getByLabel('设为主目标').check()
+  await page.getByRole('button', { name: '保存愿望' }).click()
 
-  const created = page.locator('.shop-row').filter({ hasText: '周末电影' })
-  await expect(created).toContainText('当前目标')
-  await page.locator('.shop-modal').getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.locator('.primary-wish')).toContainText('周末电影')
+  await page.getByRole('button', { name: '返回' }).click()
   await expect(page.locator('.shop-summary')).toContainText('周末电影')
   await page.getByRole('button', { name: '今天' }).click()
   await page.getByRole('button', { name: '创建行动' }).click()
@@ -761,25 +764,88 @@ test('奖励商店支持紧凑入口、新增编辑、目标和停用恢复', as
   await page.getByRole('button', { name: '完成 赚取目标金币' }).click()
   await expect(page.locator('.feedback-overlay')).toContainText('距离「周末电影」还差 28 金币')
   await page.getByRole('button', { name: '角色' }).click()
-  await page.getByRole('button', { name: '查看奖励商店' }).click()
-  await page.getByRole('button', { name: /全部 4/ }).click()
-  const createdAgain = page.locator('.shop-row').filter({ hasText: '周末电影' })
-  await createdAgain.getByTitle('编辑奖励商品').click()
-  await page.getByLabel('商品名称').fill('周末电影之夜')
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  await page.getByRole('button', { name: '愿望', exact: true }).click()
+  const createdAgain = page.locator('.wish-row').filter({ hasText: '周末电影' })
+  await createdAgain.getByTitle('编辑愿望').click()
+  await page.getByLabel('名称').fill('周末电影之夜')
   await page.getByLabel('金币价格').fill('80')
-  await page.getByRole('button', { name: '保存商品' }).click()
-  const edited = page.locator('.shop-row').filter({ hasText: '周末电影之夜' })
+  await page.getByRole('button', { name: '保存愿望' }).click()
+  const edited = page.locator('.wish-row').filter({ hasText: '周末电影之夜' })
   await expect(edited).toContainText('80')
 
-  await edited.getByTitle('停用奖励商品').click()
-  await page.getByRole('button', { name: /已停用 1/ }).click()
-  const disabled = page.locator('.shop-row').filter({ hasText: '周末电影之夜' })
+  await edited.getByTitle('停用愿望').click()
+  const disabled = page.locator('.wish-row').filter({ hasText: '周末电影之夜' })
   await expect(disabled).toContainText('已停用')
-  await disabled.getByTitle('恢复奖励商品').click()
-  await page.getByRole('button', { name: /全部 4/ }).click()
-  await expect(page.locator('.shop-row').filter({ hasText: '周末电影之夜' })).toBeVisible()
-  await page.getByRole('button', { name: '关闭', exact: true }).click()
-  await expect(page.locator('.shop-summary')).toContainText('选择一个现实奖励目标')
+  await disabled.getByTitle('恢复愿望').click()
+  await expect(page.locator('.wish-row').filter({ hasText: '周末电影之夜' })).toBeVisible()
+  await page.getByRole('button', { name: '返回' }).click()
+  await expect(page.locator('.shop-summary')).toContainText('选择一个真正期待的愿望')
+})
+
+test('愿望可以锁定为奖励券并用两次点击完成轻复盘', async ({ page }) => {
+  await page.getByRole('button', { name: '角色' }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  await page.getByTitle('新增愿望').click()
+  await page.getByLabel('名称').fill('安静看一部电影')
+  await page.getByLabel('为什么期待它').fill('给注意力一次完整而愉快的休息')
+  await page.getByLabel('金币价格').fill('2')
+  await page.getByLabel('预计成本（元）').fill('0')
+  await page.getByLabel('设为主目标').check()
+  await page.getByRole('button', { name: '保存愿望' }).click()
+  await page.getByRole('button', { name: '返回' }).click()
+  await page.getByRole('button', { name: '今天' }).click()
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('赚取愿望金币')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await page.getByRole('button', { name: '完成 赚取愿望金币' }).click()
+  await page.getByRole('button', { name: '角色' }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  await page.getByRole('button', { name: '锁定奖励' }).click()
+  await page.getByRole('button', { name: '确认锁定' }).click()
+  await expect(page.locator('.claim-card')).toContainText('安静看一部电影')
+  await page.getByRole('button', { name: '已经享用' }).click()
+  await page.locator('.satisfaction-grid button').last().click()
+  await page.getByRole('button', { name: '仅此一次' }).click()
+  await page.locator('.claim-history summary').click()
+  await expect(page.locator('.claim-history')).toContainText('满足感 5/5')
+})
+
+test('愿望超过八项时可以按名称搜索', async ({ page }) => {
+  await page.evaluate(async () => {
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction('rewards', 'readwrite')
+    const store = transaction.objectStore('rewards')
+    for (let index = 1; index <= 9; index += 1) {
+      store.put({
+        id: `search-reward-${index}`,
+        title: index === 9 ? '海边旅行' : `测试愿望 ${index}`,
+        reason: '验证大量愿望仍然容易找到',
+        cost: 30 + index,
+        cashCostCents: 0,
+        horizon: 'near',
+        repeatPolicy: { kind: 'one_time' },
+        enabled: true,
+        createdAt: new Date().toISOString(),
+      })
+    }
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+  })
+  await page.reload()
+  await page.getByRole('button', { name: '角色' }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  await page.getByRole('button', { name: '愿望', exact: true }).click()
+  await page.getByPlaceholder('搜索愿望').fill('海边')
+  await expect(page.locator('.wish-row')).toHaveCount(1)
+  await expect(page.locator('.wish-row')).toContainText('海边旅行')
 })
 
 test('成长轨迹只显示近期摘要，完整有效记录进入月历行动日志', async ({ page }) => {

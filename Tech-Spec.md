@@ -1,4 +1,4 @@
-# 地球 Online V4.4.0 技术规格
+# 地球 Online V4.5.0 技术规格
 
 ## 1. 系统结构
 
@@ -12,6 +12,7 @@
 | `completions` | `id`；`activityId`、`occurredOn`、`status` | 完成与撤销状态 |
 | `ledgerEvents` | `id`；`completionId`、`occurredOn`、`kind` | XP、领域经验和金币流水；旧事件保留旧属性 |
 | `rewards` | `id`；`enabled` | 奖励商店 |
+| `rewardClaims` | `id`；`rewardId`、`status`、`plannedFor` | 奖励预留、兑现、取消与轻复盘 |
 | `weeklyReviews` | `id`；`weekStart` | 坚持率、帮助、阻力和决策 |
 | `seasons` | `id`；`status`、`startsOn`、`endsOn` | 28 天赛季、活动快照、今日重点和本地建议 |
 | `settings` | `key` | 本机偏好、版本信息和唯一目标规划草稿 |
@@ -29,10 +30,13 @@
 - `Completion.status` 为 `active | undone`，新分层完成使用 `tierGoalSnapshot` 保存完整目标；V2.1/V2.2 的旧度量、单位和阈值快照继续兼容读取。
 - 逐次 completion 保存周期开始日、次数增量、实际时长、周期序号、请求 ID 和完整目标/领域/难度/版本快照；导入的旧层次进度带有 `imported` 标记。
 - 周复盘为分层目标保存二元或三元层次分布，并可保存最低次数、最低时间秒数和次数单位；新条目同时保存可选标题与领域快照，旧条目保留属性快照。
-- `LedgerEvent.kind` 为 `reward | correction | redemption | milestone`，新事件保存 XP、金币和可选领域，旧事件保留可选属性；milestone 礼券流水固定为零 XP、零金币。
+- `LedgerEvent.kind` 为 `reward | correction | redemption | redemption_refund | milestone`，新事件保存 XP、金币和可选领域，旧事件保留可选属性。
 - 每个 reward event 使用确定性幂等键；correction 引用被撤销的 reward event。
 - `settings.meta.levelSystem` 保存启用时间、基线等级、历史最高等级、当前成长方向，以及每级里程碑的查看和礼券领取状态。
-- `settings.meta.targetRewardId` 可选保存唯一当前奖励目标；`preferences.feedbackIntensity` 为 `gentle | clear | strong`，旧数据默认 `clear`。
+- `Reward` 可兼容保存愿望理由、现实成本、档位、WebP 图片和重复策略；缺少字段的旧商品处于待整理状态。
+- `RewardClaim` 保存愿望、金币、预算和重复方式快照，状态为 `reserved | fulfilled | cancelled`；历史不随愿望编辑重写。
+- `settings.rewardSystem` 保存主目标、候选队列、月额度、基金上限、可用额度和最后补充月份；旧 `meta.targetRewardId` 只用于迁移。
+- `preferences.feedbackIntensity` 为 `gentle | clear | strong`，旧数据默认 `clear`。
 - `settings.meta.gameDayBoundaryActivatedAt` 保存 04:00 游戏日规则的启用时间；旧记录的 `occurredOn` 不迁移。
 - `settings.meta.growthDomainSystem` 保存领域体系版本和启用时间；领域 XP 只汇总带 `domain` 的新流水，角色总 XP 和金币继续汇总全部流水。
 - `Season` 固定覆盖 28 个游戏日，保存现实目标、开始状态、期望结果、1 至 3 项核心活动快照、每日重点、建议响应和最终现实证据。
@@ -95,18 +99,19 @@
 3. 不删除任何完成或账本记录。
 4. 反馈层撤销不限制日期；完成记录中的持久取消只接受本地今天，且界面要求二次确认。
 
-### 兑换
+### 奖励锁定与兑现
 
-1. 在事务内从账本求余额并校验。
-2. 追加 `redemption` 负金币事件。
-3. 商品新增和编辑校验名称与正整数价格；停用不删除商品或历史流水，并在同一事务清除失效的当前目标。
+1. `reserveRewardClaim` 在同一事务校验愿望、金币、冷却、基金和等级礼券，追加负金币 `redemption` 并写入奖励券；请求 ID 保证双击幂等。
+2. `cancelRewardClaim` 只取消待兑现奖励券，追加等额 `redemption_refund`、释放预算，并在等级礼券来源时恢复里程碑可用状态。
+3. `fulfillRewardClaim` 保存满足感和重复意愿；兑现不再次扣币，一次性愿望停用，等级礼券此时才追加零值 milestone 流水。
+4. `applyRewardBudgetRollover` 只在访问时按 04:00 游戏月补充额度，连同已预留金额计算 1200 元总上限。
 
 ### 等级固化与礼券
 
 1. 初始化等级系统时，以当前账本等级作为基线，不生成历史里程碑。
 2. 完成反馈 10 秒后，以当前净 XP 和稳定截止时间内的 XP 共同判断新等级，防止撤销后仍固化。
 3. 新等级只追加到 `settings.meta.levelSystem.milestones`；历史最高等级不随 XP 下降而回退。
-4. 礼券领取在一个 Dexie 事务中校验节点、奖励额度和幂等键，同时更新 milestone 并追加 `milestone:level:<等级>` 流水。
+4. 礼券先进入奖励券预留状态，兑现后更新 milestone 并追加 `milestone:level:<等级>` 流水；取消只清除预留，不消耗礼券。
 
 ### 赛季与建议
 
@@ -136,8 +141,8 @@
 
 ## 6. 导入导出
 
-- JSON schema 10 备份包含 `appVersion`、`exportedAt`、七张表、逐次进度和目标规划草稿，并兼容读取 schema 1～9；V4 备份可同时包含旧属性历史、新领域、校准历史和每日状态，恢复旧备份后要求重新执行领域迁移。
-- 导入时校验当前奖励目标必须指向启用商品。
+- JSON schema 11 备份包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度和目标规划草稿，并兼容读取 schema 1～10。
+- 导入时校验主目标和候选队列必须指向启用愿望；旧备份恢复后奖励券为空，旧商品进入待整理。
 - Zod 先在事务外校验结构和业务约束。
 - 校验通过后在一个 `rw` 事务中清空并批量写入全部表；任何异常自动回滚。
 - Markdown 从当前账本派生，只用于人类阅读。
