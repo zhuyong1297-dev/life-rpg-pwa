@@ -4,8 +4,8 @@
 
 ## 当前基线
 
-- 正式版本为 `V4.4.0`，手机预览候选为 `V4.5.0`；PWA 本地离线运行，IndexedDB 是唯一事实来源。
-- 预览数据契约为 Dexie version 4、八张表、JSON schema 11；schema 1 至 10 可恢复，Markdown 只用于阅读归档。
+- 正式版本与手机预览均为 `V4.5.0`；PWA 本地离线运行，IndexedDB 是唯一事实来源。
+- 当前数据契约为 Dexie version 4、八张表、JSON schema 11；schema 1 至 10 可恢复，Markdown 只用于阅读归档。
 - 正式入口为 `https://zhuyong1297-dev.github.io/life-rpg-pwa/`，预览入口为其 `/preview/` 子路径；两者使用独立数据库、manifest 和 Service Worker scope。
 - `main` 与 `ui-redesign` 分别承载正式和预览；功能先在手机预览验收，再快进正式分支并创建不可变 Release。
 
