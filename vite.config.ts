@@ -13,10 +13,10 @@ export default defineConfig(({ mode }) => {
       VitePWA({
         registerType: 'autoUpdate',
         manifest: {
-          name: isPreview ? '地球 Online 预览版' : '地球 Online',
-          short_name: isPreview ? '地球预览' : '地球Online',
-          description: isPreview ? '与正式数据隔离的地球 Online 测试环境' : '把现实行动转化为即时成长反馈',
-          theme_color: isPreview ? '#356f9f' : '#176b52',
+          name: isPreview ? '地球 Online V5 原型' : '地球 Online',
+          short_name: isPreview ? '地球V5原型' : '地球Online',
+          description: isPreview ? '不读取个人数据的地球 Online V5 界面原型' : '把现实行动转化为即时成长反馈',
+          theme_color: isPreview ? '#146b50' : '#176b52',
           background_color: '#f4f6f3',
           display: 'standalone',
           start_url: base,
