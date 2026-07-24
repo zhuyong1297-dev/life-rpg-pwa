@@ -40,12 +40,15 @@ pnpm test:e2e
 pnpm build
 pnpm build:preview
 pnpm privacy:scan
+pnpm publish:api -- HEAD ui-redesign main
 ```
 
 - 先读相关代码和调用路径，复用现有模型与事务；保持改动最小，不做无关重构。
 - 领域逻辑变更补单元测试；事务变更覆盖幂等、回滚和撤销重做；界面变更覆盖窄屏、Android、桌面和无溢出。
 - `pnpm test:e2e` 使用正式 base；若刚执行预览构建，先重新 `pnpm build`。
 - 发布前通过测试、正式/预览构建、隐私扫描和离线验收；预览确认后才同步 `main` 并创建 Release。
+- GitHub 发布默认使用 `pnpm publish:api -- <提交> <分支...>`，通过已登录的 GitHub CLI 调用 Git Data API、执行非强制快进并校验远端 tree SHA；普通 `git push` 只在 API 不可用或用户明确要求时使用。
+- API 发布前必须提交全部目标改动并保持工作区干净；标签、Release 和 Actions 查询继续使用 `gh`，不得在脚本或项目中保存凭据。
 
 ## 文档与记忆
 

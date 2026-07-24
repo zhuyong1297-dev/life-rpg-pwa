@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "build:preview": "tsc -b && vite build --mode preview",
     "preview": "vite preview --host 0.0.0.0",
+    "publish:api": "node scripts/publish-git-data.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

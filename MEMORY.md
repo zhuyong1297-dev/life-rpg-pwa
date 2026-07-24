@@ -42,4 +42,4 @@
 - 公开仓库为 `zhuyong1297-dev/life-rpg-pwa`；私有迁移和备份只留在 Git 忽略目录或 Obsidian 私有库。
 - GitHub 凭据由本机 GitHub CLI 管理，项目中不保存 secret。
 - GitHub Pages 工作流同时构建正式与预览；两分支连续推送时，较早的同并发部署可能被正常取消。
-- 若 Git HTTPS 临时不可用，可用 GitHub Git Data API 发布与本地 tree 完全一致的提交；发布后必须校验 tree、分支引用和本地工作区。
+- Git HTTPS 在当前网络中经常超时；发布默认运行 `pnpm publish:api -- <提交> <分支...>`，用 Git Data API 非强制快进并校验 tree SHA。普通 `git push` 仅作备用，凭据继续由 GitHub CLI 管理。
