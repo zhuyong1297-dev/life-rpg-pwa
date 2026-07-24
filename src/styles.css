@@ -136,7 +136,10 @@ svg { width: 20px; height: 20px; flex: 0 0 auto; }
 .nav-create { width: 48px; height: 48px; align-self: center; justify-self: center; display: grid; place-items: center; border: 0; border-radius: 50%; color: var(--color-on-accent); background: var(--forest); box-shadow: var(--shadow-accent); cursor: pointer; }
 .nav-create svg { width: 24px; height: 24px; }
 
-.notice { position: sticky; z-index: var(--z-notice); top: 10px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: 14px; padding: 10px var(--space-3); background: var(--color-warning-paper); border: 1px solid var(--color-warning-rule); border-radius: var(--radius-sm); color: var(--color-warning-ink); box-shadow: var(--shadow-raised); font-size: 13px; }
+.notice { position: sticky; z-index: var(--z-notice); top: 10px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: 14px; padding: 10px var(--space-3); background: var(--color-info-soft); border: 1px solid var(--color-info-rule); border-radius: var(--radius-sm); color: var(--color-info); box-shadow: var(--shadow-raised); font-size: 13px; }
+.notice-success { border-color: var(--color-accent-rule); background: var(--color-accent-soft); color: var(--color-accent-strong); }
+.notice-warning { border-color: var(--color-warning-rule); background: var(--color-warning-paper); color: var(--color-warning-ink); }
+.notice-error { border-color: var(--color-danger-rule); background: var(--color-danger-paper); color: var(--color-danger-ink); }
 .notice span { min-width: 0; overflow-wrap: anywhere; }
 .icon-button { width: 44px; height: 44px; padding: 0; flex: 0 0 44px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; }
 .icon-button.selected { color: var(--gold); background: var(--gold-soft); }

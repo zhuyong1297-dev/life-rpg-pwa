@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { gameDayMinute, getV5DomainGrowthDetail, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage } from '../prototype/V5Experience'
+import { gameDayMinute, getV5DomainGrowthDetail, getV5FeedbackDisplay, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage, type V5FeedbackView } from '../prototype/V5Experience'
 import { getLevel, type Activity, type JourneyEntry, type JourneyMonth } from '../domain'
 
 const baseActivity: Activity = {
@@ -145,8 +145,11 @@ describe('V5 成长领域详情', () => {
 
     expect(markup).toContain('累计成长')
     expect(markup).toContain('持有金币')
+    expect(markup).toContain('完成下一份成长报告后选择')
+    expect(markup.indexOf('下一奖励')).toBeLessThan(markup.indexOf('六个成长领域'))
     expect(markup).not.toContain('总成长')
     expect(markup).not.toContain('当前持有')
+    expect(markup).not.toContain('当前阶段')
   })
 
   it('只汇总最近 28 个游戏日内同领域的有效行动', () => {
@@ -179,5 +182,41 @@ describe('V5 成长领域详情', () => {
     const details = getV5DomainGrowthDetail('creation', 0, [], '2026-07-24')
     expect(details.level.level).toBe(1)
     expect(details).toMatchObject({ recentXp: 0, actionCount: 0, activeDays: 0, topActions: [], recentEntries: [] })
+  })
+})
+
+describe('V5 两阶段完成反馈', () => {
+  const feedback: V5FeedbackView = {
+    completionId: 'completion-1',
+    activityId: 'night-close',
+    title: '夜间收尾',
+    domain: 'life',
+    xp: 5,
+    coins: 2,
+    level: getLevel(75),
+  }
+
+  it('先展示奖励，再收缩为可撤销的记录确认', () => {
+    expect(getV5FeedbackDisplay(feedback, false)).toMatchObject({
+      showFollowUp: false,
+      title: '夜间收尾',
+      detail: '生活',
+    })
+    expect(getV5FeedbackDisplay(feedback, true)).toMatchObject({
+      showFollowUp: false,
+      title: '本次行动已记录',
+      detail: '可在 10 秒内撤销',
+    })
+  })
+
+  it('夜间收尾存在后续动作时收缩为今日状态入口', () => {
+    expect(getV5FeedbackDisplay({
+      ...feedback,
+      followUp: { kind: 'daily-signal', seasonId: 'season-1' },
+    }, true)).toEqual({
+      showFollowUp: true,
+      title: '今日闭环还差一步',
+      detail: '约 15 秒记录今日状态',
+    })
   })
 })

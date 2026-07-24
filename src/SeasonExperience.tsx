@@ -112,6 +112,7 @@ export function CoachSuggestionSummary({ season, onOpen }: { season?: Season; on
 }
 
 interface SeasonHubProps {
+  initialView?: 'overview' | 'signal'
   seasons: Season[]
   activities: Activity[]
   completions: Completion[]
@@ -129,7 +130,9 @@ interface SeasonHubProps {
 export function SeasonHubModal(props: SeasonHubProps) {
   const activeSeason = props.seasons.find((season) => season.status === 'active')
   const completed = [...props.seasons].filter((season) => season.status === 'completed').sort((left, right) => right.endsOn.localeCompare(left.endsOn))
-  const [view, setView] = useState<'overview' | 'create' | 'focus' | 'calibrate' | 'signal' | 'complete'>(activeSeason ? 'overview' : 'create')
+  const [view, setView] = useState<'overview' | 'create' | 'focus' | 'calibrate' | 'signal' | 'complete'>(
+    activeSeason ? props.initialView ?? 'overview' : 'create',
+  )
   const [template, setTemplate] = useState<Season>()
 
   useEffect(() => {

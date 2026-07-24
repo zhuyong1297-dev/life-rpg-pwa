@@ -36,6 +36,8 @@ test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async
   const feedback = page.locator('.v5-feedback')
   await expect(feedback).toContainText('+5 XP')
   await expect(feedback).toContainText('+2 金币')
+  await expect(feedback).toContainText('本次行动已记录', { timeout: 2_500 })
+  await expect(feedback).not.toContainText('+5 XP')
   await feedback.getByRole('button', { name: '撤销' }).click()
   await expect(page.getByRole('button', { name: '完成 V5 闭环验证' })).toBeVisible()
 
@@ -47,17 +49,30 @@ test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async
   await expect(page.locator('.v5-growth-metrics > div').nth(1)).toContainText('2')
 })
 
-test('成长总值并入旅者主卡且页面没有旧总成长信息行', async ({ page }) => {
+test('成长总值并入旅者主卡且页面没有旧总成长信息行', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: '成长', exact: true }).last().click()
   const hero = page.locator('.v5-growth-hero')
   await expect(hero).toContainText('累计成长')
   await expect(hero).toContainText('持有金币')
+  await expect(hero).toContainText('完成下一份成长报告后选择')
+  await expect(hero.locator('img')).toHaveCSS('width', '96px')
   await expect(page.locator('.v5-plain-row')).toHaveCount(0)
+  await expect(page.locator('.v5-growth-aside')).toHaveCount(0)
   await expect(page.getByText(/^总成长/)).toHaveCount(0)
+  const rewardBeforeDomains = await page.evaluate(() => {
+    const reward = document.querySelector('.v5-feature-row')
+    const domains = document.querySelector('.v5-domain-grid')
+    return Boolean(reward && domains && reward.compareDocumentPosition(domains) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+  expect(rewardBeforeDomains).toBe(true)
 
   await page.getByRole('button', { name: /查看健康领域详情/ }).click()
   await expect(page.getByRole('dialog', { name: '健康领域' })).toBeVisible()
   await page.getByRole('button', { name: '关闭健康领域' }).click()
+  await page.screenshot({
+    path: `test-results/v5-growth-hero-${testInfo.project.name}.png`,
+    fullPage: true,
+  })
 })
 
 test('目标规划器和愿望商店保留为可返回的二级页面', async ({ page }) => {

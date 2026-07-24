@@ -60,6 +60,7 @@ import {
 export type V5Page = 'today' | 'growth' | 'review' | 'rewards' | 'profile'
 
 export interface V5FeedbackView {
+  completionId: string
   activityId?: string
   title: string
   domain: GrowthDomain
@@ -69,6 +70,26 @@ export interface V5FeedbackView {
   tier?: TierLevel
   level: ReturnType<typeof getLevel>
   leveledUp?: boolean
+  followUp?: { kind: 'daily-signal'; seasonId: string }
+}
+
+export function getV5FeedbackDisplay(feedback: V5FeedbackView, condensed: boolean) {
+  const showFollowUp = condensed && feedback.followUp?.kind === 'daily-signal'
+  return {
+    showFollowUp,
+    title: showFollowUp
+      ? '今日闭环还差一步'
+      : condensed
+        ? '本次行动已记录'
+        : feedback.leveledUp
+          ? `升级到 Lv.${feedback.level.level}`
+          : feedback.title,
+    detail: showFollowUp
+      ? '约 15 秒记录今日状态'
+      : condensed
+        ? '可在 10 秒内撤销'
+        : feedback.progressLabel ?? domainLabel(feedback.domain),
+  }
 }
 
 interface V5Stats {
@@ -212,6 +233,7 @@ export function V5TodayPage({
   onCreate,
   onUndo,
   onOpenSeason,
+  onRecordDailySignal,
   onOpenCoach,
   onSetTodayPriority,
 }: {
@@ -235,6 +257,7 @@ export function V5TodayPage({
   onCreate: () => void
   onUndo: () => void
   onOpenSeason: () => void
+  onRecordDailySignal: (seasonId: string) => void
   onOpenCoach: () => void
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
@@ -319,11 +342,15 @@ export function V5TodayPage({
           <V5SectionHeading title="时间锚点 + 灵活行动" description="时间是参考，不是必须。到时间、触发场景或随时行动。" />
           {feedback && (
             <V5Feedback
+              key={feedback.completionId}
               feedback={feedback}
               onUndo={() => {
                 if (feedback.activityId) setPreferredId(feedback.activityId)
                 setHeldCompletedId(undefined)
                 onUndo()
+              }}
+              onFollowUp={() => {
+                if (feedback.followUp?.kind === 'daily-signal') onRecordDailySignal(feedback.followUp.seasonId)
               }}
             />
           )}
@@ -421,7 +448,14 @@ export function V5GrowthPage({
     <div className="v5-page v5-growth-layout">
       <section className="v5-growth-primary">
         <V5PageHeader eyebrow="角色成长" title="成长" description="现实中的每一次行动，都在这里留下成长。" onCreate={onCreate} />
-        <V5GrowthHero stats={stats} level={level} focusDomain={levelSystem?.focusDomain} />
+        <div className="v5-growth-overview">
+          <V5GrowthHero stats={stats} level={level} focusDomain={levelSystem?.focusDomain} />
+          <button className="v5-feature-row" type="button" onClick={onOpenRewards}>
+            <Gift size={22} />
+            <div><span>下一奖励</span><strong>Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</strong><small>还需 {remainingXp} XP</small></div>
+            <ChevronRight size={20} />
+          </button>
+        </div>
         <section className="v5-section">
           <V5SectionHeading title="六个成长领域" description="按现实结果分类，每项行动只归入一个领域。" />
           <div className="v5-domain-grid">
@@ -444,15 +478,7 @@ export function V5GrowthPage({
             })}
           </div>
         </section>
-        <button className="v5-feature-row" type="button" onClick={onOpenRewards}>
-          <Gift size={22} />
-          <div><span>下一奖励</span><strong>Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</strong><small>还需 {remainingXp} XP</small></div>
-          <ChevronRight size={20} />
-        </button>
       </section>
-      <aside className="v5-growth-aside">
-        <div className="v5-aside-card"><span>当前阶段</span><strong>{getCharacterStageName(level.level)}</strong><p>Lv.{level.level} · 阶段 {getCharacterStage(level.level)}</p></div>
-      </aside>
       {selectedDetail && <V5DomainDetail detail={selectedDetail} onClose={() => setSelectedDomain(undefined)} />}
     </div>
   )
@@ -478,11 +504,6 @@ function V5GrowthHero({
           <small>每次现实行动都在塑造现在的你</small>
         </div>
       </div>
-      <div className="v5-growth-focus">
-        <span>下一阶段重点领域</span>
-        <strong>{focusDomain ? domainLabel(focusDomain) : '待选择'}</strong>
-        <p>只作为身份提醒，不改变奖励倍率。</p>
-      </div>
       <div className="v5-growth-level-progress">
         <div><span>等级进度</span><strong>{level.current} / {level.needed} XP</strong></div>
         <div className="v5-growth-progress-track" role="progressbar" aria-label="当前等级进度" aria-valuemin={0} aria-valuemax={level.needed} aria-valuenow={level.current}>
@@ -491,8 +512,13 @@ function V5GrowthHero({
         <small>距离 Lv.{level.level + 1} 还需 {Math.max(0, level.needed - level.current)} XP</small>
       </div>
       <div className="v5-growth-metrics">
-        <div><Medal size={18} /><span>累计成长</span><strong>{stats.totalXp} XP</strong></div>
-        <div><Coins size={18} /><span>持有金币</span><strong>{stats.coins}</strong></div>
+        <div><Medal size={18} /><span>累计成长<strong>{stats.totalXp} XP</strong></span></div>
+        <div><Coins size={18} /><span>持有金币<strong>{stats.coins}</strong></span></div>
+      </div>
+      <div className="v5-growth-focus">
+        <Target size={17} />
+        <span>下一阶段重点</span>
+        <strong>{focusDomain ? domainLabel(focusDomain) : '完成下一份成长报告后选择'}</strong>
       </div>
     </section>
   )
@@ -617,19 +643,45 @@ function V5PlanEntry({
   )
 }
 
-function V5Feedback({ feedback, onUndo }: { feedback: V5FeedbackView; onUndo: () => void }) {
+function V5Feedback({
+  feedback,
+  onUndo,
+  onFollowUp,
+}: {
+  feedback: V5FeedbackView
+  onUndo: () => void
+  onFollowUp: () => void
+}) {
+  const [condensed, setCondensed] = useState(false)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setCondensed(true), 1_200)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const display = getV5FeedbackDisplay(feedback, condensed)
   return (
-    <div className="v5-feedback" role="status" aria-live="assertive">
-      <span className="v5-feedback-icon"><Check size={18} /></span>
-      <div>
-        <strong>{feedback.leveledUp ? `升级到 Lv.${feedback.level.level}` : feedback.title}</strong>
-        <span>{feedback.progressLabel ?? domainLabel(feedback.domain)}</span>
-        <span className="v5-feedback-reward">
-          {feedback.xp > 0 && <b>+{feedback.xp} XP</b>}
-          {feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}
-        </span>
+    <div
+      className={`v5-feedback${condensed ? ' condensed' : ''}${display.showFollowUp ? ' follow-up' : ''}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span className="v5-feedback-icon">{display.showFollowUp ? <ClipboardCheck size={18} /> : <Check size={18} />}</span>
+      <div className="v5-feedback-copy">
+        <strong>{display.title}</strong>
+        <span>{display.detail}</span>
+        {!condensed && (
+          <span className="v5-feedback-reward">
+            {feedback.xp > 0 && <b>+{feedback.xp} XP</b>}
+            {feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}
+          </span>
+        )}
       </div>
-      <button type="button" onClick={onUndo}><RotateCcw size={16} />撤销</button>
+      <div className="v5-feedback-actions">
+        {display.showFollowUp && <button className="primary" type="button" onClick={onFollowUp}>记录状态</button>}
+        <button type="button" onClick={onUndo}><RotateCcw size={16} />撤销</button>
+      </div>
     </div>
   )
 }

@@ -208,6 +208,14 @@ interface AwardFeedback {
   leveledUp?: boolean
   level: ReturnType<typeof getLevel>
   rewardGoal?: { title: string; remaining: number }
+  followUp?: { kind: 'daily-signal'; seasonId: string }
+}
+
+type NoticeTone = 'info' | 'success' | 'warning' | 'error'
+
+interface AppNotice {
+  message: string
+  tone: NoticeTone
 }
 
 interface ReviewDraft {
@@ -464,7 +472,7 @@ function App() {
   const [secondaryPage, setSecondaryPage] = useState<SecondaryPage | undefined>(initialRoute.secondary)
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot)
   const [ready, setReady] = useState(false)
-  const [notice, setNotice] = useState('')
+  const [notice, setNoticeState] = useState<AppNotice | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [noteActivity, setNoteActivity] = useState<Activity | null>(null)
   const [tierActivity, setTierActivity] = useState<Activity | null>(null)
@@ -476,9 +484,15 @@ function App() {
   const [deleteActivity, setDeleteActivity] = useState<Activity | null>(null)
   const [activityManagerOpen, setActivityManagerOpen] = useState(false)
   const [seasonHubOpen, setSeasonHubOpen] = useState(false)
+  const [seasonHubInitialView, setSeasonHubInitialView] = useState<'overview' | 'signal'>('overview')
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
   const progressLocks = useRef(new Set<string>())
   const [clock, setClock] = useState(() => new Date())
+
+  const setNotice = useCallback((message: string, tone: NoticeTone = 'success') => {
+    setNoticeState(message ? { message, tone } : null)
+  }, [])
+  const setErrorNotice = useCallback((message: string) => setNotice(message, 'error'), [setNotice])
 
   useEffect(() => {
     if (!window.location.hash) navigateTo('today', true)
@@ -505,7 +519,7 @@ function App() {
       .then(() => syncLevelMilestones())
       .then(refresh)
       .then(() => setReady(true))
-      .catch((error: unknown) => setNotice(errorMessage(error)))
+      .catch((error: unknown) => setErrorNotice(errorMessage(error)))
   }, [refresh])
 
   useEffect(() => {
@@ -622,6 +636,11 @@ function App() {
       const completedTierGoal = getCompletionTierGoal(result.completion, result.activity)
       const nextLevel = getLevel(nextStats.totalXp)
       const leveledUp = nextLevel.level > level.level
+      const followUp = activity.cue === '23:00'
+        && activeSeason?.calibration
+        && !activeSeason.dailySignals.some((signal) => signal.date === today)
+        ? { kind: 'daily-signal' as const, seasonId: activeSeason.id }
+        : undefined
       if (!activity.domain) throw new Error('请先完成成长领域迁移')
       setFeedback({
         completionId: result.completion.id,
@@ -641,11 +660,9 @@ function App() {
         rewardGoal: targetReward
           ? { title: targetReward.title, remaining: Math.max(0, targetReward.cost - nextStats.coins) }
           : undefined,
+        followUp,
       })
       await refresh()
-      if (activity.cue === '23:00' && activeSeason?.calibration && !activeSeason.dailySignals.some((signal) => signal.date === today)) {
-        setNotice('夜间收尾已完成；可在赛季卡中用约 15 秒记录今日状态')
-      }
       void sendCompletionFeedback(preferences, {
         title: activity.title,
         xp: result.event.xpDelta,
@@ -665,10 +682,10 @@ function App() {
           sound: soundFailed ? false : preferences.sound,
         })
         await refresh()
-        setNotice(`${[vibrationFailed ? '振动' : '', soundFailed ? '声音' : ''].filter(Boolean).join('和')}在当前设备不可用，已自动关闭`)
-      }).catch((error: unknown) => setNotice(errorMessage(error)))
+        setNotice(`${[vibrationFailed ? '振动' : '', soundFailed ? '声音' : ''].filter(Boolean).join('和')}在当前设备不可用，已自动关闭`, 'warning')
+      }).catch((error: unknown) => setErrorNotice(errorMessage(error)))
     } catch (error) {
-      setNotice(errorMessage(error))
+      setErrorNotice(errorMessage(error))
     }
   }
 
@@ -723,10 +740,10 @@ function App() {
           sound: soundFailed ? false : preferences.sound,
         })
         await refresh()
-        setNotice(`${[vibrationFailed ? '振动' : '', soundFailed ? '声音' : ''].filter(Boolean).join('和')}在当前设备不可用，已自动关闭`)
-      }).catch((error: unknown) => setNotice(errorMessage(error)))
+        setNotice(`${[vibrationFailed ? '振动' : '', soundFailed ? '声音' : ''].filter(Boolean).join('和')}在当前设备不可用，已自动关闭`, 'warning')
+      }).catch((error: unknown) => setErrorNotice(errorMessage(error)))
     } catch (error) {
-      setNotice(errorMessage(error))
+      setErrorNotice(errorMessage(error))
     } finally {
       progressLocks.current.delete(activity.id)
     }
@@ -750,7 +767,7 @@ function App() {
       await refresh()
       setNotice('已撤销，本次成长已用修正流水抵消')
     } catch (error) {
-      setNotice(errorMessage(error))
+      setErrorNotice(errorMessage(error))
     }
   }
 
@@ -773,10 +790,10 @@ function App() {
             await refresh()
             setNotice('六个成长领域已启用，新领域从 0 XP 开始')
           } catch (error) {
-            setNotice(errorMessage(error))
+            setErrorNotice(errorMessage(error))
           }
         }}
-        notice={notice}
+        notice={notice?.message ?? ''}
       />
     )
   }
@@ -822,8 +839,8 @@ function App() {
           </div>
         )}
         {notice && (
-          <div className="notice" role="status">
-            <span>{notice}</span>
+          <div className={`notice notice-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
+            <span>{notice.message}</span>
             <button className="icon-button" type="button" title="关闭提示" onClick={() => setNotice('')}>
               <X aria-hidden="true" />
             </button>
@@ -895,7 +912,10 @@ function App() {
             onFulfill={async (claimId, satisfaction, repeatAgain) => {
               const result = await fulfillRewardClaim(claimId, satisfaction, repeatAgain)
               await refresh()
-              setNotice(result.suggestDisable ? '奖励已兑现；这次评价较低，可考虑停用该愿望' : '奖励已兑现，轻复盘已保存')
+              setNotice(
+                result.suggestDisable ? '奖励已兑现；这次评价较低，可考虑停用该愿望' : '奖励已兑现，轻复盘已保存',
+                result.suggestDisable ? 'warning' : 'success',
+              )
             }}
             onCancel={async (claimId) => {
               await cancelRewardClaim(claimId)
@@ -926,7 +946,20 @@ function App() {
               onWeeklyDetails={setWeeklyDetailActivity}
               onCreate={() => setCreateOpen(true)}
               onUndo={() => void undoLast()}
-              onOpenSeason={() => setSeasonHubOpen(true)}
+              onOpenSeason={() => {
+                setSeasonHubInitialView('overview')
+                setSeasonHubOpen(true)
+              }}
+              onRecordDailySignal={(seasonId) => {
+                setFeedback(null)
+                if (activeSeason?.id !== seasonId) {
+                  setNotice('当前赛季已经变化，请从赛季总览继续', 'warning')
+                  setSeasonHubInitialView('overview')
+                } else {
+                  setSeasonHubInitialView('signal')
+                }
+                setSeasonHubOpen(true)
+              }}
               onOpenCoach={() => navigateTo('coach/plan')}
               onSetTodayPriority={async (activity, prioritized) => {
                 try {
@@ -941,7 +974,7 @@ function App() {
                       : `${activity.title}已设为今天优先`
                     : `${activity.title}已取消今天优先`)
                 } catch (error) {
-                  setNotice(errorMessage(error))
+                  setErrorNotice(errorMessage(error))
                 }
               }}
             />
@@ -1001,7 +1034,7 @@ function App() {
                   await refresh()
                   setNotice(`下一阶段重点领域已设为${domainLabel(focusDomain)}`)
                 } catch (error) {
-                  setNotice(errorMessage(error))
+                  setErrorNotice(errorMessage(error))
                 }
               }}
               onOpenRewards={() => navigateTo('rewards')}
@@ -1024,7 +1057,7 @@ function App() {
                   ? `本周复盘已保存，生成 ${result.suggestions.length} 条透明建议`
                   : '本周复盘已保存，请导出 JSON 备份与 Markdown 账本')
               } catch (error) {
-                setNotice(errorMessage(error))
+                setErrorNotice(errorMessage(error))
                 throw error
               }
             }}
@@ -1056,7 +1089,7 @@ function App() {
               await refresh()
               setCreateOpen(false)
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
@@ -1090,7 +1123,7 @@ function App() {
               await refresh()
               setNotice('习惯已更新，历史完成和账本保持不变')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
@@ -1107,7 +1140,7 @@ function App() {
               await refresh()
               setNotice('已撤销本周最近一次记录；如涉及层次奖励，修正流水已同步追加')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
@@ -1139,7 +1172,7 @@ function App() {
                 await refresh()
                 setNotice('已撤销本周最近一次记录；如涉及层次奖励，修正流水已同步追加')
               } catch (error) {
-                setNotice(errorMessage(error))
+                setErrorNotice(errorMessage(error))
               }
             }}
           />
@@ -1175,7 +1208,7 @@ function App() {
               await refresh()
               setNotice('今天的完成已取消，奖励已用修正流水抵消')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
@@ -1191,7 +1224,7 @@ function App() {
               await refresh()
               setNotice('活动已归档，历史记录仍然保留')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
@@ -1214,7 +1247,7 @@ function App() {
               await refresh()
               setNotice('活动已恢复')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
           onRefresh={refresh}
@@ -1232,26 +1265,30 @@ function App() {
               await refresh()
               setNotice('活动定义已删除，成长历史和角色数值保持不变')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
             }
           }}
         />
       )}
       {seasonHubOpen && (
         <SeasonHubModal
+          initialView={seasonHubInitialView}
           seasons={snapshot.seasons}
           activities={snapshot.activities}
           completions={snapshot.completions}
           reviews={snapshot.weeklyReviews}
           today={today}
-          onClose={() => setSeasonHubOpen(false)}
+          onClose={() => {
+            setSeasonHubOpen(false)
+            setSeasonHubInitialView('overview')
+          }}
           onCreate={async (input) => {
             try {
               await createSeason(input, today)
               await refresh()
               setNotice('28 天成长赛季已开始，现实结果是唯一成功标准')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
@@ -1261,7 +1298,7 @@ function App() {
               await refresh()
               setNotice('今日重点已更新，不会修改赛季核心行为')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
@@ -1271,7 +1308,7 @@ function App() {
               await refresh()
               setNotice('稳定生活方案已启用，今天重新作为第 1 天')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
@@ -1281,7 +1318,7 @@ function App() {
               await refresh()
               setNotice('今日现实状态已保存，不影响 XP 或金币')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
@@ -1291,7 +1328,7 @@ function App() {
               await refresh()
               setNotice(status === 'ignored' ? '建议已忽略，活动没有改变' : '建议已记录，活动仍需由你手动调整')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
@@ -1301,7 +1338,7 @@ function App() {
               await refresh()
               setNotice('赛季结论已进入个人策略库')
             } catch (error) {
-              setNotice(errorMessage(error))
+              setErrorNotice(errorMessage(error))
               throw error
             }
           }}
