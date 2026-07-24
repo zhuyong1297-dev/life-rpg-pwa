@@ -51,6 +51,8 @@ import {
   type Activity,
   type Completion,
   type GrowthDomain,
+  type JourneyEntry,
+  type JourneyMonth,
   type LevelSystem,
   type TierLevel,
 } from '../domain'
@@ -73,6 +75,50 @@ interface V5Stats {
   totalXp: number
   coins: number
   domainXp: Record<GrowthDomain, number>
+}
+
+export interface V5DomainGrowthDetail {
+  domain: GrowthDomain
+  level: ReturnType<typeof getLevel>
+  totalXp: number
+  recentXp: number
+  actionCount: number
+  activeDays: number
+  topActions: Array<{ title: string; xp: number; count: number }>
+  recentEntries: JourneyEntry[]
+}
+
+export function getV5DomainGrowthDetail(
+  domain: GrowthDomain,
+  totalXp: number,
+  journeyMonths: JourneyMonth[],
+  today: string,
+): V5DomainGrowthDetail {
+  const cutoff = addDays(today, -27)
+  const recentEntries = journeyMonths
+    .flatMap((month) => month.days)
+    .flatMap((day) => day.entries)
+    .filter((entry) => entry.kind === 'action' && entry.domain === domain && entry.occurredOn >= cutoff && entry.occurredOn <= today)
+    .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn) || right.createdAt.localeCompare(left.createdAt))
+  const actionTotals = new Map<string, { title: string; xp: number; count: number }>()
+  recentEntries.forEach((entry) => {
+    const current = actionTotals.get(entry.title) ?? { title: entry.title, xp: 0, count: 0 }
+    current.xp += entry.xp
+    current.count += 1
+    actionTotals.set(entry.title, current)
+  })
+  return {
+    domain,
+    level: getLevel(totalXp),
+    totalXp,
+    recentXp: recentEntries.reduce((total, entry) => total + entry.xp, 0),
+    actionCount: recentEntries.length,
+    activeDays: new Set(recentEntries.map((entry) => entry.occurredOn)).size,
+    topActions: [...actionTotals.values()]
+      .sort((left, right) => right.xp - left.xp || right.count - left.count || left.title.localeCompare(right.title, 'zh-CN'))
+      .slice(0, 3),
+    recentEntries: recentEntries.slice(0, 8),
+  }
 }
 
 const navItems = [
@@ -335,30 +381,31 @@ export function V5GrowthPage({
   stats,
   level,
   levelSystem,
+  journeyMonths,
+  today,
   onCreate,
   onOpenRewards,
 }: {
   stats: V5Stats
   level: ReturnType<typeof getLevel>
   levelSystem?: LevelSystem
+  journeyMonths: JourneyMonth[]
+  today: string
   onCreate: () => void
   onOpenRewards: () => void
 }) {
+  const [selectedDomain, setSelectedDomain] = useState<GrowthDomain>()
   const nextRewardLevel = getNextVoucherLevel(level.level)
   const nextRewardCost = getMilestoneVoucherCost(nextRewardLevel) ?? 200
   const remainingXp = Math.max(0, getTotalXpForLevel(nextRewardLevel) - stats.totalXp)
+  const selectedDetail = selectedDomain
+    ? getV5DomainGrowthDetail(selectedDomain, stats.domainXp[selectedDomain], journeyMonths, today)
+    : undefined
   return (
     <div className="v5-page v5-growth-layout">
       <section className="v5-growth-primary">
         <V5PageHeader eyebrow="角色成长" title="成长" description="现实中的每一次行动，都在这里留下成长。" onCreate={onCreate} />
-        <section className="v5-growth-hero">
-          <V5TravelerSummary level={level} totalXp={stats.totalXp} />
-          <div className="v5-growth-focus">
-            <span>下一阶段重点领域</span>
-            <strong>{levelSystem?.focusDomain ? domainLabel(levelSystem.focusDomain) : '待选择'}</strong>
-            <p>只作为身份提醒，不改变奖励倍率。</p>
-          </div>
-        </section>
+        <V5GrowthHero stats={stats} level={level} focusDomain={levelSystem?.focusDomain} />
         <section className="v5-section">
           <V5SectionHeading title="六个成长领域" description="按现实结果分类，每项行动只归入一个领域。" />
           <div className="v5-domain-grid">
@@ -366,11 +413,17 @@ export function V5GrowthPage({
               const Icon = domainIcons[domain]
               const domainLevel = getLevel(stats.domainXp[domain])
               return (
-                <article className={`v5-domain-card tone-${domainTones[domain]}`} key={domain}>
-                  <div><Icon size={20} /><strong>{domainLabel(domain)}</strong><span>Lv.{domainLevel.level}</span></div>
+                <button
+                  className={`v5-domain-card tone-${domainTones[domain]}`}
+                  key={domain}
+                  type="button"
+                  aria-label={`查看${domainLabel(domain)}领域详情，当前 Lv.${domainLevel.level}`}
+                  onClick={() => setSelectedDomain(domain)}
+                >
+                  <div><Icon size={20} /><strong>{domainLabel(domain)}</strong><span>Lv.{domainLevel.level}</span><ChevronRight size={17} /></div>
                   <div className="v5-domain-progress"><span style={{ width: `${domainLevel.progress * 100}%` }} /></div>
                   <small>{stats.domainXp[domain]} XP</small>
-                </article>
+                </button>
               )
             })}
           </div>
@@ -380,12 +433,99 @@ export function V5GrowthPage({
           <div><span>下一奖励</span><strong>Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</strong><small>还需 {remainingXp} XP</small></div>
           <ChevronRight size={20} />
         </button>
-        <div className="v5-plain-row"><Medal size={20} /><span>总成长 {stats.totalXp} XP · 当前持有 {stats.coins} 金币</span></div>
       </section>
       <aside className="v5-growth-aside">
         <div className="v5-aside-card"><span>当前阶段</span><strong>{getCharacterStageName(level.level)}</strong><p>Lv.{level.level} · 阶段 {getCharacterStage(level.level)}</p></div>
       </aside>
+      {selectedDetail && <V5DomainDetail detail={selectedDetail} onClose={() => setSelectedDomain(undefined)} />}
     </div>
+  )
+}
+
+function V5GrowthHero({
+  stats,
+  level,
+  focusDomain,
+}: {
+  stats: V5Stats
+  level: ReturnType<typeof getLevel>
+  focusDomain?: GrowthDomain
+}) {
+  const stage = getCharacterStage(level.level)
+  return (
+    <section className="v5-growth-hero" aria-label="旅者成长状态">
+      <div className="v5-growth-identity">
+        <img src={`${import.meta.env.BASE_URL}assets/v5/traveler-stage-${stage}.png`} alt={`${getCharacterStageName(level.level)}阶段旅者`} />
+        <div>
+          <span>{getCharacterStageName(level.level)} · 阶段 {stage}</span>
+          <strong>Lv.{level.level}</strong>
+          <small>每次现实行动都在塑造现在的你</small>
+        </div>
+      </div>
+      <div className="v5-growth-focus">
+        <span>下一阶段重点领域</span>
+        <strong>{focusDomain ? domainLabel(focusDomain) : '待选择'}</strong>
+        <p>只作为身份提醒，不改变奖励倍率。</p>
+      </div>
+      <div className="v5-growth-level-progress">
+        <div><span>等级进度</span><strong>{level.current} / {level.needed} XP</strong></div>
+        <div className="v5-growth-progress-track" role="progressbar" aria-label="当前等级进度" aria-valuemin={0} aria-valuemax={level.needed} aria-valuenow={level.current}>
+          <span style={{ width: `${level.progress * 100}%` }} />
+        </div>
+        <small>距离 Lv.{level.level + 1} 还需 {Math.max(0, level.needed - level.current)} XP</small>
+      </div>
+      <div className="v5-growth-metrics">
+        <div><Medal size={18} /><span>累计成长</span><strong>{stats.totalXp} XP</strong></div>
+        <div><Coins size={18} /><span>持有金币</span><strong>{stats.coins}</strong></div>
+      </div>
+    </section>
+  )
+}
+
+function V5DomainDetail({ detail, onClose }: { detail: V5DomainGrowthDetail; onClose: () => void }) {
+  const Icon = domainIcons[detail.domain]
+  return (
+    <V5ModalSurface title={`${domainLabel(detail.domain)}领域`} kicker="成长领域" onClose={onClose}>
+      <div className={`v5-domain-detail tone-${domainTones[detail.domain]}`}>
+        <div className="v5-domain-detail-hero">
+          <span><Icon size={22} /></span>
+          <div><small>现实成长领域</small><strong>{domainLabel(detail.domain)}</strong><p>Lv.{detail.level.level} · 累计 {detail.totalXp} XP</p></div>
+        </div>
+        <div className="v5-domain-detail-progress">
+          <div><span>当前等级进度</span><strong>{detail.level.current} / {detail.level.needed} XP</strong></div>
+          <div className="v5-domain-progress"><span style={{ width: `${detail.level.progress * 100}%` }} /></div>
+        </div>
+        <div className="v5-domain-detail-stats" aria-label="最近 28 个游戏日">
+          <div><span>近 28 日 XP</span><strong>+{detail.recentXp}</strong></div>
+          <div><span>有效行动</span><strong>{detail.actionCount}</strong></div>
+          <div><span>活跃天数</span><strong>{detail.activeDays}</strong></div>
+        </div>
+        <section className="v5-domain-detail-section">
+          <h3>主要贡献行动</h3>
+          {detail.topActions.length > 0 ? (
+            <div className="v5-domain-top-actions">
+              {detail.topActions.map((action, index) => (
+                <div key={action.title}><b>{index + 1}</b><span>{action.title}<small>{action.count} 次有效行动</small></span><strong>+{action.xp} XP</strong></div>
+              ))}
+            </div>
+          ) : <p className="v5-domain-empty">最近 28 个游戏日还没有这个领域的有效成长。</p>}
+        </section>
+        {detail.recentEntries.length > 0 && (
+          <section className="v5-domain-detail-section">
+            <h3>近期成长记录</h3>
+            <div className="v5-domain-recent-list">
+              {detail.recentEntries.map((entry) => (
+                <article key={entry.id}>
+                  <time>{formatCompactDate(entry.occurredOn)}</time>
+                  <div><strong>{entry.title}</strong><span>{entry.tier ? `${tierLabels[entry.tier]}层` : entry.progressLabel ?? '已完成'}</span></div>
+                  <b>{entry.xp > 0 ? `+${entry.xp} XP` : '已记录'}</b>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </V5ModalSurface>
   )
 }
 
@@ -760,23 +900,38 @@ function V5DailyDrawer({
   )
 }
 
-function V5ModalSurface({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function V5ModalSurface({
+  title,
+  kicker = '完整清单',
+  onClose,
+  children,
+}: {
+  title: string
+  kicker?: string
+  onClose: () => void
+  children: ReactNode
+}) {
   const panelRef = useRef<HTMLElement>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const panel = panelRef.current
     window.setTimeout(() => panel?.querySelector<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')?.focus(), 0)
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', closeOnEscape)
     return () => {
       document.body.style.overflow = previousOverflow
       document.removeEventListener('keydown', closeOnEscape)
+      openerRef.current?.focus()
     }
-  }, [onClose])
+  }, [])
 
   function trapFocus(event: ReactKeyboardEvent<HTMLElement>) {
     if (event.key !== 'Tab') return
@@ -799,8 +954,8 @@ function V5ModalSurface({ title, onClose, children }: { title: string; onClose: 
     <div className="v5-list-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <section ref={panelRef} className="v5-list-dialog" role="dialog" aria-modal="true" aria-labelledby="v5-list-dialog-title" onKeyDown={trapFocus}>
         <header>
-          <div><span>完整清单</span><h2 id="v5-list-dialog-title">{title}</h2></div>
-          <button type="button" title="关闭" aria-label="关闭完整清单" onClick={onClose}><X size={21} /></button>
+          <div><span>{kicker}</span><h2 id="v5-list-dialog-title">{title}</h2></div>
+          <button type="button" title="关闭" aria-label={`关闭${title}`} onClick={onClose}><X size={21} /></button>
         </header>
         {children}
       </section>
@@ -1122,6 +1277,10 @@ function formatMinute(minute: number) {
 
 function formatChineseDate(date: string) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date(`${date}T12:00:00`))
+}
+
+function formatCompactDate(date: string) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(`${date}T12:00:00`))
 }
 
 function tierLabel(completion: Completion) {

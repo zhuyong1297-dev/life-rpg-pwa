@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { gameDayMinute, orderDailyActions, orderFocusCandidates, parseCueMinute } from '../prototype/V5Experience'
-import type { Activity } from '../domain'
+import { gameDayMinute, getV5DomainGrowthDetail, orderDailyActions, orderFocusCandidates, parseCueMinute } from '../prototype/V5Experience'
+import type { Activity, JourneyEntry, JourneyMonth } from '../domain'
 
 const baseActivity: Activity = {
   id: 'base',
@@ -93,5 +93,69 @@ describe('V5 每日行动工作台排序', () => {
     ], 14 * 60, ['first-flexible', 'second-flexible'])
 
     expect(ordered.map((item) => item.id)).toEqual(['second-flexible', 'first-flexible', 'timed'])
+  })
+})
+
+function journeyEntry(id: string, occurredOn: string, title: string, xp: number, domain: JourneyEntry['domain'] = 'health'): JourneyEntry {
+  return {
+    id,
+    kind: 'action',
+    occurredOn,
+    createdAt: `${occurredOn}T08:00:00.000Z`,
+    title,
+    domain,
+    xp,
+    coins: xp > 0 ? 2 : 0,
+  }
+}
+
+function journeyMonth(month: string, entries: JourneyEntry[]): JourneyMonth {
+  return {
+    month,
+    label: month,
+    activeDays: new Set(entries.map((entry) => entry.occurredOn)).size,
+    actionCount: entries.length,
+    xp: entries.reduce((total, entry) => total + entry.xp, 0),
+    coins: entries.reduce((total, entry) => total + entry.coins, 0),
+    days: entries.map((entry) => ({
+      date: entry.occurredOn,
+      entries: [entry],
+      actionCount: entry.kind === 'action' ? 1 : 0,
+      hasMilestone: entry.kind !== 'action',
+    })),
+  }
+}
+
+describe('V5 成长领域详情', () => {
+  it('只汇总最近 28 个游戏日内同领域的有效行动', () => {
+    const details = getV5DomainGrowthDetail('health', 75, [
+      journeyMonth('2026-07', [
+        journeyEntry('today', '2026-07-24', '跑步', 20),
+        journeyEntry('yesterday', '2026-07-23', '拉伸', 5),
+        journeyEntry('other-domain', '2026-07-22', '阅读', 50, 'learning'),
+      ]),
+      journeyMonth('2026-06', [
+        journeyEntry('cutoff', '2026-06-27', '跑步', 10),
+        journeyEntry('expired', '2026-06-26', '旧训练', 40),
+      ]),
+    ], '2026-07-24')
+
+    expect(details).toMatchObject({
+      totalXp: 75,
+      recentXp: 35,
+      actionCount: 3,
+      activeDays: 3,
+    })
+    expect(details.topActions).toEqual([
+      { title: '跑步', xp: 30, count: 2 },
+      { title: '拉伸', xp: 5, count: 1 },
+    ])
+    expect(details.recentEntries.map((entry) => entry.id)).toEqual(['today', 'yesterday', 'cutoff'])
+  })
+
+  it('没有领域记录时返回稳定的空状态', () => {
+    const details = getV5DomainGrowthDetail('creation', 0, [], '2026-07-24')
+    expect(details.level.level).toBe(1)
+    expect(details).toMatchObject({ recentXp: 0, actionCount: 0, activeDays: 0, topActions: [], recentEntries: [] })
   })
 })

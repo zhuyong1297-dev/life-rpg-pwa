@@ -531,6 +531,10 @@ function App() {
   const level = getLevel(stats.totalXp)
   const metaSetting = snapshot.settings.find((item) => item.key === 'meta')
   const levelSystem = metaSetting?.key === 'meta' ? metaSetting.value.levelSystem : undefined
+  const journeyMonths = useMemo(
+    () => getJourneyMonths(snapshot.completions, snapshot.ledgerEvents, levelSystem),
+    [snapshot.completions, snapshot.ledgerEvents, levelSystem],
+  )
   const rewardSystemSetting = snapshot.settings.find((item) => item.key === 'rewardSystem')
   const rewardSystem = rewardSystemSetting?.key === 'rewardSystem' ? rewardSystemSetting.value : undefined
   const targetRewardId = rewardSystem?.activeRewardId ?? (metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined)
@@ -967,6 +971,8 @@ function App() {
               stats={stats}
               level={level}
               levelSystem={levelSystem}
+              journeyMonths={journeyMonths}
+              today={today}
               onCreate={() => setCreateOpen(true)}
               onOpenRewards={() => navigateTo('rewards')}
             />
