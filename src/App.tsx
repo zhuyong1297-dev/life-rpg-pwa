@@ -464,7 +464,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.0.0 预览版' : 'V5.0.0'
+const displayVersion = isPreview ? 'V5.0.1 预览版' : 'V5.0.1'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
