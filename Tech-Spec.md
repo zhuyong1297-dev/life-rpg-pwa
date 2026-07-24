@@ -1,10 +1,10 @@
-# 地球 Online V5.0.1 技术规格
+# 地球 Online V5.0.2 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.0.1` 正式版与预览版复用同一 App 控制器、Dexie 事务和领域模型，行动与成长使用 V5 视图；复盘、愿望、设置及创建继续调用既有真实组件。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。
+`V5.0.2` 正式版与预览版复用同一 App 控制器、Dexie 事务和领域模型，行动与成长使用 V5 视图；复盘、愿望、设置及创建继续调用既有真实组件。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 

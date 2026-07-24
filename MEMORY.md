@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-- 正式版与预览版均运行 `V5.0.1`；两者复用同一 App 数据控制器，分别只读写 `earth-online-v2` 与 `earth-online-preview-v2`。
+- 正式版与预览版均运行 `V5.0.2`；两者复用同一 App 数据控制器，分别只读写 `earth-online-v2` 与 `earth-online-preview-v2`。
 - 当前数据契约为 Dexie version 4、八张表、JSON schema 11；schema 1 至 10 可恢复，Markdown 只用于阅读归档。
 - 正式入口为 `https://zhuyong1297-dev.github.io/life-rpg-pwa/`，预览入口为其 `/preview/` 子路径；两者使用独立数据库、manifest 和 Service Worker scope。
 - `main` 与 `ui-redesign` 分别承载正式和预览；功能先在手机预览验收，再快进正式分支并创建不可变 Release。
