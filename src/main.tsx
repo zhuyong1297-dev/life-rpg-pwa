@@ -5,11 +5,10 @@ import { registerSW } from 'virtual:pwa-register'
 registerSW({ immediate: true })
 
 async function bootstrap() {
-  const isPreviewPrototype = import.meta.env.MODE === 'preview'
-  const [{ default: App }] = await Promise.all([
-    isPreviewPrototype ? import('./prototype/V5Prototype') : import('./App'),
-    isPreviewPrototype ? import('./prototype/v5-prototype.css') : import('./styles.css'),
-  ])
+  const isPreview = import.meta.env.MODE === 'preview'
+  const imports: Promise<unknown>[] = [import('./styles.css')]
+  if (isPreview) imports.push(import('./prototype/v5-live.css'))
+  const [{ default: App }] = await Promise.all([import('./App'), ...imports])
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

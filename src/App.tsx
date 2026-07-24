@@ -150,6 +150,12 @@ import {
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from './feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from './SeasonExperience'
 import { RewardExperience } from './RewardExperience'
+import {
+  V5GrowthPage,
+  V5Navigation,
+  V5TodayPage,
+  type V5Page,
+} from './prototype/V5Experience'
 
 type Page = 'today' | 'character' | 'review' | 'settings'
 type SecondaryPage = 'coach-plan' | 'rewards'
@@ -159,6 +165,8 @@ function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
   const path = window.location.hash.replace(/^#\/?/, '')
   if (path === 'coach/plan') return { page: 'today', secondary: 'coach-plan' }
   if (path === 'rewards') return { page: 'character', secondary: 'rewards' }
+  if (path === 'growth') return { page: 'character' }
+  if (path === 'profile') return { page: 'settings' }
   if (path === 'character' || path === 'review' || path === 'settings') return { page: path }
   return { page: 'today' }
 }
@@ -443,7 +451,7 @@ function GrowthDomainMigration({
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
-const displayVersion = isPreview ? 'V4.5.0 预览版' : 'V4.5.0'
+const displayVersion = isPreview ? 'V5.0.0 预览版' : 'V4.5.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -605,6 +613,7 @@ function App() {
       if (!activity.domain) throw new Error('请先完成成长领域迁移')
       setFeedback({
         completionId: result.completion.id,
+        activityId: activity.id,
         title: activity.title,
         domain: activity.domain,
         xp: result.event.xpDelta,
@@ -760,17 +769,38 @@ function App() {
     )
   }
 
+  const v5Page: V5Page = secondaryPage === 'rewards'
+    ? 'rewards'
+    : page === 'character'
+      ? 'growth'
+      : page === 'settings'
+        ? 'profile'
+        : page
+  const useSecondaryLayout = Boolean(secondaryPage && (!isPreview || secondaryPage === 'coach-plan'))
+  const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', isPreview ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
+
   return (
-    <div className={secondaryPage ? 'app-shell secondary-route' : 'app-shell'}>
-      {!secondaryPage && <Navigation
-        page={page}
-        onChange={(nextPage) => {
-          navigateTo(nextPage)
-          if (nextPage === 'character') void syncLevelMilestones().then(refresh)
-        }}
-        onCreate={() => setCreateOpen(true)}
-        characterNeedsAttention={characterNeedsAttention}
-      />}
+    <div className={shellClassName}>
+      {isPreview && secondaryPage !== 'coach-plan' ? (
+        <V5Navigation
+          active={v5Page}
+          onNavigate={(nextPage) => {
+            navigateTo(nextPage)
+            if (nextPage === 'growth') void syncLevelMilestones().then(refresh)
+          }}
+          onCreate={() => setCreateOpen(true)}
+        />
+      ) : !secondaryPage && (
+        <Navigation
+          page={page}
+          onChange={(nextPage) => {
+            navigateTo(nextPage)
+            if (nextPage === 'character') void syncLevelMilestones().then(refresh)
+          }}
+          onCreate={() => setCreateOpen(true)}
+          characterNeedsAttention={characterNeedsAttention}
+        />
+      )}
       <main className="main-content">
         {isPreview && (
           <div className="preview-banner" role="status">
@@ -819,7 +849,7 @@ function App() {
             ledgerEvents={snapshot.ledgerEvents}
             coins={stats.coins}
             today={today}
-            onBack={() => navigateTo('character')}
+            onBack={() => navigateTo(isPreview ? 'growth' : 'character')}
             onCreate={async (input) => {
               await createReward(input)
               await refresh()
@@ -862,54 +892,85 @@ function App() {
             onNotice={setNotice}
           />
         ) : page === 'today' && (
-          <TodayPage
-            today={today}
-            totalXp={stats.totalXp}
-            level={level}
-            levelSystem={levelSystem}
-            coins={stats.coins}
-            keyActivities={keyActivities}
-            dailyHabits={dailyHabits}
-            weeklyHabits={weeklyHabits}
-            tasks={tasks}
-            season={activeSeason}
-            activities={snapshot.activities}
-            completions={snapshot.completions}
-            activeCompletion={activeCompletion}
-            onComplete={requestCompletion}
-            onCompleted={setCompletionActivity}
-            onWeeklyDetails={setWeeklyDetailActivity}
-            onCreate={() => setCreateOpen(true)}
-            onOpenSeason={() => setSeasonHubOpen(true)}
-            coachDraft={coachDraft}
-            onOpenCoach={() => navigateTo('coach/plan')}
-            activeReward={targetReward}
-            pendingRewardClaim={pendingRewardClaim}
-            rewardDailyCoins={rewardPriceSuggestions.dailyCoins}
-            onOpenRewards={() => navigateTo('rewards')}
-          />
+          isPreview ? (
+            <V5TodayPage
+              today={today}
+              stats={stats}
+              level={level}
+              keyActivities={keyActivities}
+              dailyHabits={dailyHabits}
+              weeklyHabits={weeklyHabits}
+              tasks={tasks}
+              completions={snapshot.completions}
+              feedback={feedback}
+              activeCompletion={activeCompletion}
+              onComplete={requestCompletion}
+              onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
+              onCompleted={setCompletionActivity}
+              onWeeklyDetails={setWeeklyDetailActivity}
+              onCreate={() => setCreateOpen(true)}
+              onUndo={() => void undoLast()}
+            />
+          ) : (
+            <TodayPage
+              today={today}
+              totalXp={stats.totalXp}
+              level={level}
+              levelSystem={levelSystem}
+              coins={stats.coins}
+              keyActivities={keyActivities}
+              dailyHabits={dailyHabits}
+              weeklyHabits={weeklyHabits}
+              tasks={tasks}
+              season={activeSeason}
+              activities={snapshot.activities}
+              completions={snapshot.completions}
+              activeCompletion={activeCompletion}
+              onComplete={requestCompletion}
+              onCompleted={setCompletionActivity}
+              onWeeklyDetails={setWeeklyDetailActivity}
+              onCreate={() => setCreateOpen(true)}
+              onOpenSeason={() => setSeasonHubOpen(true)}
+              coachDraft={coachDraft}
+              onOpenCoach={() => navigateTo('coach/plan')}
+              activeReward={targetReward}
+              pendingRewardClaim={pendingRewardClaim}
+              rewardDailyCoins={rewardPriceSuggestions.dailyCoins}
+              onOpenRewards={() => navigateTo('rewards')}
+            />
+          )
         )}
         {!secondaryPage && page === 'character' && (
-          <CharacterPage
-            stats={stats}
-            level={level}
-            ledgerEvents={snapshot.ledgerEvents}
-            completions={snapshot.completions}
-            today={today}
-            levelSystem={levelSystem}
-            rewards={snapshot.rewards}
-            targetRewardId={targetRewardId}
-            onAcknowledge={async (milestoneLevel, focusDomain) => {
-              try {
-                await acknowledgeLevelMilestone(milestoneLevel, focusDomain)
-                await refresh()
-                setNotice(`下一阶段重点领域已设为${domainLabel(focusDomain)}`)
-              } catch (error) {
-                setNotice(errorMessage(error))
-              }
-            }}
-            onOpenRewards={() => navigateTo('rewards')}
-          />
+          isPreview ? (
+            <V5GrowthPage
+              stats={stats}
+              level={level}
+              levelSystem={levelSystem}
+              onCreate={() => setCreateOpen(true)}
+              onOpenRewards={() => navigateTo('rewards')}
+            />
+          ) : (
+            <CharacterPage
+              stats={stats}
+              level={level}
+              ledgerEvents={snapshot.ledgerEvents}
+              completions={snapshot.completions}
+              today={today}
+              levelSystem={levelSystem}
+              rewards={snapshot.rewards}
+              targetRewardId={targetRewardId}
+              onAcknowledge={async (milestoneLevel, focusDomain) => {
+                try {
+                  await acknowledgeLevelMilestone(milestoneLevel, focusDomain)
+                  await refresh()
+                  setNotice(`下一阶段重点领域已设为${domainLabel(focusDomain)}`)
+                } catch (error) {
+                  setNotice(errorMessage(error))
+                }
+              }}
+              onOpenRewards={() => navigateTo('rewards')}
+            />
+          )
         )}
         {!secondaryPage && page === 'review' && (
           <ReviewPage
@@ -1210,7 +1271,7 @@ function App() {
           }}
         />
       )}
-      {feedback && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
+      {feedback && (!isPreview || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
     </div>
   )
 }
