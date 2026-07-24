@@ -71,6 +71,7 @@ import {
   setRewardEnabled,
   setRewardQueue,
   setSeasonDailyFocus,
+  setTodayActionPriority,
   undoCompletion,
   undoLatestIncrementalProgress,
   updateHabit,
@@ -547,6 +548,9 @@ function App() {
     (milestone) => !milestone.acknowledgedAt || (milestone.voucherMaxCost && !milestone.claimedAt),
   ))
   const today = effectiveGameDate(clock, gameDayBoundaryActivatedAt)
+  const todayActionPriorityIds = metaSetting?.key === 'meta' && metaSetting.value.todayActionPriority?.gameDate === today
+    ? metaSetting.value.todayActionPriority.activityIds
+    : []
   const currentCycleStart = startOfWeek(new Date(`${today}T12:00:00`))
   const currentIncrementalGoal = (activity: Activity) => getIncrementalCycleGoal(activity, snapshot.completions, currentCycleStart)
   const growthDomainCandidates = useMemo(() => {
@@ -902,6 +906,7 @@ function App() {
               weeklyHabits={weeklyHabits}
               tasks={tasks}
               completions={snapshot.completions}
+              todayPriorityIds={todayActionPriorityIds}
               feedback={feedback}
               activeCompletion={activeCompletion}
               onComplete={requestCompletion}
@@ -910,6 +915,22 @@ function App() {
               onWeeklyDetails={setWeeklyDetailActivity}
               onCreate={() => setCreateOpen(true)}
               onUndo={() => void undoLast()}
+              onSetTodayPriority={async (activity, prioritized) => {
+                try {
+                  const result = await setTodayActionPriority(activity.id, prioritized, today)
+                  await refresh()
+                  const replaced = result.replacedActivityId
+                    ? snapshot.activities.find((item) => item.id === result.replacedActivityId)
+                    : undefined
+                  setNotice(prioritized
+                    ? replaced
+                      ? `${activity.title}已设为今天优先，${replaced.title}已退回普通顺序`
+                      : `${activity.title}已设为今天优先`
+                    : `${activity.title}已取消今天优先`)
+                } catch (error) {
+                  setNotice(errorMessage(error))
+                }
+              }}
             />
           ) : (
             <TodayPage
@@ -1541,6 +1562,7 @@ function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBeha
       <div className="field-grid"><label>成长领域<select value={behavior.domain} onChange={(event) => change({ domain: event.target.value as GrowthDomain })}>{growthDomains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}</select></label><label>难度<select value={behavior.difficulty} onChange={(event) => change({ difficulty: event.target.value as Difficulty })}>{difficulties.map((difficulty) => <option key={difficulty}>{difficulty}</option>)}</select></label></div>
       <p className="domain-definition"><strong>{growthDomainDetails[behavior.domain].description}</strong><span>例如：{growthDomainDetails[behavior.domain].examples}</span></p>
       <div className="field-grid"><label>频率<select value={behavior.schedule.kind} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(goalDraft, true) ? 999 : 7} value={draftUsesIncremental(goalDraft, true) ? draftStandardCount(goalDraft) : behavior.schedule.times} disabled={draftUsesIncremental(goalDraft, true)} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
+      {behavior.schedule.kind === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={behavior.scheduledTime ?? ''} onChange={(event) => change({ scheduledTime: event.target.value || undefined })} /></label>}
       <label className="full-field">触发条件<input maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="什么时候、什么之后开始" /></label>
       <label className="full-field">执行协议<textarea maxLength={280} value={behavior.protocol} onChange={(event) => change({ protocol: event.target.value })} placeholder="具体做什么，走神或中断后怎样返回" /></label>
       <div className="coach-goal-box"><strong>分层最低标准</strong><TierGoalFields value={goalDraft} weekly={behavior.schedule.kind === 'weekly'} onChange={(next) => { setGoalDraft(next); change({}) }} /></div>
@@ -2894,6 +2916,7 @@ function ActivityManagerModal({
 function CreateActivityModal({ today, onClose, onCreate }: { today: string; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const [type, setType] = useState<'habit' | 'task'>('habit')
   const [title, setTitle] = useState('')
+  const [scheduledTime, setScheduledTime] = useState('')
   const [cue, setCue] = useState('')
   const [protocol, setProtocol] = useState('')
   const [domain, setDomain] = useState<GrowthDomain>('health')
@@ -2912,6 +2935,7 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
       : { kind: 'count', count: 1, unit: '次' }
     onCreate({
       title,
+      scheduledTime: type === 'habit' && frequency === 'daily' && scheduledTime ? scheduledTime : undefined,
       cue: type === 'habit' && cue.trim() ? cue.trim() : undefined,
       protocol: type === 'habit' && protocol.trim() ? protocol.trim() : undefined,
       type,
@@ -2954,7 +2978,8 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
         {type === 'habit' && <details className="execution-details">
-          <summary><span><strong>执行提示</strong><small>{cue.trim() || '可选的触发条件与行动协议'}</small></span><Target aria-hidden="true" /></summary>
+          <summary><span><strong>执行提示</strong><small>{scheduledTime || cue.trim() || '可选的时间、触发条件与行动协议'}</small></span><Target aria-hidden="true" /></summary>
+          {frequency === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} /></label>}
           <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} placeholder="例如：起床后、第一段工作前" /></label>
           <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} placeholder="写清最低动作和走神后的返回方式" /></label>
         </details>}
@@ -3203,6 +3228,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
   const tiered = isTieredGoal(activity)
   const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const [title, setTitle] = useState(activity.title)
+  const [scheduledTime, setScheduledTime] = useState(activity.scheduledTime ?? '')
   const [cue, setCue] = useState(activity.cue ?? '')
   const [protocol, setProtocol] = useState(activity.protocol ?? '')
   const [domain, setDomain] = useState<GrowthDomain>(activity.domain ?? 'health')
@@ -3222,6 +3248,7 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         : buildTierGoal(tierDraft)
     onSave({
       title: title.trim(),
+      scheduledTime: frequency === 'daily' && scheduledTime ? scheduledTime : undefined,
       cue: cue.trim() || undefined,
       protocol: protocol.trim() || undefined,
       domain,
@@ -3237,8 +3264,9 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
       <form className="modal" onSubmit={submit} aria-labelledby="edit-habit-title">
         <div className="modal-header"><h2 id="edit-habit-title">编辑习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <label className="full-field">习惯名称<input required maxLength={40} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <details className="execution-details" open={Boolean(activity.cue || activity.protocol)}>
-          <summary><span><strong>执行提示</strong><small>{cue.trim() || '可选'}</small></span><Target aria-hidden="true" /></summary>
+        <details className="execution-details" open={Boolean(activity.scheduledTime || activity.cue || activity.protocol)}>
+          <summary><span><strong>执行提示</strong><small>{scheduledTime || cue.trim() || '可选'}</small></span><Target aria-hidden="true" /></summary>
+          {frequency === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} /></label>}
           <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} /></label>
           <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} /></label>
         </details>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
   BookOpen,
   BriefcaseBusiness,
@@ -17,12 +17,16 @@ import {
   ListChecks,
   Medal,
   Palette,
+  Pin,
+  PinOff,
   Plus,
   RotateCcw,
+  Search,
   Settings,
   Sparkles,
   Target,
   UserRound,
+  X,
 } from 'lucide-react'
 import {
   addDays,
@@ -32,6 +36,7 @@ import {
   formatTierGoalValue,
   getCharacterStage,
   getCharacterStageName,
+  getActivityScheduledTime,
   getIncrementalCycleGoal,
   getLevel,
   getMilestoneVoucherCost,
@@ -147,6 +152,7 @@ export function V5TodayPage({
   weeklyHabits,
   tasks,
   completions,
+  todayPriorityIds,
   feedback,
   activeCompletion,
   onComplete,
@@ -155,6 +161,7 @@ export function V5TodayPage({
   onWeeklyDetails,
   onCreate,
   onUndo,
+  onSetTodayPriority,
 }: {
   today: string
   stats: V5Stats
@@ -164,6 +171,7 @@ export function V5TodayPage({
   weeklyHabits: Activity[]
   tasks: Activity[]
   completions: Completion[]
+  todayPriorityIds: string[]
   feedback: V5FeedbackView | null
   activeCompletion: (activity: Activity) => Completion | undefined
   onComplete: (activity: Activity) => void
@@ -172,6 +180,7 @@ export function V5TodayPage({
   onWeeklyDetails: (activity: Activity) => void
   onCreate: () => void
   onUndo: () => void
+  onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
   const [minute, setMinute] = useState(() => currentMinute())
   const [preferredId, setPreferredId] = useState<string>()
@@ -186,8 +195,15 @@ export function V5TodayPage({
   )
 
   useEffect(() => {
-    const timer = window.setInterval(() => setMinute(currentMinute()), 60_000)
-    return () => window.clearInterval(timer)
+    const refreshMinute = () => {
+      if (document.visibilityState === 'visible') setMinute(currentMinute())
+    }
+    const timer = window.setInterval(refreshMinute, 60_000)
+    document.addEventListener('visibilitychange', refreshMinute)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshMinute)
+    }
   }, [])
 
   useEffect(() => {
@@ -280,12 +296,15 @@ export function V5TodayPage({
           )}
         </section>
 
-        <V5ActionSection
-          title="今天随时"
+        <V5DailySection
           activities={dailyHabits}
+          minute={minute}
+          priorityIds={todayPriorityIds}
+          feedbackActivityId={feedback?.activityId}
           activeCompletion={activeCompletion}
           onComplete={onComplete}
           onCompleted={onCompleted}
+          onSetPriority={onSetTodayPriority}
         />
         <V5WeeklySection
           activities={weeklyHabits}
@@ -452,7 +471,7 @@ function V5FocusAction({
   return (
     <article className={`v5-focus-action${completion ? ' completed' : ''}`}>
       <div className="v5-focus-meta">
-        <span>现在 · {activity.cue ?? '今天随时'}</span>
+        <span>现在 · {[getActivityScheduledTime(activity), activity.cue].filter((value, index, values) => value && values.indexOf(value) === index).join(' · ') || '今天随时'}</span>
         <div>
           {activity.protocol && (
             <button type="button" title="查看执行说明" aria-label={`查看 ${activity.title} 执行说明`} onClick={() => setProtocolOpen(true)}>
@@ -502,7 +521,7 @@ function V5TimelineRow({
   completion?: Completion
   onClick: () => void
 }) {
-  const cueMinute = parseCueMinute(activity.cue)
+  const cueMinute = activityScheduledMinute(activity)
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
@@ -511,6 +530,117 @@ function V5TimelineRow({
       </button>
       <div><strong>{activity.title}</strong><span>{completion ? `${tierLabel(completion)}已完成` : activity.cue ?? '等待执行'}</span></div>
     </div>
+  )
+}
+
+function V5DailySection({
+  activities,
+  minute,
+  priorityIds,
+  feedbackActivityId,
+  activeCompletion,
+  onComplete,
+  onCompleted,
+  onSetPriority,
+}: {
+  activities: Activity[]
+  minute: number
+  priorityIds: string[]
+  feedbackActivityId?: string
+  activeCompletion: (activity: Activity) => Completion | undefined
+  onComplete: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+  onSetPriority: (activity: Activity, prioritized: boolean) => Promise<void>
+}) {
+  const [drawerTab, setDrawerTab] = useState<'pending' | 'completed'>()
+  const [heldCompletedId, setHeldCompletedId] = useState<string>()
+
+  useEffect(() => {
+    if (!feedbackActivityId || !activities.some((activity) => activity.id === feedbackActivityId)) return
+    setHeldCompletedId(feedbackActivityId)
+    const timer = window.setTimeout(() => setHeldCompletedId(undefined), 1_000)
+    return () => window.clearTimeout(timer)
+  }, [activities, feedbackActivityId])
+
+  if (activities.length === 0) return null
+  const completed = activities.filter((activity) => Boolean(activeCompletion(activity)))
+  const pending = orderDailyActions(
+    activities.filter((activity) => !activeCompletion(activity) || activity.id === heldCompletedId),
+    minute,
+    priorityIds,
+  )
+  const visible = pending.slice(0, 5)
+  return (
+    <section className="v5-section v5-action-section">
+      <div className="v5-section-count">
+        <div><span>按时间与今日优先排列</span><h2>今天随时</h2></div>
+        <b>{activities.length}</b>
+      </div>
+      {visible.map((activity) => (
+        <V5CompactActionRow
+          activity={activity}
+          completion={activeCompletion(activity)}
+          key={activity.id}
+          meta={`${getActivityScheduledTime(activity) ?? '随时'} · ${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty}`}
+          onClick={() => activeCompletion(activity) ? onCompleted(activity) : onComplete(activity)}
+        />
+      ))}
+      {pending.length > 5 && (
+        <button className="v5-text-button" type="button" onClick={() => setDrawerTab('pending')}>
+          查看全部 {pending.filter((activity) => !activeCompletion(activity)).length} 项待行动
+        </button>
+      )}
+      {completed.length > 0 && (
+        <button className="v5-completed-summary" type="button" onClick={() => setDrawerTab('completed')}>
+          <Check size={17} />
+          <span>今日已完成 {completed.length} 项</span>
+          <ChevronRight size={17} />
+        </button>
+      )}
+      {drawerTab && (
+        <V5DailyDrawer
+          activities={activities}
+          activeCompletion={activeCompletion}
+          initialTab={drawerTab}
+          minute={minute}
+          priorityIds={priorityIds}
+          onClose={() => setDrawerTab(undefined)}
+          onComplete={(activity) => {
+            setDrawerTab(undefined)
+            onComplete(activity)
+          }}
+          onCompleted={(activity) => {
+            setDrawerTab(undefined)
+            onCompleted(activity)
+          }}
+          onSetPriority={onSetPriority}
+        />
+      )}
+    </section>
+  )
+}
+
+function V5CompactActionRow({
+  activity,
+  completion,
+  meta,
+  onClick,
+}: {
+  activity: Activity
+  completion?: Completion
+  meta: string
+  onClick: () => void
+}) {
+  return (
+    <article className={`v5-compact-action${completion ? ' completed' : ''}`}>
+      <div>
+        <strong>{activity.title}</strong>
+        <span>{meta}</span>
+      </div>
+      <button type="button" className={completion ? 'done' : ''} onClick={onClick} aria-label={completion ? `查看 ${activity.title} 完成记录` : `记录 ${activity.title}`}>
+        {completion ? <Check size={18} /> : <ChevronRight size={19} />}
+      </button>
+    </article>
   )
 }
 
@@ -534,18 +664,147 @@ function V5ActionSection({
       {activities.map((activity) => {
         const completion = activeCompletion(activity)
         return (
-          <article className={`v5-compact-action${completion ? ' completed' : ''}`} key={activity.id}>
-            <div>
-              <strong>{activity.title}</strong>
-              <span>{activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty} · {activityFrequency(activity)}</span>
-            </div>
-            <button type="button" className={completion ? 'done' : ''} onClick={() => completion ? onCompleted(activity) : onComplete(activity)}>
-              {completion ? <Check size={18} /> : <ChevronRight size={19} />}
-            </button>
-          </article>
+          <V5CompactActionRow
+            activity={activity}
+            completion={completion}
+            key={activity.id}
+            meta={`${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty} · ${activityFrequency(activity)}`}
+            onClick={() => completion ? onCompleted(activity) : onComplete(activity)}
+          />
         )
       })}
     </section>
+  )
+}
+
+function V5DailyDrawer({
+  activities,
+  activeCompletion,
+  initialTab,
+  minute,
+  priorityIds,
+  onClose,
+  onComplete,
+  onCompleted,
+  onSetPriority,
+}: {
+  activities: Activity[]
+  activeCompletion: (activity: Activity) => Completion | undefined
+  initialTab: 'pending' | 'completed'
+  minute: number
+  priorityIds: string[]
+  onClose: () => void
+  onComplete: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+  onSetPriority: (activity: Activity, prioritized: boolean) => Promise<void>
+}) {
+  const [tab, setTab] = useState(initialTab)
+  const [query, setQuery] = useState('')
+  const pending = orderDailyActions(activities.filter((activity) => !activeCompletion(activity)), minute, priorityIds)
+  const completed = activities.filter((activity) => Boolean(activeCompletion(activity)))
+  const source = tab === 'pending' ? pending : completed
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
+  const visible = normalizedQuery
+    ? source.filter((activity) => [
+        activity.title,
+        activity.domain ? domainLabel(activity.domain) : '旧体系',
+        activity.difficulty,
+      ].some((value) => value.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
+    : source
+  return (
+    <V5ModalSurface title="今日行动" onClose={onClose}>
+      <div className="v5-drawer-tabs" role="tablist" aria-label="今日行动状态">
+        <button type="button" role="tab" aria-selected={tab === 'pending'} className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>待行动 {pending.length}</button>
+        <button type="button" role="tab" aria-selected={tab === 'completed'} className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>已完成 {completed.length}</button>
+      </div>
+      {activities.length > 12 && (
+        <label className="v5-drawer-search">
+          <Search size={17} />
+          <span className="sr-only">搜索今日行动</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、领域或难度" />
+        </label>
+      )}
+      <div className="v5-drawer-list">
+        {visible.map((activity) => {
+          const completion = activeCompletion(activity)
+          const scheduled = getActivityScheduledTime(activity)
+          const prioritized = priorityIds.includes(activity.id)
+          return (
+            <article className="v5-drawer-row" key={activity.id}>
+              <div>
+                <strong>{activity.title}</strong>
+                <span>{scheduled ?? '随时'} · {activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty}</span>
+              </div>
+              <div className="v5-drawer-row-actions">
+                {!completion && !scheduled && (
+                  <button
+                    type="button"
+                    aria-pressed={prioritized}
+                    title={prioritized ? '取消今天优先' : '设为今天优先'}
+                    aria-label={`${prioritized ? '取消' : '设为'} ${activity.title} 今天优先`}
+                    onClick={() => void onSetPriority(activity, !prioritized)}
+                  >
+                    {prioritized ? <PinOff size={17} /> : <Pin size={17} />}
+                  </button>
+                )}
+                <button type="button" onClick={() => completion ? onCompleted(activity) : onComplete(activity)}>
+                  {completion ? '查看' : '记录'}
+                </button>
+              </div>
+            </article>
+          )
+        })}
+        {visible.length === 0 && <p className="v5-drawer-empty">{query ? '没有匹配的行动' : tab === 'pending' ? '今天的行动已经完成' : '今天还没有完成记录'}</p>}
+      </div>
+    </V5ModalSurface>
+  )
+}
+
+function V5ModalSurface({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const panelRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const panel = panelRef.current
+    window.setTimeout(() => panel?.querySelector<HTMLElement>('button, input, [tabindex]:not([tabindex="-1"])')?.focus(), 0)
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [onClose])
+
+  function trapFocus(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Tab') return
+    const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+    ) ?? [])]
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable.at(-1)!
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  return (
+    <div className="v5-list-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <section ref={panelRef} className="v5-list-dialog" role="dialog" aria-modal="true" aria-labelledby="v5-list-dialog-title" onKeyDown={trapFocus}>
+        <header>
+          <div><span>完整清单</span><h2 id="v5-list-dialog-title">{title}</h2></div>
+          <button type="button" title="关闭" aria-label="关闭完整清单" onClick={onClose}><X size={21} /></button>
+        </header>
+        {children}
+      </section>
+    </div>
   )
 }
 
@@ -566,9 +825,11 @@ function V5WeeklySection({
   onCompleted: (activity: Activity) => void
   onDetails: (activity: Activity) => void
 }) {
-  const [showAll, setShowAll] = useState(false)
+  const [drawerTab, setDrawerTab] = useState<'pending' | 'completed'>()
   if (activities.length === 0) return null
-  const visible = showAll ? activities : activities.slice(0, 3)
+  const pending = activities.filter((activity) => !weeklyViewState(activity, completions, today).complete)
+  const completed = activities.filter((activity) => weeklyViewState(activity, completions, today).complete)
+  const visible = pending.slice(0, 3)
   return (
     <section className="v5-section v5-weekly-section">
       <div className="v5-section-count"><div><span>周一 04:00 更新</span><h2>本周灵活</h2></div><b>{activities.length}</b></div>
@@ -584,12 +845,107 @@ function V5WeeklySection({
           onDetails={() => onDetails(activity)}
         />
       ))}
-      {activities.length > 3 && (
-        <button className="v5-text-button" type="button" onClick={() => setShowAll((value) => !value)}>
-          {showAll ? '收起' : `查看全部 ${activities.length} 项`}
+      {pending.length > 3 && (
+        <button className="v5-text-button" type="button" onClick={() => setDrawerTab('pending')}>
+          查看全部 {pending.length} 项待推进
         </button>
       )}
+      {completed.length > 0 && (
+        <button className="v5-completed-summary" type="button" onClick={() => setDrawerTab('completed')}>
+          <Check size={17} />
+          <span>本周已完成 {completed.length} 项</span>
+          <ChevronRight size={17} />
+        </button>
+      )}
+      {drawerTab && (
+        <V5WeeklyDrawer
+          activities={activities}
+          completions={completions}
+          today={today}
+          activeCompletion={activeCompletion}
+          initialTab={drawerTab}
+          onClose={() => setDrawerTab(undefined)}
+          onRecord={(activity) => {
+            setDrawerTab(undefined)
+            onRecord(activity)
+          }}
+          onCompleted={(activity) => {
+            setDrawerTab(undefined)
+            onCompleted(activity)
+          }}
+          onDetails={(activity) => {
+            setDrawerTab(undefined)
+            onDetails(activity)
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+function V5WeeklyDrawer({
+  activities,
+  completions,
+  today,
+  activeCompletion,
+  initialTab,
+  onClose,
+  onRecord,
+  onCompleted,
+  onDetails,
+}: {
+  activities: Activity[]
+  completions: Completion[]
+  today: string
+  activeCompletion: (activity: Activity) => Completion | undefined
+  initialTab: 'pending' | 'completed'
+  onClose: () => void
+  onRecord: (activity: Activity) => void
+  onCompleted: (activity: Activity) => void
+  onDetails: (activity: Activity) => void
+}) {
+  const [tab, setTab] = useState(initialTab)
+  const [query, setQuery] = useState('')
+  const pending = activities.filter((activity) => !weeklyViewState(activity, completions, today).complete)
+  const completed = activities.filter((activity) => weeklyViewState(activity, completions, today).complete)
+  const source = tab === 'pending' ? pending : completed
+  const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
+  const visible = normalizedQuery
+    ? source.filter((activity) => [
+        activity.title,
+        activity.domain ? domainLabel(activity.domain) : '旧体系',
+        activity.difficulty,
+      ].some((value) => value.toLocaleLowerCase('zh-CN').includes(normalizedQuery)))
+    : source
+  return (
+    <V5ModalSurface title="本周行动" onClose={onClose}>
+      <div className="v5-drawer-tabs" role="tablist" aria-label="本周行动状态">
+        <button type="button" role="tab" aria-selected={tab === 'pending'} className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>待推进 {pending.length}</button>
+        <button type="button" role="tab" aria-selected={tab === 'completed'} className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>本周完成 {completed.length}</button>
+      </div>
+      {activities.length > 12 && (
+        <label className="v5-drawer-search">
+          <Search size={17} />
+          <span className="sr-only">搜索本周行动</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、领域或难度" />
+        </label>
+      )}
+      <div className="v5-drawer-list">
+        {visible.map((activity) => (
+          <V5WeeklyRow
+            activity={activity}
+            completions={completions}
+            today={today}
+            activeCompletion={activeCompletion(activity)}
+            key={activity.id}
+            onRecord={() => onRecord(activity)}
+            onCompleted={() => onCompleted(activity)}
+            onDetails={() => onDetails(activity)}
+          />
+        ))}
+        {visible.length === 0 && <p className="v5-drawer-empty">{query ? '没有匹配的行动' : tab === 'pending' ? '本周行动已经全部完成' : '本周还没有完成的行动'}</p>}
+      </div>
+    </V5ModalSurface>
   )
 }
 
@@ -610,19 +966,7 @@ function V5WeeklyRow({
   onCompleted: () => void
   onDetails: () => void
 }) {
-  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
-  const cycle = weeklyCycle(activity, completions, today)
-  const goal = getIncrementalCycleGoal(activity, cycle, cycleStart)
-  const progress = goal ? calculateIncrementalProgress(goal, cycle) : undefined
-  const activeDirect = cycle.filter((completion) => completion.status === 'active' && !completion.progress)
-  const target = activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
-  const complete = progress?.maxReached ?? activeDirect.length >= target
-  const summary = progress
-    ? incrementalSummary(progress)
-    : `本周 ${activeDirect.length}/${target} 次`
-  const next = progress
-    ? incrementalNext(progress)
-    : complete ? '本周计划已经完成' : `还差 ${target - activeDirect.length} 次`
+  const { complete, summary, next, progress } = weeklyViewState(activity, completions, today)
   return (
     <article className={`v5-weekly-row${complete ? ' completed' : ''}`}>
       <div>
@@ -638,6 +982,27 @@ function V5WeeklyRow({
       </div>
     </article>
   )
+}
+
+function weeklyViewState(activity: Activity, completions: Completion[], today: string) {
+  const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
+  const cycle = weeklyCycle(activity, completions, today)
+  const goal = getIncrementalCycleGoal(activity, cycle, cycleStart)
+  const progress = goal ? calculateIncrementalProgress(goal, cycle) : undefined
+  const activeDirect = cycle.filter((completion) => completion.status === 'active' && !completion.progress)
+  const target = activity.schedule.kind === 'weekly' ? activity.schedule.times : 1
+  const highestTier = isTieredGoal(activity) ? getTierLevels(activity.goal).at(-1) : undefined
+  const directHighestReached = highestTier
+    ? activeDirect.some((completion) => completion.tier === highestTier)
+    : activeDirect.length >= target
+  const complete = progress?.maxReached ?? directHighestReached
+  const summary = progress
+    ? incrementalSummary(progress)
+    : `本周 ${activeDirect.length}/${target} 次`
+  const next = progress
+    ? incrementalNext(progress)
+    : complete ? '本周最高层已经完成' : `还差 ${Math.max(0, target - activeDirect.length)} 次`
+  return { complete, summary, next, progress }
 }
 
 function V5TravelerSummary({ level, totalXp }: { level: ReturnType<typeof getLevel>; totalXp: number }) {
@@ -683,32 +1048,71 @@ export function parseCueMinute(cue?: string) {
   return match ? Number(match[1]) * 60 + Number(match[2]) : undefined
 }
 
+function parseTimeMinute(value?: string) {
+  if (!value) return undefined
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function activityScheduledMinute(activity: Activity) {
+  return parseTimeMinute(getActivityScheduledTime(activity))
+}
+
+export function gameDayMinute(minute: number) {
+  return (minute - 4 * 60 + 24 * 60) % (24 * 60)
+}
+
+export function orderDailyActions(activities: Activity[], minute: number, priorityIds: string[]) {
+  const originalOrder = new Map(activities.map((activity, index) => [activity.id, index]))
+  const priorityOrder = new Map(priorityIds.map((id, index) => [id, priorityIds.length - index - 1]))
+  const now = gameDayMinute(minute)
+  return [...activities].sort((left, right) => {
+    const leftMinute = activityScheduledMinute(left)
+    const rightMinute = activityScheduledMinute(right)
+    const leftGameMinute = leftMinute === undefined ? undefined : gameDayMinute(leftMinute)
+    const rightGameMinute = rightMinute === undefined ? undefined : gameDayMinute(rightMinute)
+    const group = (value: number | undefined) => value === undefined ? 1 : value <= now ? 0 : 2
+    const leftGroup = group(leftGameMinute)
+    const rightGroup = group(rightGameMinute)
+    if (leftGroup !== rightGroup) return leftGroup - rightGroup
+    if (leftGameMinute !== undefined && rightGameMinute !== undefined) {
+      return leftGameMinute - rightGameMinute || (originalOrder.get(left.id)! - originalOrder.get(right.id)!)
+    }
+    const leftPriority = priorityOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER
+    const rightPriority = priorityOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER
+    return leftPriority - rightPriority || (originalOrder.get(left.id)! - originalOrder.get(right.id)!)
+  })
+}
+
 export function orderFocusCandidates(activities: Activity[], minute: number) {
   return [...activities].sort((left, right) => {
-    const leftMinute = parseCueMinute(left.cue)
-    const rightMinute = parseCueMinute(right.cue)
+    const now = gameDayMinute(minute)
+    const leftMinute = activityScheduledMinute(left)
+    const rightMinute = activityScheduledMinute(right)
+    const leftGameMinute = leftMinute === undefined ? undefined : gameDayMinute(leftMinute)
+    const rightGameMinute = rightMinute === undefined ? undefined : gameDayMinute(rightMinute)
     const group = (cueMinute: number | undefined) => {
-      if (cueMinute !== undefined && cueMinute <= minute) return 0
-      if (cueMinute !== undefined && cueMinute - minute <= 90) return 1
+      if (cueMinute !== undefined && cueMinute <= now) return 0
+      if (cueMinute !== undefined && cueMinute - now <= 90) return 1
       if (cueMinute === undefined) return 2
       return 3
     }
-    const leftGroup = group(leftMinute)
-    const rightGroup = group(rightMinute)
+    const leftGroup = group(leftGameMinute)
+    const rightGroup = group(rightGameMinute)
     if (leftGroup !== rightGroup) return leftGroup - rightGroup
-    if (leftMinute === undefined || rightMinute === undefined) return 0
-    return leftGroup === 0 ? rightMinute - leftMinute : leftMinute - rightMinute
+    if (leftGameMinute === undefined || rightGameMinute === undefined) return 0
+    return leftGameMinute - rightGameMinute
   })
 }
 
 function orderTimeline(activities: Activity[]) {
   return [...activities].sort((left, right) => {
-    const leftMinute = parseCueMinute(left.cue)
-    const rightMinute = parseCueMinute(right.cue)
+    const leftMinute = activityScheduledMinute(left)
+    const rightMinute = activityScheduledMinute(right)
     if (leftMinute === undefined && rightMinute === undefined) return 0
     if (leftMinute === undefined) return 1
     if (rightMinute === undefined) return -1
-    return leftMinute - rightMinute
+    return gameDayMinute(leftMinute) - gameDayMinute(rightMinute)
   })
 }
 

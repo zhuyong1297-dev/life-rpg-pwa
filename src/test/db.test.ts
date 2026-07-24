@@ -20,6 +20,7 @@ import {
   getCoachPlanDraft,
   getGrowthDomainMigrationCandidates,
   getSnapshot,
+  getTodayActionPriority,
   initializeDatabase,
   permanentlyDeleteActivity,
   claimMilestoneReward,
@@ -35,6 +36,7 @@ import {
   setRewardQueue,
   setSeasonDailyFocus,
   setTargetReward,
+  setTodayActionPriority,
   syncLevelMilestones,
   stableLifeBlueprint,
   undoCompletion,
@@ -104,7 +106,7 @@ describe('IndexedDB 事务', () => {
     const draft = readyCoachDraft([
       { id: 'reuse', role: 'progress', source: 'existing', activityId: reusable.id, confirmed: true },
       {
-        id: 'new', role: 'maintain', source: 'new', title: '收尾行为', cue: '结束工作前', protocol: '记录下一步并停止工作',
+        id: 'new', role: 'maintain', source: 'new', title: '收尾行为', scheduledTime: '22:30', cue: '结束工作前', protocol: '记录下一步并停止工作',
         domain: 'life', difficulty: '简单', goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [180, 300] },
         schedule: { kind: 'daily' }, confirmed: true,
       },
@@ -118,7 +120,39 @@ describe('IndexedDB 事务', () => {
     expect((await database.activities.get(oldKey.id))?.isKey).toBe(false)
     expect((await database.activities.get(reusable.id))?.isKey).toBe(true)
     expect(first.focusActivities.map((item) => item.title)).toEqual(['继续复用', '收尾行为'])
+    expect((await database.activities.toArray()).find((item) => item.title === '收尾行为')?.scheduledTime).toBe('22:30')
     expect(await getCoachPlanDraft(database)).toBeUndefined()
+  })
+
+  it('今天优先最多保留五项并在第六项加入时替换最早项', async () => {
+    const activities = []
+    for (let index = 0; index < 6; index += 1) {
+      activities.push(await createActivity({ ...dailyHabit, title: `随时行动 ${index + 1}`, isKey: false }, database))
+    }
+    for (const activity of activities.slice(0, 5)) {
+      await setTodayActionPriority(activity.id, true, '2026-07-24', database)
+    }
+    const result = await setTodayActionPriority(activities[5].id, true, '2026-07-24', database)
+
+    expect(result.replacedActivityId).toBe(activities[0].id)
+    expect(await getTodayActionPriority('2026-07-24', database)).toEqual(activities.slice(1).map((activity) => activity.id))
+    expect(await getTodayActionPriority('2026-07-25', database)).toEqual([])
+  })
+
+  it('今天优先拒绝固定时间、关键和非每日行动，并支持取消', async () => {
+    const flexible = await createActivity({ ...dailyHabit, title: '随时行动', isKey: false }, database)
+    const timed = await createActivity({ ...dailyHabit, title: '定时行动', scheduledTime: '08:00', isKey: false }, database)
+    const legacyTimed = await createActivity({ ...dailyHabit, title: '旧定时行动', cue: '09:00 早餐后', isKey: false }, database)
+    const weekly = await createActivity({ ...dailyHabit, title: '每周行动', schedule: { kind: 'weekly', times: 1 }, isKey: false }, database)
+    const key = await createActivity({ ...dailyHabit, title: '关键行动' }, database)
+
+    await expect(setTodayActionPriority(timed.id, true, '2026-07-24', database)).rejects.toThrow('无固定时间')
+    await expect(setTodayActionPriority(legacyTimed.id, true, '2026-07-24', database)).rejects.toThrow('无固定时间')
+    await expect(setTodayActionPriority(weekly.id, true, '2026-07-24', database)).rejects.toThrow('无固定时间')
+    await expect(setTodayActionPriority(key.id, true, '2026-07-24', database)).rejects.toThrow('无固定时间')
+    await setTodayActionPriority(flexible.id, true, '2026-07-24', database)
+    await setTodayActionPriority(flexible.id, false, '2026-07-24', database)
+    expect(await getTodayActionPriority('2026-07-24', database)).toEqual([])
   })
 
   it('存在当前赛季时启用草稿会拒绝且不修改赛季或活动', async () => {
@@ -1005,6 +1039,9 @@ describe('IndexedDB 事务', () => {
 
   it('schema 11 备份保存奖励券与规划草稿并兼容 schema 5 至 schema 10', async () => {
     const activity = await createActivity(dailyHabit, database)
+    const priorityActivity = await createActivity({ ...dailyHabit, title: '今日优先行动', isKey: false }, database)
+    const timedActivity = await createActivity({ ...dailyHabit, title: '定时行动', scheduledTime: '21:30', isKey: false }, database)
+    await setTodayActionPriority(priorityActivity.id, true, '2026-01-05', database)
     const season = await createSeason({
       title: '备份赛季', successCriterion: '验证完整恢复', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
     }, '2026-01-05', database)
@@ -1012,6 +1049,8 @@ describe('IndexedDB 事务', () => {
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
     expect(current).toMatchObject({ schemaVersion: 11, appVersion: '4.5.0', rewardClaims: [], seasons: [{ id: season.id }] })
+    expect(current.activities.find((item) => item.id === timedActivity.id)?.scheduledTime).toBe('21:30')
+    expect(current.settings.find((setting) => setting.key === 'meta')).toMatchObject({ value: { todayActionPriority: { gameDate: '2026-01-05', activityIds: [priorityActivity.id] } } })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
     await restoreBackup({ ...current, schemaVersion: 9, appVersion: '4.3.0' }, database)
     await restoreBackup({ ...current, schemaVersion: 10, appVersion: '4.4.0' }, database)
@@ -1026,5 +1065,6 @@ describe('IndexedDB 事务', () => {
     await restoreBackup(current, database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)
+    expect(await getTodayActionPriority('2026-01-05', database)).toEqual([priorityActivity.id])
   })
 })

@@ -547,6 +547,201 @@
   justify-content: center;
 }
 
+.v5-completed-summary {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-top: 1px solid var(--v5-line);
+  background: transparent;
+  color: var(--v5-green);
+  text-align: left;
+  cursor: pointer;
+}
+
+.v5-completed-summary span {
+  color: var(--v5-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.v5-list-backdrop {
+  position: fixed;
+  z-index: 95;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  background: rgb(21 35 30 / 44%);
+}
+
+.v5-list-dialog {
+  display: grid;
+  width: 100%;
+  max-height: 85vh;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 8px 8px 0 0;
+  background: var(--v5-surface);
+  box-shadow: 0 -16px 42px rgb(21 35 30 / 18%);
+}
+
+.v5-list-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.v5-list-dialog > header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.v5-list-dialog > header span {
+  color: var(--v5-green);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.v5-list-dialog > header h2 {
+  margin: 1px 0 0;
+  font-size: 22px;
+}
+
+.v5-list-dialog > header button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v5-ink);
+  cursor: pointer;
+}
+
+.v5-drawer-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  border-radius: 7px;
+  background: #edf2ef;
+}
+
+.v5-drawer-tabs button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--v5-muted);
+  cursor: pointer;
+}
+
+.v5-drawer-tabs button.active {
+  background: var(--v5-surface);
+  color: var(--v5-green);
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgb(21 35 30 / 8%);
+}
+
+.v5-drawer-search {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--v5-line);
+  border-radius: 7px;
+  color: var(--v5-muted);
+}
+
+.v5-drawer-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--v5-ink);
+  font: inherit;
+}
+
+.v5-drawer-list {
+  min-height: 0;
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.v5-drawer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 66px;
+  border-bottom: 1px solid var(--v5-line);
+}
+
+.v5-drawer-row > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.v5-drawer-row strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.v5-drawer-row span {
+  color: var(--v5-muted);
+  font-size: 10px;
+}
+
+.v5-drawer-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.v5-drawer-row-actions button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--v5-line);
+  border-radius: 6px;
+  background: var(--v5-surface);
+  color: var(--v5-green);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.v5-drawer-row-actions button[aria-pressed="true"] {
+  border-color: #b9d5c7;
+  background: var(--v5-green-soft);
+}
+
+.v5-drawer-empty {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  margin: 0;
+  color: var(--v5-muted);
+  font-size: 12px;
+}
+
 .v5-today-aside,
 .v5-growth-aside,
 .v5-desktop-rail {
@@ -964,6 +1159,19 @@
 
   .v5-protocol-backdrop {
     place-items: center;
+  }
+
+  .v5-list-backdrop {
+    place-items: center;
+    padding: 24px;
+  }
+
+  .v5-list-dialog {
+    width: min(100%, 680px);
+    max-height: min(80vh, 760px);
+    padding: 18px;
+    border-radius: 8px;
+    box-shadow: 0 20px 54px rgb(21 35 30 / 22%);
   }
 }
 

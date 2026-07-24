@@ -62,6 +62,7 @@ export function getTierUpgradeXp(difficulty: Difficulty, from: TierLevel, to: Ti
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 const dateString = z.string().regex(datePattern, '日期必须使用 YYYY-MM-DD')
+const scheduledTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, '时间必须使用 HH:mm')
 const timestamp = z.string().datetime()
 
 export const ScheduleSchema = z.discriminatedUnion('kind', [
@@ -207,6 +208,7 @@ const CoachPlanNewBehaviorSchema = z.object({
   role: z.enum(coachBehaviorRoles),
   source: z.literal('new'),
   title: z.string().trim().max(60),
+  scheduledTime: scheduledTime.optional(),
   cue: z.string().trim().max(80),
   protocol: z.string().trim().max(280),
   domain: z.enum(growthDomains),
@@ -299,6 +301,7 @@ export const ActivitySchema = z
   .object({
     id: z.string().min(1),
     title: z.string().trim().min(1).max(60),
+    scheduledTime: scheduledTime.optional(),
     cue: z.string().trim().min(1).max(80).optional(),
     protocol: z.string().trim().min(1).max(280).optional(),
     type: z.enum(['habit', 'task']),
@@ -350,6 +353,15 @@ export const ActivitySchema = z
   })
 
 export type Activity = z.infer<typeof ActivitySchema>
+
+export function parseScheduledTime(cue?: string) {
+  const match = cue?.match(/(?:^|\D)([01]\d|2[0-3]):([0-5]\d)(?:\D|$)/)
+  return match ? `${match[1]}:${match[2]}` : undefined
+}
+
+export function getActivityScheduledTime(activity: Pick<Activity, 'scheduledTime' | 'cue'>) {
+  return activity.scheduledTime ?? parseScheduledTime(activity.cue)
+}
 
 export const IncrementalProgressSchema = z.object({
   mode: z.literal('weekly_incremental'),
@@ -662,6 +674,10 @@ export const MetaSchema = z.object({
   targetRewardId: z.string().min(1).optional(),
   gameDayBoundaryActivatedAt: timestamp.optional(),
   growthDomainSystem: z.object({ version: z.literal(1), activatedAt: timestamp }).optional(),
+  todayActionPriority: z.object({
+    gameDate: dateString,
+    activityIds: z.array(z.string().min(1)).max(5).refine((ids) => new Set(ids).size === ids.length, '今日优先行动不能重复'),
+  }).optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [

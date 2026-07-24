@@ -41,6 +41,7 @@ import {
   getTierCount,
   getTierLevels,
   getIncrementalCycleGoal,
+  getActivityScheduledTime,
   isDurationGoal,
   isTieredGoal,
   isIncrementalGoal,
@@ -169,6 +170,75 @@ export async function currentGameDate(database = db, now = new Date()) {
   return effectiveGameDate(now, activatedAt)
 }
 
+export async function getTodayActionPriority(occurredOn?: string, database = db) {
+  const gameDate = occurredOn ?? await currentGameDate(database)
+  const storedMeta = await database.settings.get('meta')
+  const storedPriority = storedMeta?.key === 'meta' ? storedMeta.value.todayActionPriority : undefined
+  if (!storedPriority || storedPriority.gameDate !== gameDate) return []
+  const activities = await database.activities.bulkGet(storedPriority.activityIds)
+  return storedPriority.activityIds.filter((id, index) => {
+    const activity = activities[index]
+    return Boolean(
+      activity
+      && activity.enabled
+      && !activity.archivedAt
+      && activity.type === 'habit'
+      && activity.schedule.kind === 'daily'
+      && !activity.isKey
+      && !getActivityScheduledTime(activity),
+    )
+  })
+}
+
+export async function setTodayActionPriority(
+  activityId: string,
+  prioritized: boolean,
+  occurredOn?: string,
+  database = db,
+) {
+  const gameDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.activities, database.settings, async () => {
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta.value : {}
+    const currentIds = meta.todayActionPriority?.gameDate === gameDate
+      ? await getTodayActionPriority(gameDate, database)
+      : []
+    const existingIndex = currentIds.indexOf(activityId)
+    let nextIds = currentIds.filter((id) => id !== activityId)
+    let replacedActivityId: string | undefined
+
+    if (prioritized) {
+      const activity = await database.activities.get(activityId)
+      if (
+        !activity
+        || !activity.enabled
+        || activity.archivedAt
+        || activity.type !== 'habit'
+        || activity.schedule.kind !== 'daily'
+        || activity.isKey
+        || getActivityScheduledTime(activity)
+      ) {
+        throw new Error('只有启用中的无固定时间普通每日习惯可以设为今天优先')
+      }
+      if (existingIndex >= 0) return { activityIds: currentIds, replacedActivityId }
+      nextIds = [...nextIds, activityId]
+      if (nextIds.length > 5) replacedActivityId = nextIds.shift()
+    }
+
+    await database.settings.put({
+      key: 'meta',
+      value: {
+        ...meta,
+        todayActionPriority: {
+          gameDate,
+          activityIds: nextIds,
+        },
+      },
+    })
+    return { activityIds: nextIds, replacedActivityId }
+  })
+}
+
 export async function getGrowthDomainMigrationCandidates(database = db, now = new Date()) {
   const today = await currentGameDate(database, now)
   const [activities, completions] = await Promise.all([database.activities.toArray(), database.completions.toArray()])
@@ -279,6 +349,7 @@ export async function activateCoachPlanDraft(
       ? [ActivitySchema.parse({
           id: `coach-activity:${draft.id}:${behavior.id}`,
           title: behavior.title,
+          scheduledTime: behavior.schedule.kind === 'daily' ? behavior.scheduledTime : undefined,
           cue: behavior.cue,
           protocol: behavior.protocol,
           type: 'habit',
@@ -431,6 +502,7 @@ export type NewActivity = Omit<Activity, 'id' | 'createdAt'>
 export const stableLifeBlueprint: readonly NewActivity[] = [
   {
     title: '晨间唤醒',
+    scheduledTime: '07:30',
     cue: '07:30 起床后、查看信息前',
     protocol: '基础：离床、接触自然光并喝水。标准：增加阳台或户外光照和轻微活动。',
     type: 'habit',
@@ -455,6 +527,7 @@ export const stableLifeBlueprint: readonly NewActivity[] = [
   },
   {
     title: '夜间收尾',
+    scheduledTime: '23:00',
     cue: '23:00',
     protocol: '基础：写下未完成事项和明天第一个动作。标准：停止工作、手机离开床边，准备 23:30 入睡。',
     type: 'habit',
@@ -613,7 +686,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
   }, database)
 }
 
-export type HabitUpdate = Pick<Activity, 'title' | 'cue' | 'protocol' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
+export type HabitUpdate = Pick<Activity, 'title' | 'scheduledTime' | 'cue' | 'protocol' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
 export async function updateHabit(activityId: string, input: HabitUpdate, database = db, occurredOn?: string) {
   return database.transaction('rw', database.activities, database.completions, database.settings, async () => {

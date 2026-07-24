@@ -76,6 +76,17 @@ describe('领域规则', () => {
     expect(gameDate(new Date(2028, 2, 1, 4, 0))).toBe('2028-03-01')
   })
 
+  it('每日行动执行时间只接受规范 HH:mm', () => {
+    const baseActivity = {
+      id: 'timed-habit', title: '定时习惯', type: 'habit', domain: 'health', difficulty: '简单',
+      goal: { count: 1, unit: '次' }, schedule: { kind: 'daily' }, isKey: false, enabled: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    expect(ActivitySchema.parse({ ...baseActivity, scheduledTime: '07:30' }).scheduledTime).toBe('07:30')
+    expect(() => ActivitySchema.parse({ ...baseActivity, scheduledTime: '7:30' })).toThrow('HH:mm')
+    expect(() => ActivitySchema.parse({ ...baseActivity, scheduledTime: '24:00' })).toThrow('HH:mm')
+  })
+
   it('三层时间或次数阈值必须严格递增', () => {
     expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] })).toBeTruthy()
     expect(TieredGoalSchema.parse({ kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '秒', thresholds: [30, 60, 90] })).toBeTruthy()
