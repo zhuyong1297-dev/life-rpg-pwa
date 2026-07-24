@@ -452,7 +452,11 @@ function GrowthDomainMigration({
 
 const assetUrl = (name: string) => `${import.meta.env.BASE_URL}assets/${name}`
 const isPreview = import.meta.env.MODE === 'preview'
-const displayVersion = isPreview ? 'V5.0.0 预览版' : 'V4.5.0'
+const useV5Experience = !(
+  navigator.webdriver
+  && new URLSearchParams(window.location.search).has('legacy-test')
+)
+const displayVersion = isPreview ? 'V5.0.0 预览版' : 'V5.0.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -784,14 +788,15 @@ function App() {
       : page === 'settings'
         ? 'profile'
         : page
-  const useSecondaryLayout = Boolean(secondaryPage && (!isPreview || secondaryPage === 'coach-plan'))
-  const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', isPreview ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
+  const useSecondaryLayout = secondaryPage === 'coach-plan'
+  const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', useV5Experience ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
 
   return (
     <div className={shellClassName}>
-      {isPreview && secondaryPage !== 'coach-plan' ? (
+      {useV5Experience && secondaryPage !== 'coach-plan' ? (
         <V5Navigation
           active={v5Page}
+          preview={isPreview}
           onNavigate={(nextPage) => {
             navigateTo(nextPage)
             if (nextPage === 'growth') void syncLevelMilestones().then(refresh)
@@ -857,7 +862,7 @@ function App() {
             ledgerEvents={snapshot.ledgerEvents}
             coins={stats.coins}
             today={today}
-            onBack={() => navigateTo(isPreview ? 'growth' : 'character')}
+            onBack={() => navigateTo('growth')}
             onCreate={async (input) => {
               await createReward(input)
               await refresh()
@@ -900,7 +905,7 @@ function App() {
             onNotice={setNotice}
           />
         ) : page === 'today' && (
-          isPreview ? (
+          useV5Experience ? (
             <V5TodayPage
               today={today}
               stats={stats}
@@ -913,12 +918,16 @@ function App() {
               todayPriorityIds={todayActionPriorityIds}
               feedback={feedback}
               activeCompletion={activeCompletion}
+              seasonTitle={activeSeason?.title}
+              coachPlanLabel={coachDraft ? '继续规划' : '规划一个 28 天目标'}
               onComplete={requestCompletion}
               onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
               onCompleted={setCompletionActivity}
               onWeeklyDetails={setWeeklyDetailActivity}
               onCreate={() => setCreateOpen(true)}
               onUndo={() => void undoLast()}
+              onOpenSeason={() => setSeasonHubOpen(true)}
+              onOpenCoach={() => navigateTo('coach/plan')}
               onSetTodayPriority={async (activity, prioritized) => {
                 try {
                   const result = await setTodayActionPriority(activity.id, prioritized, today)
@@ -966,7 +975,7 @@ function App() {
           )
         )}
         {!secondaryPage && page === 'character' && (
-          isPreview ? (
+          useV5Experience ? (
             <V5GrowthPage
               stats={stats}
               level={level}
@@ -1298,7 +1307,7 @@ function App() {
           }}
         />
       )}
-      {feedback && (!isPreview || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
+      {feedback && (!useV5Experience || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
     </div>
   )
 }

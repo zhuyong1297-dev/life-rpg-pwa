@@ -149,10 +149,12 @@ const domainTones: Record<GrowthDomain, string> = {
 
 export function V5Navigation({
   active,
+  preview,
   onNavigate,
   onCreate,
 }: {
   active: V5Page
+  preview: boolean
   onNavigate: (page: V5Page) => void
   onCreate: () => void
 }) {
@@ -161,7 +163,7 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>V5 真实预览</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5 预览版' : 'V5.0.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
@@ -175,7 +177,7 @@ export function V5Navigation({
           <Plus size={18} />
           创建行动
         </button>
-        <div className="v5-data-note"><strong>真实预览数据</strong><span>与正式版完全分开</span></div>
+        {preview && <div className="v5-data-note"><strong>真实预览数据</strong><span>与正式版完全分开</span></div>}
       </aside>
       <nav className="v5-mobile-navigation" aria-label="主要导航">
         {navItems.map(({ page, label, icon: Icon }) => (
@@ -201,12 +203,16 @@ export function V5TodayPage({
   todayPriorityIds,
   feedback,
   activeCompletion,
+  seasonTitle,
+  coachPlanLabel,
   onComplete,
   onCompleteTier,
   onCompleted,
   onWeeklyDetails,
   onCreate,
   onUndo,
+  onOpenSeason,
+  onOpenCoach,
   onSetTodayPriority,
 }: {
   today: string
@@ -220,12 +226,16 @@ export function V5TodayPage({
   todayPriorityIds: string[]
   feedback: V5FeedbackView | null
   activeCompletion: (activity: Activity) => Completion | undefined
+  seasonTitle?: string
+  coachPlanLabel: string
   onComplete: (activity: Activity) => void
   onCompleteTier: (activity: Activity, tier: TierLevel) => void
   onCompleted: (activity: Activity) => void
   onWeeklyDetails: (activity: Activity) => void
   onCreate: () => void
   onUndo: () => void
+  onOpenSeason: () => void
+  onOpenCoach: () => void
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
   const [minute, setMinute] = useState(() => currentMinute())
@@ -297,6 +307,12 @@ export function V5TodayPage({
           coins={stats.coins}
           completed={completedKeyCount}
           total={keyActivities.length}
+        />
+        <V5PlanEntry
+          seasonTitle={seasonTitle}
+          coachPlanLabel={coachPlanLabel}
+          onOpenSeason={onOpenSeason}
+          onOpenCoach={onOpenCoach}
         />
 
         <section className="v5-section">
@@ -572,16 +588,45 @@ function V5StatusStrip({
   )
 }
 
+function V5PlanEntry({
+  seasonTitle,
+  coachPlanLabel,
+  onOpenSeason,
+  onOpenCoach,
+}: {
+  seasonTitle?: string
+  coachPlanLabel: string
+  onOpenSeason: () => void
+  onOpenCoach: () => void
+}) {
+  const managingSeason = Boolean(seasonTitle)
+  return (
+    <button
+      className="v5-plan-entry"
+      type="button"
+      aria-label={managingSeason ? '管理当前成长赛季' : coachPlanLabel}
+      onClick={managingSeason ? onOpenSeason : onOpenCoach}
+    >
+      <ClipboardCheck size={20} />
+      <span>
+        <small>{managingSeason ? '本赛季' : '28 天目标'}</small>
+        <strong>{seasonTitle ?? coachPlanLabel}</strong>
+      </span>
+      <ChevronRight size={18} />
+    </button>
+  )
+}
+
 function V5Feedback({ feedback, onUndo }: { feedback: V5FeedbackView; onUndo: () => void }) {
   return (
     <div className="v5-feedback" role="status" aria-live="assertive">
       <span className="v5-feedback-icon"><Check size={18} /></span>
       <div>
         <strong>{feedback.leveledUp ? `升级到 Lv.${feedback.level.level}` : feedback.title}</strong>
-        <span>
-          {feedback.progressLabel ?? domainLabel(feedback.domain)}
-          {feedback.xp > 0 && ` · +${feedback.xp} XP`}
-          {feedback.coins > 0 && ` · +${feedback.coins} 金币`}
+        <span>{feedback.progressLabel ?? domainLabel(feedback.domain)}</span>
+        <span className="v5-feedback-reward">
+          {feedback.xp > 0 && <b>+{feedback.xp} XP</b>}
+          {feedback.coins > 0 && <b>+{feedback.coins} 金币</b>}
         </span>
       </div>
       <button type="button" onClick={onUndo}><RotateCcw size={16} />撤销</button>
@@ -636,7 +681,7 @@ function V5FocusAction({
           ))}
         </div>
       ) : (
-        <button className="v5-primary-button v5-wide" type="button" onClick={onComplete}>记录完成</button>
+        <button className="v5-primary-button v5-wide" type="button" aria-label={`完成 ${activity.title}`} onClick={onComplete}>记录完成</button>
       )}
       {protocolOpen && (
         <div className="v5-protocol-backdrop" role="presentation" onClick={() => setProtocolOpen(false)}>
@@ -777,7 +822,7 @@ function V5CompactActionRow({
         <strong>{activity.title}</strong>
         <span>{meta}</span>
       </div>
-      <button type="button" className={completion ? 'done' : ''} onClick={onClick} aria-label={completion ? `查看 ${activity.title} 完成记录` : `记录 ${activity.title}`}>
+      <button type="button" className={completion ? 'done' : ''} onClick={onClick} aria-label={completion ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
         {completion ? <Check size={18} /> : <ChevronRight size={19} />}
       </button>
     </article>

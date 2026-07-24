@@ -21,7 +21,7 @@ const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().in
 export const BackupSchema = z
   .object({
     schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0'), z.literal('4.5.0')]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0'), z.literal('4.5.0'), z.literal('5.0.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
@@ -45,7 +45,7 @@ export const BackupSchema = z
       8: ['4.1.0'],
       9: ['4.2.0', '4.3.0'],
       10: ['4.4.0'],
-      11: ['4.5.0'],
+      11: ['4.5.0', '5.0.0'],
     }
     if (!compatibleAppVersions[backup.schemaVersion].includes(backup.appVersion)) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
@@ -94,7 +94,7 @@ export async function createBackup(database: LifeRpgDatabase = db): Promise<Back
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
     schemaVersion: 11,
-    appVersion: '4.5.0',
+    appVersion: '5.0.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,

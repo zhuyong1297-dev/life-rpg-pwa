@@ -8,9 +8,9 @@ async function createVisualActivity(page: Page, title: string, isKey = false) {
 }
 
 async function openApp(page: Page) {
-  await page.goto('./')
+  await page.goto('./?legacy-test=1')
   const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
-  const today = page.getByRole('heading', { name: '今天' })
+  const today = page.getByRole('heading', { name: '今天', exact: true })
   await Promise.race([wizard.waitFor(), today.waitFor()])
   if (await wizard.isVisible()) {
     await page.getByRole('button', { name: '启用新领域体系' }).click()
@@ -23,7 +23,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 test('旧活动必须逐项确认并可定位遗漏项后才进入 V4', async ({ page }, testInfo) => {
-  await page.goto('./')
+  await page.goto('./?legacy-test=1')
   await expect(page.getByRole('heading', { name: '建立六个成长领域' })).toBeVisible()
   await page.evaluate(async () => {
     const request = indexedDB.open('earth-online-v2')
@@ -60,7 +60,7 @@ test('旧活动必须逐项确认并可定位遗漏项后才进入 V4', async ({
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/domain-migration-${testInfo.project.name}.png`, fullPage: true })
   await page.getByRole('button', { name: '启用新领域体系' }).click()
-  await expect(page.getByRole('heading', { name: '今天' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
   const migratedCard = page.locator('.mission-card').filter({ hasText: '最后一个待确认活动' })
   await expect(migratedCard).toContainText('创作')
   await expect(migratedCard).toContainText('每天')

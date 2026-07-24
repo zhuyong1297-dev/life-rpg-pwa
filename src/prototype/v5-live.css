@@ -146,6 +146,45 @@
   font-size: 20px;
 }
 
+.v5-plan-entry {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--v5-line);
+  border-radius: 8px;
+  background: var(--v5-surface);
+  color: var(--v5-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.v5-plan-entry > svg:first-child {
+  color: var(--v5-green);
+}
+
+.v5-plan-entry > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.v5-plan-entry small {
+  color: var(--v5-muted);
+}
+
+.v5-plan-entry strong {
+  overflow-wrap: anywhere;
+}
+
+.v5-plan-entry > svg:last-child {
+  color: var(--v5-muted);
+  transition: transform var(--v5-duration) var(--v5-ease);
+}
+
 .v5-section {
   margin-top: 22px;
 }
@@ -203,6 +242,16 @@
 .v5-feedback span {
   color: var(--v5-muted);
   font-size: 11px;
+}
+
+.v5-feedback-reward {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.v5-feedback-reward b {
+  color: var(--v5-gold);
 }
 
 .v5-feedback button,
@@ -1313,6 +1362,7 @@
 }
 
 .v5-feature-row > svg:last-child,
+.v5-plan-entry > svg:last-child,
 .v5-completed-summary > svg:last-child,
 .v5-preview-shell :is(.feature-summary, .activity-management-summary, .season-summary) > svg:last-child {
   transition: transform var(--v5-duration) var(--v5-ease);
@@ -1320,6 +1370,7 @@
 
 .v5-preview-shell :is(
   .v5-feature-row,
+  .v5-plan-entry,
   .v5-domain-card,
   .v5-completed-summary,
   .feature-summary,
@@ -1368,6 +1419,7 @@
 
   .v5-preview-shell :is(
     .v5-feature-row,
+    .v5-plan-entry,
     .v5-domain-card,
     .v5-completed-summary,
     .feature-summary,
@@ -1380,6 +1432,7 @@
   }
 
   .v5-feature-row:hover > svg:last-child,
+  .v5-plan-entry:hover > svg:last-child,
   .v5-completed-summary:hover > svg:last-child,
   .v5-domain-card:hover > div:first-child > svg:last-child,
   .v5-preview-shell :is(.feature-summary, .activity-management-summary, .season-summary):hover > svg:last-child {

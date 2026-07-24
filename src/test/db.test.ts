@@ -1048,7 +1048,7 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '4.5.0', rewardClaims: [], seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '5.0.0', rewardClaims: [], seasons: [{ id: season.id }] })
     expect(current.activities.find((item) => item.id === timedActivity.id)?.scheduledTime).toBe('21:30')
     expect(current.settings.find((setting) => setting.key === 'meta')).toMatchObject({ value: { todayActionPriority: { gameDate: '2026-01-05', activityIds: [priorityActivity.id] } } })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
