@@ -1,6 +1,8 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { gameDayMinute, getV5DomainGrowthDetail, orderDailyActions, orderFocusCandidates, parseCueMinute } from '../prototype/V5Experience'
-import type { Activity, JourneyEntry, JourneyMonth } from '../domain'
+import { gameDayMinute, getV5DomainGrowthDetail, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage } from '../prototype/V5Experience'
+import { getLevel, type Activity, type JourneyEntry, type JourneyMonth } from '../domain'
 
 const baseActivity: Activity = {
   id: 'base',
@@ -127,6 +129,26 @@ function journeyMonth(month: string, entries: JourneyEntry[]): JourneyMonth {
 }
 
 describe('V5 成长领域详情', () => {
+  it('成长主卡承载总数值且页面不再渲染旧总成长信息行', () => {
+    const markup = renderToStaticMarkup(createElement(V5GrowthPage, {
+      stats: {
+        totalXp: 75,
+        coins: 41,
+        domainXp: { health: 11, learning: 0, creation: 50, career: 6, life: 3, mindset: 0 },
+      },
+      level: getLevel(75),
+      journeyMonths: [],
+      today: '2026-07-24',
+      onCreate: () => undefined,
+      onOpenRewards: () => undefined,
+    }))
+
+    expect(markup).toContain('累计成长')
+    expect(markup).toContain('持有金币')
+    expect(markup).not.toContain('总成长')
+    expect(markup).not.toContain('当前持有')
+  })
+
   it('只汇总最近 28 个游戏日内同领域的有效行动', () => {
     const details = getV5DomainGrowthDetail('health', 75, [
       journeyMonth('2026-07', [
