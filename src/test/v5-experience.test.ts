@@ -1,8 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { gameDayMinute, getV5DomainGrowthDetail, getV5FeedbackDisplay, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage, type V5FeedbackView } from '../prototype/V5Experience'
-import { getLevel, type Activity, type JourneyEntry, type JourneyMonth } from '../domain'
+import { gameDayMinute, getV5DomainGrowthDetail, getV5FeedbackDisplay, getV5NextTier, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage, type V5FeedbackView } from '../prototype/V5Experience'
+import { getLevel, type Activity, type Completion, type JourneyEntry, type JourneyMonth } from '../domain'
 
 const baseActivity: Activity = {
   id: 'base',
@@ -95,6 +95,43 @@ describe('V5 每日行动工作台排序', () => {
     ], 14 * 60, ['first-flexible', 'second-flexible'])
 
     expect(ordered.map((item) => item.id)).toEqual(['second-flexible', 'first-flexible', 'timed'])
+  })
+})
+
+describe('V5 分层行动状态', () => {
+  const tieredGoal: Extract<Activity['goal'], { kind: 'tiered'; metric: 'count' }> = {
+    kind: 'tiered',
+    metric: 'count',
+    unit: '次',
+    thresholds: [1, 2, 3],
+  }
+  const tieredActivity: Activity = {
+    ...baseActivity,
+    goal: tieredGoal,
+  }
+  const completion: Completion = {
+    id: 'completion-tiered',
+    activityId: tieredActivity.id,
+    occurredOn: '2026-07-24',
+    status: 'active',
+    tier: 1,
+    tierGoalSnapshot: tieredGoal,
+    createdAt: '2026-07-24T08:00:00.000Z',
+  }
+
+  it('达到基础层后仍返回下一层，达到最高层后才结束', () => {
+    expect(getV5NextTier(tieredActivity, completion)).toBe(2)
+    expect(getV5NextTier(tieredActivity, { ...completion, tier: 2 })).toBe(3)
+    expect(getV5NextTier(tieredActivity, { ...completion, tier: 3 })).toBeUndefined()
+  })
+
+  it('使用完成时的目标快照，不受之后编辑活动层数影响', () => {
+    const editedActivity: Activity = {
+      ...tieredActivity,
+      goal: { kind: 'tiered', metric: 'count', unit: '次', thresholds: [1, 2] },
+    }
+    expect(getV5NextTier(editedActivity, completion)).toBe(2)
+    expect(getV5NextTier(editedActivity, { ...completion, tier: 2 })).toBe(3)
   })
 })
 

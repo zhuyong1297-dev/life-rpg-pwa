@@ -37,6 +37,7 @@ import {
   getCharacterStage,
   getCharacterStageName,
   getActivityScheduledTime,
+  getCompletionTierGoal,
   getIncrementalCycleGoal,
   getLevel,
   getMilestoneVoucherCost,
@@ -71,6 +72,20 @@ export interface V5FeedbackView {
   level: ReturnType<typeof getLevel>
   leveledUp?: boolean
   followUp?: { kind: 'daily-signal'; seasonId: string }
+}
+
+export function getV5NextTier(activity: Activity, completion?: Completion): TierLevel | undefined {
+  if (!completion?.tier) return undefined
+  const goal = getCompletionTierGoal(completion, activity)
+  if (!goal) return undefined
+  return getTierLevels(goal).find((tier) => tier > completion.tier!)
+}
+
+function v5TierProgressLabel(activity: Activity, completion: Completion) {
+  const nextTier = getV5NextTier(activity, completion)
+  return nextTier
+    ? `${tierLabels[completion.tier!]}已达标 · 可升级${tierLabels[nextTier]}`
+    : `${tierLabel(completion)}已完成`
 }
 
 export function getV5FeedbackDisplay(feedback: V5FeedbackView, condensed: boolean) {
@@ -704,6 +719,7 @@ function V5FocusAction({
   const [protocolOpen, setProtocolOpen] = useState(false)
   const goal = isTieredGoal(activity) ? activity.goal : undefined
   const tiers = goal ? getTierLevels(goal).slice(0, 2) : []
+  const nextTier = getV5NextTier(activity, completion)
   const summary = activity.protocol?.split(/[。；]/)[0] || activity.cue || '完成当前行动的最低标准。'
   return (
     <article className={`v5-focus-action${completion ? ' completed' : ''}`}>
@@ -719,11 +735,14 @@ function V5FocusAction({
         </div>
       </div>
       <div className="v5-focus-title">
-        <div><h3>{activity.title}</h3><p>{completion ? '本次已经记录，可从完成详情继续升级。' : summary}</p></div>
+        <div><h3>{activity.title}</h3><p>{completion ? nextTier ? `已经达到${tierLabels[completion.tier!]}层，今天仍可继续升级。` : '今天的目标已经完成。' : summary}</p></div>
         {canSwitch && <button type="button" onClick={onSwitch}>换一个</button>}
       </div>
       {completion ? (
-        <div className="v5-completed-line"><Check size={18} />已记录{completion.tier ? `${tierLabels[completion.tier]}层` : '完成'}</div>
+        <div className={`v5-completed-line${nextTier ? ' upgradeable' : ''}`}>
+          {nextTier ? <Sparkles size={18} /> : <Check size={18} />}
+          {v5TierProgressLabel(activity, completion)}
+        </div>
       ) : goal ? (
         <div className="v5-focus-actions">
           {tiers.map((tier) => (
@@ -759,13 +778,14 @@ function V5TimelineRow({
   onClick: () => void
 }) {
   const cueMinute = activityScheduledMinute(activity)
+  const nextTier = getV5NextTier(activity, completion)
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
-      <button className={completion ? 'done' : ''} type="button" onClick={onClick} aria-label={completion ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
-        {completion ? <Check size={19} /> : <Clock3 size={18} />}
+      <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
+        {completion ? nextTier ? <Sparkles size={18} /> : <Check size={19} /> : <Clock3 size={18} />}
       </button>
-      <div><strong>{activity.title}</strong><span>{completion ? `${tierLabel(completion)}已完成` : activity.cue ?? '等待执行'}</span></div>
+      <div><strong>{activity.title}</strong><span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span></div>
     </div>
   )
 }
@@ -789,7 +809,7 @@ function V5DailySection({
   onCompleted: (activity: Activity) => void
   onSetPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
-  const [drawerTab, setDrawerTab] = useState<'pending' | 'completed'>()
+  const [drawerTab, setDrawerTab] = useState<'pending' | 'upgradeable' | 'completed'>()
   const [heldCompletedId, setHeldCompletedId] = useState<string>()
 
   useEffect(() => {
@@ -802,11 +822,22 @@ function V5DailySection({
   if (activities.length === 0) return null
   const completed = activities.filter((activity) => Boolean(activeCompletion(activity)))
   const pending = orderDailyActions(
-    activities.filter((activity) => !activeCompletion(activity) || activity.id === heldCompletedId),
+    activities.filter((activity) => !activeCompletion(activity)),
     minute,
     priorityIds,
   )
-  const visible = pending.slice(0, 5)
+  const upgradeable = orderDailyActions(
+    activities.filter((activity) => getV5NextTier(activity, activeCompletion(activity))),
+    minute,
+    priorityIds,
+  )
+  const heldCompleted = activities.filter((activity) => (
+    activity.id === heldCompletedId
+    && Boolean(activeCompletion(activity))
+    && !upgradeable.some((candidate) => candidate.id === activity.id)
+  ))
+  const actionable = [...pending, ...upgradeable, ...heldCompleted]
+  const visible = actionable.slice(0, 5)
   return (
     <section className="v5-section v5-action-section">
       <div className="v5-section-count">
@@ -822,15 +853,15 @@ function V5DailySection({
           onClick={() => activeCompletion(activity) ? onCompleted(activity) : onComplete(activity)}
         />
       ))}
-      {pending.length > 5 && (
+      {actionable.length > 5 && (
         <button className="v5-text-button" type="button" onClick={() => setDrawerTab('pending')}>
-          查看全部 {pending.filter((activity) => !activeCompletion(activity)).length} 项待行动
+          查看完整清单 · {pending.length} 项待行动，{upgradeable.length} 项可提升
         </button>
       )}
       {completed.length > 0 && (
         <button className="v5-completed-summary" type="button" onClick={() => setDrawerTab('completed')}>
           <Check size={17} />
-          <span>今日已完成 {completed.length} 项</span>
+          <span>今日已达标 {completed.length} 项{upgradeable.length > 0 ? ` · ${upgradeable.length} 项仍可提升` : ''}</span>
           <ChevronRight size={17} />
         </button>
       )}
@@ -868,14 +899,16 @@ function V5CompactActionRow({
   meta: string
   onClick: () => void
 }) {
+  const nextTier = getV5NextTier(activity, completion)
   return (
-    <article className={`v5-compact-action${completion ? ' completed' : ''}`}>
+    <article className={`v5-compact-action${completion ? ' completed' : ''}${nextTier ? ' upgradeable' : ''}`}>
       <div>
         <strong>{activity.title}</strong>
         <span>{meta}</span>
+        {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
       </div>
-      <button type="button" className={completion ? 'done' : ''} onClick={onClick} aria-label={completion ? `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
-        {completion ? <Check size={18} /> : <ChevronRight size={19} />}
+      <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
+        {completion ? nextTier ? <Sparkles size={18} /> : <Check size={18} /> : <ChevronRight size={19} />}
       </button>
     </article>
   )
@@ -927,7 +960,7 @@ function V5DailyDrawer({
 }: {
   activities: Activity[]
   activeCompletion: (activity: Activity) => Completion | undefined
-  initialTab: 'pending' | 'completed'
+  initialTab: 'pending' | 'upgradeable' | 'completed'
   minute: number
   priorityIds: string[]
   onClose: () => void
@@ -939,7 +972,12 @@ function V5DailyDrawer({
   const [query, setQuery] = useState('')
   const pending = orderDailyActions(activities.filter((activity) => !activeCompletion(activity)), minute, priorityIds)
   const completed = activities.filter((activity) => Boolean(activeCompletion(activity)))
-  const source = tab === 'pending' ? pending : completed
+  const upgradeable = orderDailyActions(
+    activities.filter((activity) => getV5NextTier(activity, activeCompletion(activity))),
+    minute,
+    priorityIds,
+  )
+  const source = tab === 'pending' ? pending : tab === 'upgradeable' ? upgradeable : completed
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
   const visible = normalizedQuery
     ? source.filter((activity) => [
@@ -950,9 +988,10 @@ function V5DailyDrawer({
     : source
   return (
     <V5ModalSurface title="今日行动" onClose={onClose}>
-      <div className="v5-drawer-tabs" role="tablist" aria-label="今日行动状态">
+      <div className="v5-drawer-tabs three" role="tablist" aria-label="今日行动状态">
         <button type="button" role="tab" aria-selected={tab === 'pending'} className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>待行动 {pending.length}</button>
-        <button type="button" role="tab" aria-selected={tab === 'completed'} className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>已完成 {completed.length}</button>
+        <button type="button" role="tab" aria-selected={tab === 'upgradeable'} className={tab === 'upgradeable' ? 'active' : ''} onClick={() => setTab('upgradeable')}>可提升 {upgradeable.length}</button>
+        <button type="button" role="tab" aria-selected={tab === 'completed'} className={tab === 'completed' ? 'active' : ''} onClick={() => setTab('completed')}>已达标 {completed.length}</button>
       </div>
       {activities.length > 12 && (
         <label className="v5-drawer-search">
@@ -964,6 +1003,7 @@ function V5DailyDrawer({
       <div className="v5-drawer-list">
         {visible.map((activity) => {
           const completion = activeCompletion(activity)
+          const nextTier = getV5NextTier(activity, completion)
           const scheduled = getActivityScheduledTime(activity)
           const prioritized = priorityIds.includes(activity.id)
           return (
@@ -971,6 +1011,7 @@ function V5DailyDrawer({
               <div>
                 <strong>{activity.title}</strong>
                 <span>{scheduled ?? '随时'} · {activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty}</span>
+                {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
               </div>
               <div className="v5-drawer-row-actions">
                 {!completion && !scheduled && (
@@ -985,13 +1026,13 @@ function V5DailyDrawer({
                   </button>
                 )}
                 <button type="button" onClick={() => completion ? onCompleted(activity) : onComplete(activity)}>
-                  {completion ? '查看' : '记录'}
+                  {completion ? nextTier ? '继续提升' : '查看' : '记录'}
                 </button>
               </div>
             </article>
           )
         })}
-        {visible.length === 0 && <p className="v5-drawer-empty">{query ? '没有匹配的行动' : tab === 'pending' ? '今天的行动已经完成' : '今天还没有完成记录'}</p>}
+        {visible.length === 0 && <p className="v5-drawer-empty">{query ? '没有匹配的行动' : tab === 'pending' ? '今天没有待行动项目' : tab === 'upgradeable' ? '当前没有可继续提升的行动' : '今天还没有达标记录'}</p>}
       </div>
     </V5ModalSurface>
   )

@@ -335,6 +335,13 @@
   background: var(--v5-green-soft);
 }
 
+.v5-timeline-row > button.upgradeable,
+.v5-compact-action > button.upgradeable {
+  border-color: #d1a532;
+  background: #fff7df;
+  color: #946b05;
+}
+
 .v5-timeline-row > div,
 .v5-compact-action > div {
   display: flex;
@@ -497,6 +504,10 @@
   font-weight: 700;
 }
 
+.v5-completed-line.upgradeable {
+  color: #946b05;
+}
+
 .v5-protocol-backdrop {
   position: fixed;
   z-index: 80;
@@ -585,8 +596,18 @@
   border-bottom: 1px solid var(--v5-line);
 }
 
-.v5-compact-action.completed {
+.v5-compact-action.completed:not(.upgradeable) {
   opacity: .72;
+}
+
+.v5-compact-action.upgradeable {
+  border-bottom-color: #d9c892;
+}
+
+.v5-compact-action .v5-action-progress,
+.v5-drawer-row .v5-action-progress {
+  color: #946b05;
+  font-weight: 700;
 }
 
 .v5-weekly-row {
@@ -746,6 +767,10 @@
   padding: 3px;
   border-radius: 7px;
   background: #edf2ef;
+}
+
+.v5-drawer-tabs.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .v5-drawer-tabs button {
