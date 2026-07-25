@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createBackup, restoreBackup } from '../backup'
+import { createBackup, previewBackupRestore, restoreBackup } from '../backup'
 import {
   LifeRpgDatabase,
   activateCoachPlanDraft,
@@ -831,7 +831,7 @@ describe('IndexedDB 事务', () => {
     expect((await database.seasons.get(season.id))?.suggestions[0]).toMatchObject({ status: 'accepted' })
   })
 
-  it('今日重点可替换，赛季结束要求到期、现实证据和已响应建议', async () => {
+  it('今日重点可替换，赛季结项要求现实证据并处理已有建议', async () => {
     const first = await createActivity({ ...dailyHabit, title: '行动一', isKey: false }, database)
     const second = await createActivity({ ...dailyHabit, title: '行动二', isKey: false }, database)
     const season = await createSeason({
@@ -839,16 +839,83 @@ describe('IndexedDB 事务', () => {
     }, '2026-01-05', database)
     await setSeasonDailyFocus(season.id, [second.id], '2026-01-06', database)
     expect((await database.seasons.get(season.id))?.dailyPlans).toEqual([{ date: '2026-01-06', activityIds: [second.id] }])
-    await expect(completeSeason(season.id, '达成', '现实证据', '2026-01-20', database)).rejects.toThrow('2026-02-01')
 
     const reviewResult = await saveWeeklyReview({
       id: 'review:2026-01-05', weekStart: '2026-01-05', createdAt: '2026-01-11T12:00:00.000Z',
       items: [{ activityId: first.id, adherence: 0.8, completed: 6, planned: 7, impact: 4, friction: 2, decision: '保留' }],
     }, database)
-    await expect(completeSeason(season.id, '达成', '现实证据', '2026-02-01', database)).rejects.toThrow('至少接受')
+    await expect(completeSeason(season.id, '达成', '现实证据', { occurredOn: '2026-02-01' }, database)).rejects.toThrow('至少一条')
     await expect(respondToSeasonSuggestion(season.id, reviewResult.suggestions[0].id, 'modified', '', database)).rejects.toThrow('说明你的调整')
-    await respondToSeasonSuggestion(season.id, reviewResult.suggestions[0].id, 'modified', '把执行时间调整到早上', database)
-    expect(await completeSeason(season.id, '部分达成', '坚持率提升，并形成了更稳定的开始时间', '2026-02-01', database)).toMatchObject({ status: 'completed', finalResult: '部分达成' })
+    await respondToSeasonSuggestion(season.id, reviewResult.suggestions[0].id, 'ignored', undefined, database)
+    expect(await completeSeason(
+      season.id,
+      '部分达成',
+      '坚持率提升，并形成了更稳定的开始时间',
+      { occurredOn: '2026-02-01' },
+      database,
+    )).toMatchObject({
+      status: 'completed',
+      finalResult: '部分达成',
+      concludedOn: '2026-02-01',
+      conclusionType: 'scheduled',
+    })
+  })
+
+  it('赛季可以提前结项，保存实际天数且重复提交幂等', async () => {
+    const activity = await createActivity({ ...dailyHabit, title: '提前结项行为', isKey: false }, database)
+    const season = await createSeason({
+      title: '短期验证', successCriterion: '验证现实方向', baseline: '开始状态', targetOutcome: '目标状态', focusActivityIds: [activity.id],
+    }, '2026-01-05', database)
+    await expect(completeSeason(
+      season.id,
+      '未达成',
+      '已经获得足够证据',
+      { occurredOn: '2026-01-05' },
+      database,
+    )).rejects.toThrow('提前结项')
+    const options = { occurredOn: '2026-01-05', earlyConclusionReason: '方向不再适合，立即停止比继续打卡更有价值' }
+    const first = await completeSeason(season.id, '未达成', '已经获得足够证据', options, database)
+    const repeated = await completeSeason(season.id, '未达成', '已经获得足够证据', options, database)
+    expect(first).toMatchObject({
+      status: 'completed',
+      concludedOn: '2026-01-05',
+      conclusionType: 'early',
+      earlyConclusionReason: options.earlyConclusionReason,
+    })
+    expect(repeated).toEqual(first)
+    await expect(createSeason({
+      title: '下一赛季', successCriterion: '继续验证', baseline: '新起点', targetOutcome: '新结果', focusActivityIds: [activity.id],
+    }, '2026-01-06', database)).resolves.toMatchObject({ status: 'active' })
+  })
+
+  it.each([
+    ['第 1 天', '2026-01-05', '2026-01-05', 'early', 1],
+    ['第 7 天', '2026-02-02', '2026-02-08', 'early', 7],
+    ['第 27 天', '2026-03-02', '2026-03-28', 'early', 27],
+    ['第 28 天', '2026-04-06', '2026-05-03', 'scheduled', 28],
+  ] as const)('%s均可结项并保留正确的实际运行天数', async (_label, startsOn, occurredOn, conclusionType, durationDays) => {
+    const activity = await createActivity({ ...dailyHabit, title: `结项边界 ${startsOn}`, isKey: false }, database)
+    const season = await createSeason({
+      title: `边界赛季 ${startsOn}`,
+      successCriterion: '验证结项边界',
+      baseline: '开始状态',
+      targetOutcome: '获得现实结论',
+      focusActivityIds: [activity.id],
+    }, startsOn, database)
+    const completed = await completeSeason(
+      season.id,
+      '部分达成',
+      '已经形成足以支持结项的现实证据',
+      conclusionType === 'early'
+        ? { occurredOn, earlyConclusionReason: '实验已经提供结论，继续运行不会增加决策价值' }
+        : { occurredOn },
+      database,
+    )
+    expect(completed).toMatchObject({ concludedOn: occurredOn, conclusionType })
+    const actualDays = Math.round(
+      (new Date(`${completed.concludedOn}T12:00:00`).getTime() - new Date(`${completed.startsOn}T12:00:00`).getTime()) / 86_400_000,
+    ) + 1
+    expect(actualDays).toBe(durationDays)
   })
 
   it('只能持久取消今天的完成，重复取消幂等且之后可重做', async () => {
@@ -1004,6 +1071,27 @@ describe('IndexedDB 事务', () => {
     expect(await getSnapshot(database)).toEqual(before)
   })
 
+  it('恢复预览只计算差异，关闭或校验失败都不会写入数据库', async () => {
+    const activity = await createActivity(dailyHabit, database)
+    await completeActivity(activity.id, '2026-01-05', undefined, database)
+    const before = await getSnapshot(database)
+
+    const source = new LifeRpgDatabase(`restore-preview-source-${crypto.randomUUID()}`)
+    try {
+      await initializeDatabase(source)
+      const incoming = await createBackup(source)
+      const preview = previewBackupRestore(incoming, before)
+      expect(preview.metrics.find((metric) => metric.key === 'activities')).toMatchObject({ current: 1, incoming: 0 })
+      expect(preview.metrics.find((metric) => metric.key === 'completions')).toMatchObject({ current: 1, incoming: 0 })
+      expect(await getSnapshot(database)).toEqual(before)
+      expect(() => previewBackupRestore({ ...incoming, summary: { totalXp: 999, coins: 999 } }, before)).toThrow()
+      expect(await getSnapshot(database)).toEqual(before)
+    } finally {
+      source.close()
+      await source.delete()
+    }
+  })
+
   it('可以恢复 V2.0.0 的 schema 1 备份', async () => {
     await createActivity(dailyHabit, database)
     const current = await createBackup(database)
@@ -1048,7 +1136,7 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '5.2.1', rewardClaims: [], seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '5.3.0', rewardClaims: [], seasons: [{ id: season.id }] })
     expect(current.activities.find((item) => item.id === timedActivity.id)?.scheduledTime).toBe('21:30')
     expect(current.settings.find((setting) => setting.key === 'meta')).toMatchObject({ value: { todayActionPriority: { gameDate: '2026-01-05', activityIds: [priorityActivity.id] } } })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })

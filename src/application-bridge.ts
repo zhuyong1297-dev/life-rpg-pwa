@@ -10,7 +10,7 @@ import {
   type ApplicationTrial,
   type Completion,
 } from './domain'
-import { SeasonSchema, type Season } from './season'
+import { SeasonSchema, getSeasonEffectiveEnd, type Season } from './season'
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const timestamp = z.string().datetime()
@@ -62,6 +62,8 @@ export const ApplicationResultPackageSchema = z.object({
   period: z.object({
     startsOn: dateString,
     endsOn: dateString,
+    plannedEndsOn: dateString.optional(),
+    conclusionType: z.enum(['scheduled', 'early']).optional(),
   }).strict(),
   outcome: z.object({
     indicator: z.string().trim().min(1).max(180),
@@ -182,6 +184,7 @@ export function createSeasonResultPackage(
   const completedSeason = SeasonSchema.parse(season)
   const context = completedSeason.applicationContext
   if (completedSeason.status !== 'completed' || !context) throw new Error('这不是已完成的知识应用赛季')
+  const effectiveEnd = getSeasonEffectiveEnd(completedSeason)
   return ApplicationResultPackageSchema.parse({
     packageType: APPLICATION_RESULT_PACKAGE_TYPE,
     schemaVersion: 1,
@@ -189,7 +192,12 @@ export function createSeasonResultPackage(
     applicationId: context.applicationId,
     phase: 'season',
     sourcePackageId: context.packageId,
-    period: { startsOn: completedSeason.startsOn, endsOn: completedSeason.endsOn },
+    period: {
+      startsOn: completedSeason.startsOn,
+      endsOn: effectiveEnd,
+      plannedEndsOn: completedSeason.endsOn,
+      conclusionType: completedSeason.conclusionType ?? 'scheduled',
+    },
     outcome: {
       indicator: context.outcomeIndicator,
       baseline: completedSeason.baseline,
@@ -206,7 +214,7 @@ export function createSeasonResultPackage(
       })),
       completions,
       completedSeason.startsOn,
-      completedSeason.endsOn,
+      effectiveEnd,
     ),
     exportedAt: now.toISOString(),
   })

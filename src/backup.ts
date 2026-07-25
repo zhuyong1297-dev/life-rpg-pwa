@@ -21,7 +21,7 @@ const SummarySchema = z.object({ totalXp: z.number().int(), coins: z.number().in
 export const BackupSchema = z
   .object({
     schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11)]),
-    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0'), z.literal('4.5.0'), z.literal('5.0.0'), z.literal('5.0.1'), z.literal('5.0.2'), z.literal('5.1.0'), z.literal('5.2.0'), z.literal('5.2.1')]),
+    appVersion: z.union([z.literal('2.0.0'), z.literal('2.1.0'), z.literal('2.2.0'), z.literal('2.3.0'), z.literal('2.4.0'), z.literal('2.5.0'), z.literal('2.6.0'), z.literal('2.7.0'), z.literal('3.2.0'), z.literal('3.2.1'), z.literal('4.0.0'), z.literal('4.0.1'), z.literal('4.0.2'), z.literal('4.1.0'), z.literal('4.2.0'), z.literal('4.3.0'), z.literal('4.4.0'), z.literal('4.5.0'), z.literal('5.0.0'), z.literal('5.0.1'), z.literal('5.0.2'), z.literal('5.1.0'), z.literal('5.2.0'), z.literal('5.2.1'), z.literal('5.3.0')]),
     exportedAt: z.string().datetime(),
     summary: SummarySchema,
     activities: z.array(ActivitySchema),
@@ -45,7 +45,7 @@ export const BackupSchema = z
       8: ['4.1.0'],
       9: ['4.2.0', '4.3.0'],
       10: ['4.4.0'],
-      11: ['4.5.0', '5.0.0', '5.0.1', '5.0.2', '5.1.0', '5.2.0', '5.2.1'],
+      11: ['4.5.0', '5.0.0', '5.0.1', '5.0.2', '5.1.0', '5.2.0', '5.2.1', '5.3.0'],
     }
     if (!compatibleAppVersions[backup.schemaVersion].includes(backup.appVersion)) {
       context.addIssue({ code: 'custom', path: ['schemaVersion'], message: '备份结构版本与应用版本不匹配' })
@@ -89,12 +89,47 @@ export const BackupSchema = z
 
 export type Backup = z.infer<typeof BackupSchema>
 
+export interface BackupRestorePreview {
+  backup: Backup
+  exportedAt: string
+  appVersion: string
+  schemaVersion: number
+  metrics: Array<{
+    key: 'totalXp' | 'coins' | 'activities' | 'completions' | 'seasons' | 'rewardClaims'
+    label: string
+    current: number
+    incoming: number
+  }>
+}
+
+export function previewBackupRestore(
+  input: unknown,
+  current: Pick<Backup, 'activities' | 'completions' | 'ledgerEvents' | 'seasons' | 'rewardClaims'>,
+): BackupRestorePreview {
+  const backup = BackupSchema.parse(input)
+  const currentStats = calculateStats(current.ledgerEvents)
+  return {
+    backup,
+    exportedAt: backup.exportedAt,
+    appVersion: backup.appVersion,
+    schemaVersion: backup.schemaVersion,
+    metrics: [
+      { key: 'totalXp', label: '累计 XP', current: currentStats.totalXp, incoming: backup.summary.totalXp },
+      { key: 'coins', label: '持有金币', current: currentStats.coins, incoming: backup.summary.coins },
+      { key: 'activities', label: '活动', current: current.activities.length, incoming: backup.activities.length },
+      { key: 'completions', label: '完成记录', current: current.completions.length, incoming: backup.completions.length },
+      { key: 'seasons', label: '成长赛季', current: current.seasons.length, incoming: backup.seasons.length },
+      { key: 'rewardClaims', label: '奖励券', current: current.rewardClaims.length, incoming: backup.rewardClaims.length },
+    ],
+  }
+}
+
 export async function createBackup(database: LifeRpgDatabase = db): Promise<Backup> {
   const snapshot = await getSnapshot(database)
   const stats = calculateStats(snapshot.ledgerEvents)
   return BackupSchema.parse({
     schemaVersion: 11,
-    appVersion: '5.2.1',
+    appVersion: '5.3.0',
     exportedAt: new Date().toISOString(),
     summary: { totalXp: stats.totalXp, coins: stats.coins },
     ...snapshot,

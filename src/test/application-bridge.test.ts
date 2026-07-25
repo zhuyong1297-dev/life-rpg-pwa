@@ -5,6 +5,7 @@ import planningContextExample from '../../examples/planning-context.example.json
 import applicationResultExample from '../../examples/application-result.example.json'
 import { createBackup, restoreBackup } from '../backup'
 import {
+  completeApplicationSeason,
   completeApplicationTrial,
   createActivity,
   createSeason,
@@ -18,6 +19,7 @@ import {
   ApplicationResultPackageSchema,
   PlanningContextPackageSchema,
   createPlanningContextPackage,
+  createSeasonResultPackage,
   createTrialResultPackage,
 } from '../application-bridge'
 import {
@@ -182,7 +184,7 @@ describe('Obsidian Application 双向桥接', () => {
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
     const backup = await createBackup(database)
-    expect(backup).toMatchObject({ schemaVersion: 11, appVersion: '5.2.1' })
+    expect(backup).toMatchObject({ schemaVersion: 11, appVersion: '5.3.0' })
     expect(backup.settings.find((setting) => setting.key === 'applicationTrial')).toBeDefined()
 
     const restored = new LifeRpgDatabase(`application-bridge-restore-${crypto.randomUUID()}`)
@@ -327,5 +329,23 @@ describe('Obsidian Application 双向桥接', () => {
     }, database)
     expect(invalidPreview.blockingIssues).toContain('正式赛季没有引用本机生成的试跑结果包')
     expect(invalidPreview.warnings).toContain('当前 28 天赛季仍在进行；可以先保存规划草稿，但当前赛季结束前不能启动新阶段。')
+
+    const concluded = await completeApplicationSeason(
+      season.id,
+      '部分达成',
+      '七天已经得到明确的现实证据',
+      '复用旧知识能减少重复搜索',
+      'adjust',
+      '缩小记录成本后再开始下一轮',
+      { occurredOn: '2026-08-07', earlyConclusionReason: '核心假设已经得到验证，不需要继续占用整个周期' },
+      database,
+    )
+    const seasonResult = createSeasonResultPackage(concluded, await database.completions.toArray())
+    expect(seasonResult.period).toEqual({
+      startsOn: '2026-08-01',
+      endsOn: '2026-08-07',
+      plannedEndsOn: '2026-08-28',
+      conclusionType: 'early',
+    })
   })
 })

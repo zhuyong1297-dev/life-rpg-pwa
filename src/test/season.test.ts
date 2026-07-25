@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Completion, WeeklyReview } from '../domain'
-import { SeasonSchema, generateCoachSuggestions, getSeasonDay, getSeasonStrategy } from '../season'
+import { SeasonSchema, generateCoachSuggestions, getSeasonDay, getSeasonDurationDays, getSeasonEffectiveEnd, getSeasonStrategy } from '../season'
 
 const season = SeasonSchema.parse({
   id: 'season-1',
@@ -35,6 +35,23 @@ describe('成长赛季', () => {
     expect(() => SeasonSchema.parse({ ...season, dailyPlans: [{ date: '2026-02-02', activityIds: ['a1'] }] })).toThrow('赛季日期内')
   })
 
+  it('提前结项保留计划结束日并使用实际截止日', () => {
+    const early = SeasonSchema.parse({
+      ...season,
+      status: 'completed',
+      finalResult: '部分达成',
+      finalEvidence: '七天已经得到足够现实证据',
+      concludedOn: '2026-01-11',
+      conclusionType: 'early',
+      earlyConclusionReason: '当前方案需要重新设计',
+      completedAt: '2026-01-11T12:00:00.000Z',
+    })
+    expect(early.endsOn).toBe('2026-02-01')
+    expect(getSeasonEffectiveEnd(early)).toBe('2026-01-11')
+    expect(getSeasonDurationDays(early)).toBe(7)
+    expect(() => SeasonSchema.parse({ ...early, earlyConclusionReason: undefined })).toThrow('提前结项必须记录原因')
+  })
+
   it('高帮助高阻力生成调整建议，连续两周稳定生成保持建议', () => {
     expect(generateCoachSuggestions(season, review('2026-01-05', 0.5, 5, 4), [])[0]).toMatchObject({ kind: 'adjust', status: 'pending' })
     expect(generateCoachSuggestions(
@@ -67,5 +84,27 @@ describe('成长赛季', () => {
       averageAdherence: 0.8,
       effectiveBehaviors: [{ title: '深度工作' }],
     })
+  })
+
+  it('提前结项后的策略不吸收后续完成和复盘', () => {
+    const early = SeasonSchema.parse({
+      ...season,
+      status: 'completed',
+      finalResult: '部分达成',
+      finalEvidence: '现实证据',
+      concludedOn: '2026-01-11',
+      conclusionType: 'early',
+      earlyConclusionReason: '结束当前验证',
+      completedAt: '2026-01-11T12:00:00.000Z',
+    })
+    const completions: Completion[] = [
+      { id: 'before', activityId: 'a1', occurredOn: '2026-01-10', status: 'active', createdAt: '2026-01-10T08:00:00.000Z' },
+      { id: 'after', activityId: 'a1', occurredOn: '2026-01-12', status: 'active', createdAt: '2026-01-12T08:00:00.000Z' },
+    ]
+    expect(getSeasonStrategy(
+      early,
+      [review('2026-01-05', 0.8, 5, 2), review('2026-01-12', 0.1, 1, 5)],
+      completions,
+    )).toMatchObject({ completionCount: 1, activeDays: 1, averageAdherence: 0.8 })
   })
 })

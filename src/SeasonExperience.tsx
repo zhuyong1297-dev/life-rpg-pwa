@@ -19,6 +19,8 @@ import {
   canCalibrateSeason,
   getSeasonDailyActivityIds,
   getSeasonDay,
+  getSeasonDurationDays,
+  getSeasonEffectiveEnd,
   getSeasonEvidence,
   getSeasonStrategy,
   seasonResults,
@@ -134,12 +136,15 @@ interface SeasonHubProps {
       decision: ApplicationDecision
       decisionReason: string
     },
+    earlyConclusionReason?: string,
   ) => Promise<void>
 }
 
 export function SeasonHubModal(props: SeasonHubProps) {
   const activeSeason = props.seasons.find((season) => season.status === 'active')
-  const completed = [...props.seasons].filter((season) => season.status === 'completed').sort((left, right) => right.endsOn.localeCompare(left.endsOn))
+  const completed = [...props.seasons]
+    .filter((season) => season.status === 'completed')
+    .sort((left, right) => getSeasonEffectiveEnd(right).localeCompare(getSeasonEffectiveEnd(left)))
   const [view, setView] = useState<'overview' | 'create' | 'focus' | 'calibrate' | 'signal' | 'complete'>(
     activeSeason ? props.initialView ?? 'overview' : 'create',
   )
@@ -171,12 +176,12 @@ export function SeasonHubModal(props: SeasonHubProps) {
               <button type="button" onClick={() => setView('signal')}><ShieldCheck aria-hidden="true" />记录今日状态</button>
               <button type="button" onClick={() => setView('focus')}><SlidersHorizontal aria-hidden="true" />调整今日重点</button>
               {canCalibrateSeason(activeSeason, props.today) && <button type="button" onClick={() => setView('calibrate')}><Sparkles aria-hidden="true" />校准这个赛季</button>}
-              <button type="button" disabled={props.today < activeSeason.endsOn} onClick={() => setView('complete')}><ClipboardCheck aria-hidden="true" />结束赛季</button>
+              <button type="button" onClick={() => setView('complete')}><ClipboardCheck aria-hidden="true" />结束赛季</button>
             </div>
             {view === 'focus' && <DailyFocusEditor season={activeSeason} activities={props.activities} today={props.today} onSave={async (ids) => { await props.onSetDailyFocus(activeSeason.id, ids); setView('overview') }} />}
             {view === 'signal' && <DailySignalEditor season={activeSeason} today={props.today} onSave={async (signal) => { await props.onSaveSignal(activeSeason.id, signal); setView('overview') }} />}
             {view === 'calibrate' && <StableLifeCalibration onCancel={() => setView('overview')} onConfirm={async () => { await props.onCalibrate(activeSeason.id); setView('overview') }} />}
-            {view === 'complete' && <CompleteSeasonForm season={activeSeason} onComplete={props.onComplete} />}
+            {view === 'complete' && <CompleteSeasonForm season={activeSeason} today={props.today} onComplete={props.onComplete} />}
             <SuggestionList season={activeSeason} onRespond={props.onRespond} />
           </>
         ) : null}
@@ -371,18 +376,48 @@ function SuggestionList({ season, onRespond }: { season: Season; onRespond: Seas
   )
 }
 
-function CompleteSeasonForm({ season, onComplete }: { season: Season; onComplete: SeasonHubProps['onComplete'] }) {
+function CompleteSeasonForm({ season, today, onComplete }: { season: Season; today: string; onComplete: SeasonHubProps['onComplete'] }) {
   const [result, setResult] = useState<SeasonResult>('部分达成')
   const [evidence, setEvidence] = useState('')
   const [observedOutcome, setObservedOutcome] = useState('')
   const [decision, setDecision] = useState<ApplicationDecision>('continue')
   const [decisionReason, setDecisionReason] = useState('')
+  const [earlyConclusionReason, setEarlyConclusionReason] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [confirmedIrreversible, setConfirmedIrreversible] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const application = season.applicationContext
+  const early = today < season.endsOn
+  const actualDay = getSeasonDay(season, early ? today : season.endsOn)
+  const hasSuggestions = season.suggestions.length > 0
+  const hasProcessedSuggestion = season.suggestions.some((suggestion) => suggestion.status !== 'pending')
+  const suggestionReady = !hasSuggestions || hasProcessedSuggestion
   const ready = evidence.trim()
     && (!application || (observedOutcome.trim() && decisionReason.trim()))
+    && (!early || earlyConclusionReason.trim())
+    && suggestionReady
+
+  async function submitConclusion() {
+    if (!ready || !confirmedIrreversible || submitting) return
+    setSubmitting(true)
+    try {
+      await onComplete(
+        season.id,
+        result,
+        evidence,
+        application ? { observedOutcome, decision, decisionReason } : undefined,
+        early ? earlyConclusionReason : undefined,
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <section className="season-inline-editor season-complete-form">
-      <h3>结束 28 天赛季</h3><p>只根据现实证据判断结果，不使用 XP 代替成果。</p>
+      <h3>{early ? '提前结项' : '结束 28 天赛季'}</h3>
+      <p>只根据现实证据判断结果，不使用 XP 代替成果。结项后不能恢复。</p>
+      {early && <p className="season-early-note">当前第 {actualDay}/28 天 · 原计划结束于 {season.endsOn}。提前结项会保留实际运行天数并进入策略历史。</p>}
       {application && (
         <aside className="coach-knowledge-source">
           <BookOpen aria-hidden="true" />
@@ -395,6 +430,7 @@ function CompleteSeasonForm({ season, onComplete }: { season: Season; onComplete
       )}
       <div className="segmented-control" aria-label="赛季结果">{seasonResults.map((item) => <button type="button" className={result === item ? 'selected' : ''} key={item} onClick={() => setResult(item)}>{item}</button>)}</div>
       <label>现实证据<textarea required maxLength={500} value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="发生了什么变化？哪些证据支持你的判断？" /></label>
+      {early && <label>提前结束原因<textarea required maxLength={280} value={earlyConclusionReason} onChange={(event) => setEarlyConclusionReason(event.target.value)} placeholder="为什么现在结项，而不是继续运行到第 28 天？" /></label>}
       {application && (
         <>
           <label>{application.outcomeIndicator}<textarea required maxLength={500} value={observedOutcome} onChange={(event) => setObservedOutcome(event.target.value)} placeholder="写下指标在 28 天后的实际状态或数值" /></label>
@@ -408,12 +444,36 @@ function CompleteSeasonForm({ season, onComplete }: { season: Season; onComplete
           <label>决定理由<textarea required maxLength={500} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="为什么继续、调整或停止？" /></label>
         </>
       )}
-      <button className="primary-action" type="button" disabled={!ready} onClick={() => void onComplete(
-        season.id,
-        result,
-        evidence,
-        application ? { observedOutcome, decision, decisionReason } : undefined,
-      ).catch(() => undefined)}><ClipboardCheck aria-hidden="true" />保存赛季结论</button>
+      {hasSuggestions && !hasProcessedSuggestion && <p className="season-conclusion-blocker">请先在下方对至少一条成长建议作出接受、调整后接受或忽略的决定。</p>}
+      <button className="primary-action" type="button" disabled={!ready} onClick={() => {
+        setConfirmedIrreversible(false)
+        setConfirming(true)
+      }}><ClipboardCheck aria-hidden="true" />检查结论</button>
+      {confirming && (
+        <div className="season-conclusion-backdrop" role="presentation">
+          <section className="season-conclusion-confirmation" role="dialog" aria-modal="true" aria-labelledby="season-conclusion-title">
+            <div className="modal-header">
+              <div><span className="modal-kicker">{early ? '提前结项确认' : '赛季结项确认'}</span><h3 id="season-conclusion-title">确认保存这份结论？</h3></div>
+              <button className="icon-button" type="button" title="返回修改" onClick={() => setConfirming(false)}><X aria-hidden="true" /></button>
+            </div>
+            <dl className="season-conclusion-summary">
+              <div><dt>运行周期</dt><dd>{season.startsOn} 至 {early ? today : season.endsOn} · {actualDay}/28 天</dd></div>
+              <div><dt>原计划结束</dt><dd>{season.endsOn}</dd></div>
+              <div><dt>结论</dt><dd>{result}</dd></div>
+              <div><dt>现实证据</dt><dd>{evidence.trim()}</dd></div>
+              {early && <div><dt>提前原因</dt><dd>{earlyConclusionReason.trim()}</dd></div>}
+            </dl>
+            <p className="season-conclusion-impact">确认后，本赛季会进入策略历史并立即释放新赛季名额。该操作不可撤销。</p>
+            <label className="season-conclusion-check"><input type="checkbox" checked={confirmedIrreversible} onChange={(event) => setConfirmedIrreversible(event.target.checked)} />我知道结项后不能恢复本赛季</label>
+            <div className="confirmation-actions">
+              <button type="button" onClick={() => setConfirming(false)}>返回修改</button>
+              <button className="danger-button" type="button" disabled={!confirmedIrreversible || submitting} onClick={() => void submitConclusion().catch(() => undefined)}>
+                <ClipboardCheck aria-hidden="true" />{submitting ? '正在结项…' : early ? '确认提前结项' : '确认结束赛季'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   )
 }
@@ -427,7 +487,7 @@ function StrategyLibrary({ seasons, reviews, completions, onReuse }: { seasons: 
       {strategies.length > 0 && <p className="strategy-pattern">已完成 {strategies.length} 个赛季{effective.length > 0 ? ` · 已验证有效：${effective.slice(0, 3).join('、')}` : ' · 继续积累现实帮助数据'}</p>}
       {strategies.length === 0 ? <p className="empty-state">结束第一个赛季后，这里会形成可复用的个人策略。</p> : strategies.map((strategy) => (
         <details className="strategy-card" key={strategy.season.id}>
-          <summary><span><strong>{strategy.season.title}</strong><small>{strategy.season.finalResult} · 坚持率 {Math.round(strategy.averageAdherence * 100)}%</small></span><ChevronRight aria-hidden="true" /></summary>
+          <summary><span><strong>{strategy.season.title}</strong><small>{strategy.season.conclusionType === 'early' ? `提前结项 · 实际 ${getSeasonDurationDays(strategy.season)}/28 天 · ` : ''}{strategy.season.finalResult} · 坚持率 {Math.round(strategy.averageAdherence * 100)}%</small></span><ChevronRight aria-hidden="true" /></summary>
           <div><p><b>成功标准：</b>{strategy.season.successCriterion}</p><p><b>现实结果：</b>{strategy.season.finalEvidence}</p><p><b>有效行为：</b>{strategy.effectiveBehaviors.map((item) => `${item.title}（${item.cadence}，基础 ${item.baseLayer}）`).join('、') || '尚未识别'}</p><p><b>主要阻力：</b>{strategy.mainFriction ? `${strategy.mainFriction.title}（${strategy.mainFriction.friction.toFixed(1)}/5）` : '数据不足'}</p><p><b>下次建议：</b>{strategy.nextSuggestion}</p><p><b>行动记录：</b>{strategy.activeDays} 个活跃日 · {strategy.completionCount} 次有效完成</p><button className="secondary-action" type="button" onClick={() => onReuse(strategy.season)}><RefreshCw aria-hidden="true" />复用目标结构</button></div>
         </details>
       ))}

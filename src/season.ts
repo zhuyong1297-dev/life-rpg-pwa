@@ -106,6 +106,9 @@ export const SeasonSchema = z
     observedOutcome: z.string().trim().min(1).max(500).optional(),
     applicationDecision: z.enum(applicationDecisions).optional(),
     decisionReason: z.string().trim().min(1).max(500).optional(),
+    concludedOn: dateString.optional(),
+    conclusionType: z.enum(['scheduled', 'early']).optional(),
+    earlyConclusionReason: z.string().trim().min(1).max(280).optional(),
     completedAt: timestamp.optional(),
     createdAt: timestamp,
   })
@@ -148,7 +151,7 @@ export const SeasonSchema = z
         context.addIssue({ code: 'custom', path: ['suggestions', index, 'responseNote'], message: '修改后接受必须说明调整' })
       }
     })
-    const completionFields = [
+    const resultFields = [
       season.finalResult,
       season.finalEvidence,
       season.observedOutcome,
@@ -156,16 +159,35 @@ export const SeasonSchema = z
       season.decisionReason,
       season.completedAt,
     ]
-    if (season.status === 'completed' && completionFields.some((value) => value === undefined)) {
+    const conclusionFields = [season.concludedOn, season.conclusionType, season.earlyConclusionReason]
+    if (season.status === 'completed' && resultFields.some((value) => value === undefined)) {
       const requiredFields = season.applicationContext
-        ? completionFields
+        ? resultFields
         : [season.finalResult, season.finalEvidence, season.completedAt]
       if (requiredFields.some((value) => value === undefined)) {
         context.addIssue({ code: 'custom', path: ['finalResult'], message: '结束赛季必须记录结果和现实证据' })
       }
     }
-    if (season.status === 'active' && completionFields.some((value) => value !== undefined)) {
+    if (season.status === 'active' && [...resultFields, ...conclusionFields].some((value) => value !== undefined)) {
       context.addIssue({ code: 'custom', path: ['finalResult'], message: '进行中的赛季不能保存结束结果' })
+    }
+    if ((season.concludedOn === undefined) !== (season.conclusionType === undefined)) {
+      context.addIssue({ code: 'custom', path: ['concludedOn'], message: '实际结项日和结项类型必须同时保存' })
+    }
+    if (season.concludedOn && (season.concludedOn < season.startsOn || season.concludedOn > season.endsOn)) {
+      context.addIssue({ code: 'custom', path: ['concludedOn'], message: '实际结项日必须位于赛季计划周期内' })
+    }
+    if (season.conclusionType === 'early' && season.concludedOn && season.concludedOn >= season.endsOn) {
+      context.addIssue({ code: 'custom', path: ['conclusionType'], message: '提前结项必须早于计划结束日' })
+    }
+    if (season.conclusionType === 'scheduled' && season.concludedOn && season.concludedOn !== season.endsOn) {
+      context.addIssue({ code: 'custom', path: ['conclusionType'], message: '正常结项必须使用计划结束日' })
+    }
+    if (season.conclusionType === 'early' && !season.earlyConclusionReason) {
+      context.addIssue({ code: 'custom', path: ['earlyConclusionReason'], message: '提前结项必须记录原因' })
+    }
+    if (season.conclusionType !== 'early' && season.earlyConclusionReason) {
+      context.addIssue({ code: 'custom', path: ['earlyConclusionReason'], message: '正常结项不能保存提前结束原因' })
     }
   })
 
@@ -234,6 +256,16 @@ export function getSeasonDay(season: Season, today: string) {
   return Math.min(28, Math.max(1, elapsed + 1))
 }
 
+export function getSeasonEffectiveEnd(season: Season) {
+  return season.concludedOn ?? season.endsOn
+}
+
+export function getSeasonDurationDays(season: Season) {
+  const start = Date.parse(`${season.startsOn}T00:00:00Z`)
+  const end = Date.parse(`${getSeasonEffectiveEnd(season)}T00:00:00Z`)
+  return Math.round((end - start) / 86_400_000) + 1
+}
+
 export function getSeasonDailyActivityIds(season: Season, today: string) {
   return season.dailyPlans.find((plan) => plan.date === today)?.activityIds
     ?? season.focusActivities.map((activity) => activity.activityId)
@@ -248,7 +280,8 @@ export function canCalibrateSeason(season: Season, today: string) {
 }
 
 export function getSeasonEvidence(season: Season, completions: Completion[], throughDate: string) {
-  const end = throughDate < season.endsOn ? throughDate : season.endsOn
+  const effectiveEnd = getSeasonEffectiveEnd(season)
+  const end = throughDate < effectiveEnd ? throughDate : effectiveEnd
   const recentStart = addDays(end, -6) < season.startsOn ? season.startsOn : addDays(end, -6)
   const recentSignals = season.dailySignals.filter((signal) => signal.date >= recentStart && signal.date <= end)
   const average = (key: 'morningEnergy' | 'control') => recentSignals.length === 0
@@ -279,10 +312,11 @@ export interface SeasonStrategy {
 }
 
 export function getSeasonStrategy(season: Season, reviews: WeeklyReview[], completions: Completion[]): SeasonStrategy {
-  const seasonReviews = reviews.filter((review) => review.weekStart <= season.endsOn && addDays(review.weekStart, 6) >= season.startsOn)
+  const effectiveEnd = getSeasonEffectiveEnd(season)
+  const seasonReviews = reviews.filter((review) => review.weekStart <= effectiveEnd && addDays(review.weekStart, 6) >= season.startsOn)
   const focusIds = new Set(season.focusActivities.map((activity) => activity.activityId))
   const activeCompletions = completions.filter(
-    (completion) => completion.status === 'active' && focusIds.has(completion.activityId) && completion.occurredOn >= season.startsOn && completion.occurredOn <= season.endsOn,
+    (completion) => completion.status === 'active' && focusIds.has(completion.activityId) && completion.occurredOn >= season.startsOn && completion.occurredOn <= effectiveEnd,
   )
   const metrics = season.focusActivities.map((activity) => {
     const items = seasonReviews.flatMap((review) => review.items.filter((item) => item.activityId === activity.activityId))

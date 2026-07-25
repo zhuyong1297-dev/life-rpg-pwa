@@ -617,27 +617,64 @@ export async function respondToSeasonSuggestion(
   })
 }
 
+export interface CompleteSeasonOptions {
+  occurredOn?: string
+  earlyConclusionReason?: string
+}
+
+function getSeasonConclusion(
+  season: Season,
+  eventDate: string,
+  earlyConclusionReason?: string,
+) {
+  if (eventDate < season.startsOn) throw new Error('赛季尚未开始，不能结项')
+  const conclusionType = eventDate < season.endsOn ? 'early' as const : 'scheduled' as const
+  const concludedOn = conclusionType === 'early' ? eventDate : season.endsOn
+  const reason = earlyConclusionReason?.trim()
+  if (conclusionType === 'early' && !reason) throw new Error('提前结项必须填写结束原因')
+  if (season.suggestions.length > 0 && !season.suggestions.some((suggestion) => suggestion.status !== 'pending')) {
+    throw new Error('结束赛季前请先处理至少一条成长建议')
+  }
+  return {
+    concludedOn,
+    conclusionType,
+    earlyConclusionReason: conclusionType === 'early' ? reason : undefined,
+  }
+}
+
 export async function completeSeason(
   seasonId: string,
   result: SeasonResult,
   evidence: string,
-  occurredOn: string | undefined = undefined,
+  options: CompleteSeasonOptions = {},
   database = db,
 ) {
-  const eventDate = occurredOn ?? await currentGameDate(database)
+  const eventDate = options.occurredOn ?? await currentGameDate(database)
+  const normalizedEvidence = evidence.trim()
+  if (!normalizedEvidence) throw new Error('请填写现实证据')
   return database.transaction('rw', database.seasons, async () => {
     const storedSeason = await database.seasons.get(seasonId)
-    if (!storedSeason || storedSeason.status !== 'active') throw new Error('找不到进行中的成长赛季')
-    const season = SeasonSchema.parse(storedSeason)
-    if (eventDate < season.endsOn) throw new Error(`赛季将在 ${season.endsOn} 游戏日结束`)
-    if (!season.suggestions.some((suggestion) => suggestion.status === 'accepted' || suggestion.status === 'modified')) {
-      throw new Error('结束赛季前至少接受或调整一条成长建议')
+    if (!storedSeason) throw new Error('找不到进行中的成长赛季')
+    if (storedSeason.status === 'completed') {
+      const completed = SeasonSchema.parse(storedSeason)
+      const expected = getSeasonConclusion(completed, eventDate, options.earlyConclusionReason)
+      if (
+        completed.finalResult === result
+        && completed.finalEvidence === normalizedEvidence
+        && completed.concludedOn === expected.concludedOn
+        && completed.conclusionType === expected.conclusionType
+        && completed.earlyConclusionReason === expected.earlyConclusionReason
+      ) return completed
+      throw new Error('这个成长赛季已经结项')
     }
+    const season = SeasonSchema.parse(storedSeason)
+    const conclusion = getSeasonConclusion(season, eventDate, options.earlyConclusionReason)
     const next = SeasonSchema.parse({
       ...season,
       status: 'completed',
       finalResult: result,
-      finalEvidence: evidence,
+      finalEvidence: normalizedEvidence,
+      ...conclusion,
       completedAt: new Date().toISOString(),
     })
     await database.seasons.put(next)
@@ -652,30 +689,46 @@ export async function completeApplicationSeason(
   observedOutcome: string,
   decision: ApplicationDecision,
   decisionReason: string,
-  occurredOn: string | undefined = undefined,
+  options: CompleteSeasonOptions = {},
   database = db,
 ) {
-  const eventDate = occurredOn ?? await currentGameDate(database)
+  const eventDate = options.occurredOn ?? await currentGameDate(database)
+  const normalizedEvidence = evidence.trim()
+  const normalizedOutcome = observedOutcome.trim()
+  const normalizedDecisionReason = decisionReason.trim()
+  if (!normalizedEvidence || !normalizedOutcome || !normalizedDecisionReason) {
+    throw new Error('请填写现实证据、结果指标变化和决定理由')
+  }
   return database.transaction('rw', database.seasons, async () => {
     const storedSeason = await database.seasons.get(seasonId)
-    if (!storedSeason || storedSeason.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    if (!storedSeason) throw new Error('找不到进行中的成长赛季')
+    if (storedSeason.status === 'completed') {
+      const completed = SeasonSchema.parse(storedSeason)
+      const expected = getSeasonConclusion(completed, eventDate, options.earlyConclusionReason)
+      if (
+        completed.finalResult === result
+        && completed.finalEvidence === normalizedEvidence
+        && completed.observedOutcome === normalizedOutcome
+        && completed.applicationDecision === decision
+        && completed.decisionReason === normalizedDecisionReason
+        && completed.concludedOn === expected.concludedOn
+        && completed.conclusionType === expected.conclusionType
+        && completed.earlyConclusionReason === expected.earlyConclusionReason
+      ) return completed
+      throw new Error('这个成长赛季已经结项')
+    }
     const season = SeasonSchema.parse(storedSeason)
     if (!season.applicationContext) throw new Error('这不是知识应用赛季')
-    if (eventDate < season.endsOn) throw new Error(`赛季将在 ${season.endsOn} 游戏日结束`)
-    if (!season.suggestions.some((suggestion) => suggestion.status === 'accepted' || suggestion.status === 'modified')) {
-      throw new Error('结束赛季前至少接受或调整一条成长建议')
-    }
-    if (!evidence.trim() || !observedOutcome.trim() || !decisionReason.trim()) {
-      throw new Error('请填写现实证据、结果指标变化和决定理由')
-    }
+    const conclusion = getSeasonConclusion(season, eventDate, options.earlyConclusionReason)
     const next = SeasonSchema.parse({
       ...season,
       status: 'completed',
       finalResult: result,
-      finalEvidence: evidence.trim(),
-      observedOutcome: observedOutcome.trim(),
+      finalEvidence: normalizedEvidence,
+      observedOutcome: normalizedOutcome,
       applicationDecision: decision,
-      decisionReason: decisionReason.trim(),
+      decisionReason: normalizedDecisionReason,
+      ...conclusion,
       completedAt: new Date().toISOString(),
     })
     await database.seasons.put(next)

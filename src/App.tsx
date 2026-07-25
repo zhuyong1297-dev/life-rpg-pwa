@@ -16,6 +16,7 @@ import {
   Crosshair,
   Download,
   Dumbbell,
+  FileJson,
   Gift,
   Home,
   History,
@@ -40,7 +41,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { createBackup, createLedgerMarkdown, restoreBackup } from './backup'
+import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from './backup'
 import {
   archiveActivity as archiveActivityDefinition,
   activateGrowthDomains,
@@ -177,13 +178,14 @@ import {
 } from './prototype/V5Experience'
 
 type Page = 'today' | 'character' | 'review' | 'settings'
-type SecondaryPage = 'coach-plan' | 'rewards'
+type SecondaryPage = 'coach-plan' | 'rewards' | 'data'
 type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
 
 function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
   const path = window.location.hash.replace(/^#\/?/, '')
   if (path === 'coach/plan') return { page: 'today', secondary: 'coach-plan' }
   if (path === 'rewards') return { page: 'character', secondary: 'rewards' }
+  if (path === 'profile/data') return { page: 'settings', secondary: 'data' }
   if (path === 'growth') return { page: 'character' }
   if (path === 'profile') return { page: 'settings' }
   if (path === 'character' || path === 'review' || path === 'settings') return { page: path }
@@ -482,7 +484,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.2.1 预览版' : 'V5.2.1'
+const displayVersion = isPreview ? 'V5.3.0 预览版' : 'V5.3.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -853,12 +855,12 @@ function App() {
       : page === 'settings'
         ? 'profile'
         : page
-  const useSecondaryLayout = secondaryPage === 'coach-plan'
+  const useSecondaryLayout = secondaryPage === 'coach-plan' || secondaryPage === 'data'
   const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', useV5Experience ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
 
   return (
     <div className={shellClassName}>
-      {useV5Experience && secondaryPage !== 'coach-plan' ? (
+      {useV5Experience && !useSecondaryLayout ? (
         <V5Navigation
           active={v5Page}
           preview={isPreview}
@@ -926,6 +928,15 @@ function App() {
               }
               navigateTo('today')
             }}
+          />
+        ) : secondaryPage === 'data' ? (
+          <DataCenterPage
+            snapshot={snapshot}
+            applicationTrial={applicationTrial}
+            onBack={() => navigateTo('profile')}
+            onKnowledgePackageFile={(file) => void openKnowledgePackagePreview(file)}
+            onRefresh={refresh}
+            onNotice={setNotice}
           />
         ) : secondaryPage === 'rewards' ? (
           <RewardExperience
@@ -1109,7 +1120,13 @@ function App() {
             reviews={snapshot.weeklyReviews}
             today={today}
             season={activeSeason}
+            applicationTrial={applicationTrial}
             onOpenSeason={() => setSeasonHubOpen(true)}
+            onCompleteTrial={async (trial, observedOutcome, decision, decisionReason) => {
+              await completeApplicationTrial(trial.applicationId, observedOutcome, decision, decisionReason, today)
+              await refresh()
+              setNotice('7 天试跑已由你完成判断，原关键行为已恢复')
+            }}
             onSave={async (review) => {
               try {
                 const result = await saveWeeklyReview(review)
@@ -1129,16 +1146,13 @@ function App() {
             preferences={preferences}
             activities={snapshot.activities}
             completions={snapshot.completions}
-            applicationTrial={applicationTrial}
-            seasons={snapshot.seasons}
-            today={today}
+            lastBackupAt={metaSetting?.key === 'meta' ? metaSetting.value.lastBackupAt : undefined}
             onManage={() => setActivityManagerOpen(true)}
             onPreferences={async (value) => {
               await updatePreferences(value)
               await refresh()
             }}
-            onKnowledgePackageFile={(file) => void openKnowledgePackagePreview(file)}
-            onRefresh={refresh}
+            onOpenData={() => navigateTo('profile/data')}
             onNotice={setNotice}
           />
         )}
@@ -1405,7 +1419,7 @@ function App() {
               throw error
             }
           }}
-          onComplete={async (seasonId, result, evidence, applicationReview) => {
+          onComplete={async (seasonId, result, evidence, applicationReview, earlyConclusionReason) => {
             try {
               if (applicationReview) {
                 await completeApplicationSeason(
@@ -1415,13 +1429,15 @@ function App() {
                   applicationReview.observedOutcome,
                   applicationReview.decision,
                   applicationReview.decisionReason,
-                  today,
+                  { occurredOn: today, earlyConclusionReason },
                 )
               } else {
-                await completeSeason(seasonId, result, evidence, today)
+                await completeSeason(seasonId, result, evidence, { occurredOn: today, earlyConclusionReason })
               }
               await refresh()
-              setNotice('赛季结论已进入个人策略库')
+              setNotice(today < (snapshot.seasons.find((season) => season.id === seasonId)?.endsOn ?? today)
+                ? '赛季已提前结项，并按实际运行天数进入个人策略库'
+                : '赛季结论已进入个人策略库')
             } catch (error) {
               setErrorNotice(errorMessage(error))
               throw error
@@ -2592,7 +2608,9 @@ function ReviewPage({
   reviews,
   today,
   season,
+  applicationTrial,
   onOpenSeason,
+  onCompleteTrial,
   onSave,
 }: {
   activities: Activity[]
@@ -2600,7 +2618,14 @@ function ReviewPage({
   reviews: Snapshot['weeklyReviews']
   today: string
   season?: Snapshot['seasons'][number]
+  applicationTrial?: ApplicationTrial
   onOpenSeason: () => void
+  onCompleteTrial: (
+    trial: ApplicationTrial,
+    observedOutcome: string,
+    decision: ApplicationDecision,
+    decisionReason: string,
+  ) => Promise<void>
   onSave: (review: WeeklyReview) => Promise<void>
 }) {
   const weekStart = startOfWeek(new Date(`${today}T12:00:00`))
@@ -2700,6 +2725,7 @@ function ReviewPage({
   return (
     <div className="review-page">
       <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div></header>
+      {applicationTrial && <ApplicationTrialReviewPanel trial={applicationTrial} today={today} onComplete={onCompleteTrial} />}
       <CoachSuggestionSummary season={season} onOpen={onOpenSeason} />
       {activities.length === 0 ? (
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
@@ -2771,31 +2797,89 @@ function RatingControl({ label, value, onChange }: { label: string; value: numbe
   )
 }
 
-function ApplicationBridgePanel({
+function ApplicationTrialReviewPanel({
+  trial,
+  today,
+  onComplete,
+}: {
+  trial: ApplicationTrial
+  today: string
+  onComplete: (
+    trial: ApplicationTrial,
+    observedOutcome: string,
+    decision: ApplicationDecision,
+    decisionReason: string,
+  ) => Promise<void>
+}) {
+  const [observedOutcome, setObservedOutcome] = useState('')
+  const [decision, setDecision] = useState<ApplicationDecision>('continue')
+  const [decisionReason, setDecisionReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function finishTrial() {
+    if (!observedOutcome.trim() || !decisionReason.trim() || submitting) return
+    setSubmitting(true)
+    try {
+      await onComplete(trial, observedOutcome, decision, decisionReason)
+      setObservedOutcome('')
+      setDecisionReason('')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="application-review-card">
+      <div className="section-heading">
+        <div><span>知识应用试跑</span><h2>{trial.title}</h2></div>
+        <b>{trial.status === 'active' ? `${trial.startsOn} — ${trial.endsOn}` : '已完成人工判断'}</b>
+      </div>
+      <p><b>主原则：</b>{trial.knowledge.primary.title}</p>
+      <p><b>现实指标：</b>{trial.outcomeIndicator}</p>
+      {trial.status === 'completed' ? (
+        <div className="application-review-result">
+          <strong>7 天结果：{trial.decision === 'continue' ? '继续' : trial.decision === 'adjust' ? '调整' : '停止'}</strong>
+          <span>{trial.observedOutcome}</span>
+        </div>
+      ) : today < trial.endsOn ? (
+        <p className="empty-state">试跑需运行完整七个游戏日。到 {trial.endsOn} 后，在这里根据现实变化作出继续、调整或停止的判断。</p>
+      ) : (
+        <div className="season-inline-editor season-complete-form">
+          <label>{trial.outcomeIndicator}<textarea required maxLength={500} value={observedOutcome} onChange={(event) => setObservedOutcome(event.target.value)} placeholder="记录实际状态或数值，不要写 XP 或金币" /></label>
+          <div className="segmented-control" aria-label="试跑决定">
+            {applicationDecisions.map((item) => (
+              <button type="button" className={decision === item ? 'selected' : ''} key={item} onClick={() => setDecision(item)}>
+                {item === 'continue' ? '继续' : item === 'adjust' ? '调整' : '停止'}
+              </button>
+            ))}
+          </div>
+          <label>决定理由<textarea required maxLength={500} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="为什么继续、调整或停止？" /></label>
+          <button className="primary-action" type="button" disabled={submitting || !observedOutcome.trim() || !decisionReason.trim()} onClick={() => void finishTrial().catch(() => undefined)}>
+            <ClipboardCheck aria-hidden="true" />{submitting ? '正在保存…' : '保存人工判断'}
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ApplicationExchangePanel({
   trial,
   seasons,
   activities,
   completions,
-  today,
-  onRefresh,
   onNotice,
 }: {
   trial?: ApplicationTrial
   seasons: Snapshot['seasons']
   activities: Activity[]
   completions: Completion[]
-  today: string
-  onRefresh: () => Promise<void>
   onNotice: (message: string) => void
 }) {
-  const [observedOutcome, setObservedOutcome] = useState('')
-  const [decision, setDecision] = useState<ApplicationDecision>('continue')
-  const [decisionReason, setDecisionReason] = useState('')
-  const [submitting, setSubmitting] = useState(false)
   const activeSeason = seasons.find((season) => season.status === 'active')
   const latestApplicationSeason = [...seasons]
     .filter((season) => season.status === 'completed' && season.applicationContext)
-    .sort((left, right) => right.endsOn.localeCompare(left.endsOn))[0]
+    .sort((left, right) => (right.concludedOn ?? right.endsOn).localeCompare(left.concludedOn ?? left.endsOn))[0]
 
   async function exportPlanningContext() {
     const context = createPlanningContextPackage(trial, activeSeason, activities)
@@ -2817,93 +2901,197 @@ function ApplicationBridgePanel({
     onNotice(method === 'shared' ? '28 天结果包已打开系统分享' : '28 天结果包 JSON 已下载')
   }
 
-  async function finishTrial() {
-    if (!trial || !observedOutcome.trim() || !decisionReason.trim()) return
+  return (
+    <div className="application-exchange-list">
+      <button className="data-center-row" type="button" onClick={() => void exportPlanningContext()}>
+        <span className="feature-summary-icon"><Download aria-hidden="true" /></span>
+        <span><strong>导出规划上下文</strong><small>当前阶段与关键行为定义，不包含每日流水、XP、金币或愿望。</small></span>
+        <ChevronRight aria-hidden="true" />
+      </button>
+
+      {trial?.status === 'completed' && (
+        <button className="data-center-row" type="button" onClick={() => void exportTrialResult()}>
+          <span className="feature-summary-icon"><ClipboardCheck aria-hidden="true" /></span>
+          <span>
+            <strong>导出最近 7 天结果</strong>
+            <small>{trial.title} · {trial.decision === 'continue' ? '继续' : trial.decision === 'adjust' ? '调整' : '停止'}</small>
+          </span>
+          <ChevronRight aria-hidden="true" />
+        </button>
+      )}
+
+      {latestApplicationSeason && (
+        <button className="data-center-row" type="button" onClick={() => void exportSeasonResult()}>
+          <span className="feature-summary-icon"><CalendarDays aria-hidden="true" /></span>
+          <span>
+            <strong>导出最近赛季结果</strong>
+            <small>{latestApplicationSeason.title} · {latestApplicationSeason.finalResult}</small>
+          </span>
+          <ChevronRight aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function DataCenterPage({
+  snapshot,
+  applicationTrial,
+  onBack,
+  onKnowledgePackageFile,
+  onRefresh,
+  onNotice,
+}: {
+  snapshot: Snapshot
+  applicationTrial?: ApplicationTrial
+  onBack: () => void
+  onKnowledgePackageFile: (file?: File) => void
+  onRefresh: () => Promise<void>
+  onNotice: (message: string) => void
+}) {
+  const [restorePreview, setRestorePreview] = useState<BackupRestorePreview>()
+  const [restoreConfirmed, setRestoreConfirmed] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const meta = snapshot.settings.find((setting) => setting.key === 'meta')
+  const lastBackupAt = meta?.key === 'meta' ? meta.value.lastBackupAt : undefined
+
+  async function exportJson() {
+    const storedMeta = await db.settings.get('meta')
+    await db.settings.put({ key: 'meta', value: { ...(storedMeta?.key === 'meta' ? storedMeta.value : {}), lastBackupAt: new Date().toISOString() } })
+    const backup = await createBackup()
+    downloadFile(`earth-online-backup-${localDate()}.json`, JSON.stringify(backup, null, 2), 'application/json')
+    await onRefresh()
+    onNotice('JSON 全量备份已导出')
+  }
+
+  async function exportMarkdown() {
+    downloadFile(`earth-online-ledger-${localDate()}.md`, await createLedgerMarkdown(), 'text/markdown')
+    onNotice('Markdown 账本已导出')
+  }
+
+  async function prepareRestore(file?: File) {
+    if (!file) return
     try {
-      setSubmitting(true)
-      await completeApplicationTrial(
-        trial.applicationId,
-        observedOutcome,
-        decision,
-        decisionReason,
-        today,
-      )
-      await onRefresh()
-      setObservedOutcome('')
-      setDecisionReason('')
-      onNotice('7 天试跑已由你完成判断，原关键行为已恢复')
+      const preview = previewBackupRestore(JSON.parse(await file.text()), snapshot)
+      setRestoreConfirmed(false)
+      setRestorePreview(preview)
     } catch (error) {
-      onNotice(`试跑复盘失败：${errorMessage(error)}`)
+      setRestorePreview(undefined)
+      onNotice(`备份校验失败：${errorMessage(error)}`)
+    }
+  }
+
+  async function confirmRestore() {
+    if (!restorePreview || !restoreConfirmed || restoring) return
+    setRestoring(true)
+    try {
+      await restoreBackup(restorePreview.backup)
+      await onRefresh()
+      setRestorePreview(undefined)
+      setRestoreConfirmed(false)
+      onNotice('备份已校验并完整恢复')
+    } catch (error) {
+      onNotice(`恢复失败：${errorMessage(error)}`)
     } finally {
-      setSubmitting(false)
+      setRestoring(false)
     }
   }
 
   return (
-    <div className="application-bridge-panel">
-      <div className="knowledge-import-entry">
-        <span className="feature-summary-icon"><ShieldCheck aria-hidden="true" /></span>
-        <span>
-          <strong>Obsidian 双向交换</strong>
-          <small>只交换当前阶段、关键行为定义和阶段聚合结果；不包含每日流水、XP、金币或愿望。</small>
-        </span>
-        <button className="file-button" type="button" onClick={() => void exportPlanningContext()}>
-          <Download aria-hidden="true" />规划上下文
-        </button>
-      </div>
+    <div className="data-center-page">
+      <header className="secondary-page-header">
+        <button className="secondary-back-button" type="button" onClick={onBack}><ChevronLeft aria-hidden="true" />返回</button>
+        <div><p className="eyebrow">仅保存在这台设备</p><h1>数据中心</h1><p className="page-lead">备份人生数据，并与 Obsidian 交换最小必要信息。</p></div>
+      </header>
 
-      {trial?.status === 'active' && (
-        <section className="knowledge-package-section">
-          <div className="knowledge-package-section-heading">
-            <h3>7 天试跑：{trial.title}</h3>
-            <span>{trial.startsOn} — {trial.endsOn}</span>
-          </div>
-          <p><b>主原则：</b>{trial.knowledge.primary.title}</p>
-          <p><b>现实指标：</b>{trial.outcomeIndicator}</p>
-          {today < trial.endsOn ? (
-            <p className="empty-state">第 7 个游戏日结束后，由你根据现实变化决定继续、调整或停止。完成率不会自动替你做决定。</p>
-          ) : (
-            <div className="season-inline-editor season-complete-form">
-              <label>{trial.outcomeIndicator}<textarea required maxLength={500} value={observedOutcome} onChange={(event) => setObservedOutcome(event.target.value)} placeholder="记录实际状态或数值，不要写 XP 或金币" /></label>
-              <div className="segmented-control" aria-label="试跑决定">
-                {applicationDecisions.map((item) => (
-                  <button type="button" className={decision === item ? 'selected' : ''} key={item} onClick={() => setDecision(item)}>
-                    {item === 'continue' ? '继续' : item === 'adjust' ? '调整' : '停止'}
-                  </button>
-                ))}
-              </div>
-              <label>决定理由<textarea required maxLength={500} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="为什么继续、调整或停止？" /></label>
-              <button className="primary-action" type="button" disabled={submitting || !observedOutcome.trim() || !decisionReason.trim()} onClick={() => void finishTrial()}>
-                <ClipboardCheck aria-hidden="true" />{submitting ? '正在保存…' : '保存人工判断'}
+      <section className="data-center-status" aria-label="本机数据状态">
+        <ShieldCheck aria-hidden="true" />
+        <span><strong>本地存档正常</strong><small>{lastBackupAt ? `上次完整备份：${new Date(lastBackupAt).toLocaleString('zh-CN')}` : '尚未导出完整 JSON 备份'}</small></span>
+        <b>schema 11</b>
+      </section>
+
+      <section className="data-center-section">
+        <div className="section-heading"><div><span>安全副本</span><h2>备份与导出</h2></div></div>
+        <button className="data-center-row" type="button" onClick={() => void exportJson()}>
+          <span className="feature-summary-icon"><FileJson aria-hidden="true" /></span>
+          <span><strong>导出完整 JSON</strong><small>包含八张表和全部本机设置，可用于整体恢复。</small></span>
+          <Download aria-hidden="true" />
+        </button>
+        <button className="data-center-row" type="button" onClick={() => void exportMarkdown()}>
+          <span className="feature-summary-icon"><BookOpen aria-hidden="true" /></span>
+          <span><strong>导出 Markdown 账本</strong><small>只用于阅读和 Obsidian 归档，不能恢复应用数据。</small></span>
+          <Download aria-hidden="true" />
+        </button>
+      </section>
+
+      <section className="data-center-section">
+        <div className="section-heading"><div><span>最小必要交换</span><h2>Obsidian</h2></div></div>
+        <ApplicationExchangePanel
+          trial={applicationTrial}
+          seasons={snapshot.seasons}
+          activities={snapshot.activities}
+          completions={snapshot.completions}
+          onNotice={onNotice}
+        />
+        <label className="data-center-row data-center-file-row">
+          <span className="feature-summary-icon"><Upload aria-hidden="true" /></span>
+          <span><strong>导入 Application 行动包</strong><small>兼容 v1 赛季包与 v2 试跑/正式赛季包；只生成规划草稿。</small></span>
+          <ChevronRight aria-hidden="true" />
+          <input
+            type="file"
+            aria-label="选择行动包"
+            accept="application/json,.json"
+            onChange={(event) => {
+              onKnowledgePackageFile(event.target.files?.[0])
+              event.currentTarget.value = ''
+            }}
+          />
+        </label>
+      </section>
+
+      <section className="data-center-section data-center-danger">
+        <div className="section-heading"><div><span>整体替换</span><h2>恢复与迁移</h2></div></div>
+        <p>恢复完整 JSON 会替换当前八张表。选择文件后只进行校验和差异预览，不会立即写入。</p>
+        <label className="data-center-row data-center-file-row restore-entry">
+          <span className="feature-summary-icon"><Upload aria-hidden="true" /></span>
+          <span><strong>选择完整备份</strong><small>行动包和 Markdown 账本不能在这里恢复。</small></span>
+          <ChevronRight aria-hidden="true" />
+          <input type="file" aria-label="选择完整备份" accept="application/json,.json" onChange={(event) => {
+            void prepareRestore(event.target.files?.[0])
+            event.currentTarget.value = ''
+          }} />
+        </label>
+      </section>
+
+      <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · {displayVersion}</footer>
+
+      {restorePreview && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal feature-modal restore-preview-modal" role="dialog" aria-modal="true" aria-labelledby="restore-preview-title">
+            <div className="modal-header">
+              <div><span className="modal-kicker">写入前检查</span><h2 id="restore-preview-title">完整备份差异</h2></div>
+              <button className="icon-button" type="button" title="关闭" onClick={() => setRestorePreview(undefined)}><X aria-hidden="true" /></button>
+            </div>
+            <div className="restore-preview-meta">
+              <span><small>导出时间</small><strong>{new Date(restorePreview.exportedAt).toLocaleString('zh-CN')}</strong></span>
+              <span><small>应用版本</small><strong>V{restorePreview.appVersion}</strong></span>
+              <span><small>备份结构</small><strong>schema {restorePreview.schemaVersion}</strong></span>
+            </div>
+            <div className="restore-diff-table" role="table" aria-label="恢复前后数据对比">
+              <div role="row"><strong role="columnheader">数据</strong><strong role="columnheader">当前</strong><strong role="columnheader">恢复后</strong></div>
+              {restorePreview.metrics.map((metric) => (
+                <div role="row" key={metric.key}><span role="cell">{metric.label}</span><span role="cell">{metric.current}</span><b role="cell">{metric.incoming}</b></div>
+              ))}
+            </div>
+            <p className="restore-warning">当前数据中没有包含在该备份里的内容会被移除。恢复使用单个事务，失败时不会留下部分数据。</p>
+            <label className="season-conclusion-check"><input type="checkbox" checked={restoreConfirmed} onChange={(event) => setRestoreConfirmed(event.target.checked)} />使用该备份整体替换本机数据</label>
+            <div className="confirmation-actions">
+              <button type="button" onClick={() => setRestorePreview(undefined)}>取消</button>
+              <button className="danger-button" type="button" disabled={!restoreConfirmed || restoring} onClick={() => void confirmRestore()}>
+                <Upload aria-hidden="true" />{restoring ? '正在恢复…' : '确认整体恢复'}
               </button>
             </div>
-          )}
-        </section>
-      )}
-
-      {trial?.status === 'completed' && (
-        <div className="knowledge-import-entry">
-          <span className="feature-summary-icon"><ClipboardCheck aria-hidden="true" /></span>
-          <span>
-            <strong>7 天结果：{trial.decision === 'continue' ? '继续' : trial.decision === 'adjust' ? '调整' : '停止'}</strong>
-            <small>{trial.observedOutcome}</small>
-          </span>
-          <button className="file-button" type="button" onClick={() => void exportTrialResult()}>
-            <Download aria-hidden="true" />分享结果包
-          </button>
-        </div>
-      )}
-
-      {latestApplicationSeason && (
-        <div className="knowledge-import-entry">
-          <span className="feature-summary-icon"><CalendarDays aria-hidden="true" /></span>
-          <span>
-            <strong>28 天结果：{latestApplicationSeason.title}</strong>
-            <small>{latestApplicationSeason.observedOutcome}</small>
-          </span>
-          <button className="file-button" type="button" onClick={() => void exportSeasonResult()}>
-            <Download aria-hidden="true" />分享结果包
-          </button>
+          </section>
         </div>
       )}
     </div>
@@ -2914,24 +3102,18 @@ function SettingsPage({
   preferences,
   activities,
   completions,
-  applicationTrial,
-  seasons,
-  today,
+  lastBackupAt,
   onPreferences,
-  onKnowledgePackageFile,
-  onRefresh,
+  onOpenData,
   onNotice,
   onManage,
 }: {
   preferences: Preferences
   activities: Activity[]
   completions: Completion[]
-  applicationTrial?: ApplicationTrial
-  seasons: Snapshot['seasons']
-  today: string
+  lastBackupAt?: string
   onPreferences: (value: Preferences) => Promise<void>
-  onKnowledgePackageFile: (file?: File) => void
-  onRefresh: () => Promise<void>
+  onOpenData: () => void
   onNotice: (message: string) => void
   onManage: () => void
 }) {
@@ -3001,31 +3183,6 @@ function SettingsPage({
     onNotice('已播放当前强度的完成反馈')
   }
 
-  async function exportJson() {
-    const meta = await db.settings.get('meta')
-    await db.settings.put({ key: 'meta', value: { ...(meta?.key === 'meta' ? meta.value : {}), lastBackupAt: new Date().toISOString() } })
-    const backup = await createBackup()
-    downloadFile(`earth-online-backup-${localDate()}.json`, JSON.stringify(backup, null, 2), 'application/json')
-    await onRefresh()
-    onNotice('JSON 全量备份已导出')
-  }
-
-  async function exportMarkdown() {
-    downloadFile(`earth-online-ledger-${localDate()}.md`, await createLedgerMarkdown(), 'text/markdown')
-    onNotice('Markdown 账本已导出')
-  }
-
-  async function importJson(file?: File) {
-    if (!file) return
-    try {
-      await restoreBackup(JSON.parse(await file.text()))
-      await onRefresh()
-      onNotice('备份已校验并完整恢复')
-    } catch (error) {
-      onNotice(`导入失败：${errorMessage(error)}`)
-    }
-  }
-
   return (
     <div className="settings-page">
       <header className="page-header"><div><p className="eyebrow">系统与存档</p><h1>设置</h1><p className="page-lead">管理反馈方式、行动和本机数据。</p></div><SettingsIcon aria-hidden="true" className="header-icon" /></header>
@@ -3078,39 +3235,11 @@ function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>存档与恢复</span><h2>本地数据</h2></div></div>
-        <ApplicationBridgePanel
-          trial={applicationTrial}
-          seasons={seasons}
-          activities={activities}
-          completions={completions}
-          today={today}
-          onRefresh={onRefresh}
-          onNotice={onNotice}
-        />
-        <div className="knowledge-import-entry">
-          <span className="feature-summary-icon"><BookOpen aria-hidden="true" /></span>
-          <span>
-            <strong>Obsidian Application 行动包</strong>
-            <small>兼容旧 v1 赛季包；v2 支持 7 天试跑与 28 天正式赛季。导入只会先生成规划草稿。</small>
-          </span>
-          <label className="file-button"><Upload aria-hidden="true" />选择行动包
-            <input
-              type="file"
-              accept="application/json,.json"
-              onChange={(event) => {
-                onKnowledgePackageFile(event.target.files?.[0])
-                event.currentTarget.value = ''
-              }}
-            />
-          </label>
-        </div>
-        <div className="data-actions">
-          <button type="button" onClick={() => void exportJson()}><Download aria-hidden="true" />导出 JSON</button>
-          <button type="button" onClick={() => void exportMarkdown()}><Download aria-hidden="true" />导出账本</button>
-          <label className="file-button"><Upload aria-hidden="true" />恢复 JSON
-            <input type="file" accept="application/json,.json" onChange={(event) => void importJson(event.target.files?.[0])} />
-          </label>
-        </div>
+        <button className="data-center-summary" type="button" onClick={onOpenData}>
+          <span className="feature-summary-icon"><FileJson aria-hidden="true" /></span>
+          <span><strong>数据中心</strong><small>{lastBackupAt ? `上次完整备份：${new Date(lastBackupAt).toLocaleString('zh-CN')}` : '尚未导出完整 JSON 备份'} · 数据仅保存在本机</small></span>
+          <span>管理备份与交换<ChevronRight aria-hidden="true" /></span>
+        </button>
       </section>
       <footer className="version-footer"><ShieldCheck aria-hidden="true" />数据仅保存在本机 · {displayVersion}</footer>
     </div>

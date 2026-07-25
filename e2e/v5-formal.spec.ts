@@ -197,6 +197,31 @@ test('目标规划器和愿望商店保留为可返回的二级页面', async ({
   await expect(page.getByRole('heading', { name: '成长', exact: true })).toBeVisible()
 })
 
+test('数据中心支持二级地址刷新、恢复差异预览和浏览器返回', async ({ page }) => {
+  await page.getByRole('button', { name: '我的', exact: true }).last().click()
+  await page.getByRole('button', { name: /数据中心/ }).click()
+  await expect(page).toHaveURL(/#\/profile\/data$/)
+  await expect(page.getByRole('heading', { name: '数据中心' })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '数据中心' })).toBeVisible()
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: /导出完整 JSON/ }).click()
+  const download = await downloadPromise
+  const backupPath = await download.path()
+  if (!backupPath) throw new Error('没有生成用于恢复预览的备份文件')
+  await page.getByLabel('选择完整备份').setInputFiles(backupPath)
+
+  const restoreDialog = page.getByRole('dialog', { name: '完整备份差异' })
+  await expect(restoreDialog).toBeVisible()
+  await expect(restoreDialog.getByRole('button', { name: '确认整体恢复' })).toBeDisabled()
+  await restoreDialog.getByTitle('关闭').click()
+  await expect(restoreDialog).toHaveCount(0)
+
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible()
+})
+
 test('320px 可以预览 v2 试跑行动包并进入规划确认而不直接创建活动', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'narrow', '专门覆盖 320px 移动端导入预览')
   const actionPackage = {
@@ -240,6 +265,8 @@ test('320px 可以预览 v2 试跑行动包并进入规划确认而不直接创�
   }
 
   await page.getByRole('button', { name: '我的', exact: true }).last().click()
+  await page.getByRole('button', { name: /数据中心/ }).click()
+  await expect(page).toHaveURL(/#\/profile\/data$/)
   await page.getByLabel('选择行动包').setInputFiles({
     name: 'knowledge-action-demo.json',
     mimeType: 'application/json',
@@ -267,23 +294,25 @@ test('320px 可以预览 v2 试跑行动包并进入规划确认而不直接创�
 
 test('7 天试跑复盘与最小结果导出在各视口可用', async ({ page }, testInfo) => {
   await seedFinishedApplicationTrialWindow(page)
-  await page.getByRole('button', { name: '我的', exact: true }).last().click()
-  await expect(page.getByRole('heading', { name: '7 天试跑：让旧知识参与下一次学习' })).toBeVisible()
+  await page.getByRole('button', { name: '复盘', exact: true }).last().click()
+  await expect(page.getByRole('heading', { name: '让旧知识参与下一次学习' })).toBeVisible()
   await expect(page.getByText('可复用成果进入下一轮才会形成复利', { exact: false })).toBeVisible()
   await page.getByLabel('两次学习中旧知识被实际复用的次数与帮助').fill('两次学习都先调用了旧知识，其中一次避免了重复搜索')
-  await page.getByRole('button', { name: '调整' }).click()
+  await page.locator('[aria-label="试跑决定"]').getByRole('button', { name: '调整' }).click()
   await page.getByLabel('决定理由').fill('保留前置检索，但把记录要求缩短为一句')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
   await page.screenshot({ path: `test-results/application-trial-review-${testInfo.project.name}.png`, fullPage: true })
   await page.getByRole('button', { name: '保存人工判断' }).click()
   await expect(page.getByText('7 天结果：调整')).toBeVisible()
 
+  await page.getByRole('button', { name: '我的', exact: true }).last().click()
+  await page.getByRole('button', { name: /数据中心/ }).click()
   const nativeShare = await page.evaluate(() => Boolean(navigator.share))
   if (nativeShare) {
-    await page.getByRole('button', { name: '分享结果包' }).click()
+    await page.getByRole('button', { name: /导出最近 7 天结果/ }).click()
   } else {
     const download = page.waitForEvent('download')
-    await page.getByRole('button', { name: '分享结果包' }).click()
+    await page.getByRole('button', { name: /导出最近 7 天结果/ }).click()
     expect((await download).suggestedFilename()).toBe('app-20990101-e2e.trial.result.json')
   }
 })
