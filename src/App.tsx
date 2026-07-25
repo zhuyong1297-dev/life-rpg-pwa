@@ -482,7 +482,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.2.0 预览版' : 'V5.2.0'
+const displayVersion = isPreview ? 'V5.2.1 预览版' : 'V5.2.1'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -899,6 +899,7 @@ function App() {
             storedDraft={coachDraft}
             activities={snapshot.activities}
             activeSeason={activeSeason}
+            activeTrial={applicationTrial?.status === 'active'}
             onBack={() => navigateTo(page)}
             onSave={async (draft) => {
               await saveCoachPlanDraft(draft)
@@ -907,9 +908,13 @@ function App() {
             onFinish={async (draft) => {
               const readyDraft = { ...draft, currentStep: 4 as const, status: 'ready' as const }
               await saveCoachPlanDraft(readyDraft)
-              if (activeSeason && draft.knowledgeSource?.schemaVersion !== 2) {
+              if (activeSeason || applicationTrial?.status === 'active') {
                 await refresh()
-                setNotice('下个赛季方案已保存，当前赛季和关键行为没有改变')
+                setNotice(
+                  draft.knowledgeSource?.schemaVersion === 2 && draft.knowledgeSource.phase === 'trial'
+                    ? '7 天试跑方案已保存，当前阶段结束后再回来启动'
+                    : '下个赛季方案已保存，当前阶段和关键行为没有改变',
+                )
               } else {
                 await activateCoachPlanDraft(readyDraft.id, today)
                 await refresh()
@@ -1451,6 +1456,7 @@ function CoachPlanScreen({
   storedDraft,
   activities,
   activeSeason,
+  activeTrial,
   onBack,
   onSave,
   onFinish,
@@ -1458,6 +1464,7 @@ function CoachPlanScreen({
   storedDraft?: CoachPlanDraft
   activities: Activity[]
   activeSeason?: Snapshot['seasons'][number]
+  activeTrial: boolean
   onBack: () => void
   onSave: (draft: CoachPlanDraft) => Promise<void>
   onFinish: (draft: CoachPlanDraft) => Promise<void>
@@ -1493,6 +1500,9 @@ function CoachPlanScreen({
   const activityById = new Map(activities.map((activity) => [activity.id, activity]))
   const applicationPhase = draft.knowledgeSource?.schemaVersion === 2 ? draft.knowledgeSource.phase : undefined
   const cycleLabel = applicationPhase === 'trial' ? '7 天试跑' : '28 天赛季'
+  const finishLabel = activeSeason || activeTrial
+    ? applicationPhase === 'trial' ? '保存试跑方案' : '保存为下个赛季'
+    : applicationPhase === 'trial' ? '启动 7 天试跑' : '启动 28 天赛季'
 
   function stepError(step: number) {
     if (step === 1 && (!draft.title.trim() || !draft.successCriterion.trim() || !draft.baseline.trim() || !draft.targetOutcome.trim())) return '请先完整填写现实结果和可验证标准'
@@ -1652,7 +1662,7 @@ function CoachPlanScreen({
         {draft.currentStep < 4 ? (
           <button className="primary-action" type="button" onClick={goNext}>下一步<ChevronRight aria-hidden="true" /></button>
         ) : (
-          <button className="primary-action" type="button" disabled={submitting || !draft.badDayConfirmed || !draft.evidenceConfirmed} onClick={() => void finish()}><ShieldCheck aria-hidden="true" />{submitting ? '正在保存…' : activeSeason && applicationPhase === undefined ? '保存为下个赛季' : applicationPhase === 'trial' ? '启动 7 天试跑' : '启动 28 天赛季'}</button>
+          <button className="primary-action" type="button" disabled={submitting || !draft.badDayConfirmed || !draft.evidenceConfirmed} onClick={() => void finish()}><ShieldCheck aria-hidden="true" />{submitting ? '正在保存…' : finishLabel}</button>
         )}
       </footer>
     </section>

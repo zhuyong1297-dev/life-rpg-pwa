@@ -141,8 +141,8 @@ export function KnowledgeActionImportModal({
 
           <div className="knowledge-change-grid">
             <section>
-              <h3>将新增</h3>
-              <p><Check aria-hidden="true" />1 份本地目标规划草稿</p>
+              <h3>{preview.replacesCurrentDraft ? '将替换' : '将新增'}</h3>
+              <p><Check aria-hidden="true" />{preview.replacesCurrentDraft ? '当前本地目标规划草稿' : '1 份本地目标规划草稿'}</p>
               <p><Check aria-hidden="true" />{preview.resultingKeyCount} 项待逐项确认的候选行为</p>
               <p><Check aria-hidden="true" />知识标题与稳定引用</p>
             </section>

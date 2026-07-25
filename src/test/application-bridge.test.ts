@@ -182,7 +182,7 @@ describe('Obsidian Application 双向桥接', () => {
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
     const backup = await createBackup(database)
-    expect(backup).toMatchObject({ schemaVersion: 11, appVersion: '5.2.0' })
+    expect(backup).toMatchObject({ schemaVersion: 11, appVersion: '5.2.1' })
     expect(backup.settings.find((setting) => setting.key === 'applicationTrial')).toBeDefined()
 
     const restored = new LifeRpgDatabase(`application-bridge-restore-${crypto.randomUUID()}`)
@@ -200,7 +200,7 @@ describe('Obsidian Application 双向桥接', () => {
     }
   })
 
-  it('试跑进行中阻止其他试跑和手动赛季并发', async () => {
+  it('试跑进行中允许保存下一份草稿，但阻止启动其他试跑和手动赛季', async () => {
     const draft = await importKnowledgeActionPackage(trialPackage, database)
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
@@ -216,7 +216,42 @@ describe('Obsidian Application 双向桥接', () => {
       packageId: 'demo.application.other.v1',
       applicationId: 'app-20260725-other',
     }, database)
-    expect(preview.blockingIssues).toContain('当前 7 天试跑尚未结束，同一时间只能进行一个 Application')
+    expect(preview.blockingIssues).toEqual([])
+    expect(preview.warnings).toContain('当前 7 天试跑仍在进行；可以先保存规划草稿，但本轮试跑结束前不能启动新阶段。')
+    const pendingDraft = await importKnowledgeActionPackage({
+      ...trialPackage,
+      packageId: 'demo.application.other.v1',
+      applicationId: 'app-20260725-other',
+    }, database)
+    await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(pendingDraft) })
+    await expect(activateCoachPlanDraft(pendingDraft.id, '2026-07-25', database)).rejects.toThrow('7 天试跑')
+  })
+
+  it('赛季进行中允许保存试跑草稿，但仍阻止启动试跑', async () => {
+    const focus = await createActivity({
+      title: '既有赛季行为',
+      type: 'habit',
+      domain: 'health',
+      difficulty: '简单',
+      goal: { count: 1, unit: '次' },
+      schedule: { kind: 'daily' },
+      isKey: true,
+      enabled: true,
+    }, database)
+    await createSeason({
+      title: '进行中的赛季',
+      successCriterion: '保持当前节奏',
+      baseline: '已有节奏',
+      targetOutcome: '继续执行',
+      focusActivityIds: [focus.id],
+    }, '2026-07-25', database)
+
+    const preview = await previewKnowledgeActionPackage(trialPackage, database)
+    expect(preview.blockingIssues).toEqual([])
+    expect(preview.warnings).toContain('当前 28 天赛季仍在进行；可以先保存规划草稿，但当前赛季结束前不能启动新阶段。')
+    const pendingDraft = await importKnowledgeActionPackage(trialPackage, database)
+    await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(pendingDraft) })
+    await expect(activateCoachPlanDraft(pendingDraft.id, '2026-07-25', database)).rejects.toThrow('同一时间只能进行一个试跑或赛季')
   })
 
   it('结果包和规划上下文只包含最小聚合数据', async () => {
@@ -290,6 +325,7 @@ describe('Obsidian Application 双向桥接', () => {
       packageId: 'demo.application.season.invalid',
       derivedFromResultPackageId: 'result:wrong',
     }, database)
-    expect(invalidPreview.blockingIssues).toContain('当前 28 天赛季尚未结束，同一时间只能进行一个 Application')
+    expect(invalidPreview.blockingIssues).toContain('正式赛季没有引用本机生成的试跑结果包')
+    expect(invalidPreview.warnings).toContain('当前 28 天赛季仍在进行；可以先保存规划草稿，但当前赛季结束前不能启动新阶段。')
   })
 })

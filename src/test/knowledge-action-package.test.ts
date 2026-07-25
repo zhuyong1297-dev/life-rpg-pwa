@@ -117,6 +117,21 @@ describe('Obsidian 知识行动包', () => {
     })
   })
 
+  it('明确预览并替换另一份尚未启动的规划草稿', async () => {
+    const previousDraft = await importKnowledgeActionPackage({
+      ...examplePackage,
+      packageId: 'demo.previous-plan.v1',
+    }, database)
+    const preview = await previewKnowledgeActionPackage(examplePackage, database)
+    expect(preview.blockingIssues).toEqual([])
+    expect(preview.replacesCurrentDraft).toBe(true)
+    expect(preview.warnings).toContain('当前目标规划草稿会被这份行动包替换；原草稿尚未启动的内容不会进入历史。')
+
+    const nextDraft = await importKnowledgeActionPackage(examplePackage, database)
+    expect(nextDraft.id).not.toBe(previousDraft.id)
+    expect((await getCoachPlanDraft(database))?.knowledgeSource?.packageId).toBe(examplePackage.packageId)
+  })
+
   it('预览同名活动但不会修改活动或账本', async () => {
     const activity = await createActivity({
       title: '打开当天学习材料',

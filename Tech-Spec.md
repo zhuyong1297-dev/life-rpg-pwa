@@ -1,10 +1,10 @@
-# 地球 Online V5.2.0 技术规格
+# 地球 Online V5.2.1 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.2.0` 在既有 App 控制器、Dexie 事务和领域模型上增加 Application 双向桥接。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表；7 天试跑使用 `settings.applicationTrial`，备份继续使用 JSON schema 11。
+`V5.2.0` 在既有 App 控制器、Dexie 事务和领域模型上增加 Application 双向桥接；`V5.2.1` 修正草稿导入和阶段激活的边界。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表；7 天试跑使用 `settings.applicationTrial`，备份继续使用 JSON schema 11。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 
@@ -144,13 +144,13 @@
 1. `KnowledgeActionPackageSchema` 使用独立常量 `packageType = earth-online.obsidian-knowledge-action`，并以 discriminated union 同时接受 schema 1 与 schema 2，不引用 `BackupSchema`。
 2. schema 1 保持旧契约；schema 2 接受稳定 `packageId`、`applicationId`、`trial | season`、一主两辅知识、现实结果字段和 1 至 3 项行为，主知识必须是 `principle`。
 3. 文件选择先运行 Zod 完整校验和只读预览；预览读取当前草稿、已激活 packageId、活动标题、关键行为数量和活动赛季，不执行写入。
-4. `importKnowledgeActionPackage` 在独立 `rw` 事务内重新校验重复包、当前草稿和关键行为上限，只写一条 `settings.coachPlanDraft`；失败自动回滚。
+4. `importKnowledgeActionPackage` 在独立 `rw` 事务内重新校验重复包和关键行为上限，只写一条 `settings.coachPlanDraft`；已有不同草稿时，用户在预览确认后原子替换，失败自动回滚。
 5. 候选行为写入草稿时全部为 `confirmed: false`。导入器不调用 `createActivity`、`activateCoachPlanDraft` 或 `restoreBackup`。
 6. 同名活动以规范化标题匹配并作为预览警告，用户在规划器中决定复用或修改；系统不自动绑定或创建替代项。
 7. schema 2 `trial` 激活事务原子创建/复用行为、临时切换关键行为、写入 `settings.applicationTrial` 并删除草稿；严格设置 `endsOn = startsOn + 6`。
 8. 试跑完成事务只允许第 7 个游戏日及以后执行，聚合完成数与活跃日，保存用户现实结果/决定/理由，并恢复仍有效的原关键行为。
 9. schema 2 `season` 只有在同一 Application 的试跑已完成、决定为继续或调整且 `derivedFromResultPackageId` 匹配本机结果时可激活；随后复用既有 28 天 Season 事务。
-10. 试跑或赛季进行中时拒绝启动另一阶段；写入失败必须回滚活动、关键状态、草稿、试跑或赛季。
+10. 试跑或赛季进行中时允许导入并保存下一份草稿，但拒绝启动另一阶段；规划器完成确认后继续保存草稿，写入失败必须回滚活动、关键状态、草稿、试跑或赛季。
 11. `earth-online.obsidian-planning-context / schema 1` 只导出当前阶段与最多三项关键行为定义；`earth-online.obsidian-application-result / schema 1` 只导出阶段边界、行为聚合、现实指标和用户决定，不得包含每日日期流水、XP、金币、愿望、奖励或账本。
 
 ### 赛季校准与每日状态

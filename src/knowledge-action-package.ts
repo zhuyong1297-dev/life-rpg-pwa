@@ -104,6 +104,7 @@ export interface KnowledgeActionPackagePreview {
   activeTrial: boolean
   currentKeyCount: number
   resultingKeyCount: number
+  replacesCurrentDraft: boolean
   unchanged: string[]
 }
 
@@ -193,6 +194,7 @@ async function buildPreview(
   const metaSetting = settings.find((setting) => setting.key === 'meta')
   const imports = metaSetting?.key === 'meta' ? metaSetting.value.knowledgeActionImports ?? [] : []
   const blockingIssues: string[] = []
+  const replacesCurrentDraft = Boolean(currentDraft && currentDraft.knowledgeSource?.packageId !== actionPackage.packageId)
 
   if (currentDraft?.knowledgeSource?.packageId === actionPackage.packageId) {
     blockingIssues.push('这份知识行动包已经生成了当前规划草稿')
@@ -200,13 +202,9 @@ async function buildPreview(
     blockingIssues.push('这份知识行动包已经激活过，不能重复导入')
   } else if (trial?.sourcePackageId === actionPackage.packageId) {
     blockingIssues.push('这份知识行动包已经启动过试跑，不能重复导入')
-  } else if (currentDraft) {
-    blockingIssues.push('当前已有一份目标规划草稿，请先完成或重新规划后再导入')
   }
 
   if (actionPackage.schemaVersion === 2) {
-    if (activeTrial) blockingIssues.push('当前 7 天试跑尚未结束，同一时间只能进行一个 Application')
-    if (activeSeason) blockingIssues.push('当前 28 天赛季尚未结束，同一时间只能进行一个 Application')
     if (actionPackage.phase === 'season') {
       const sourceTrial: ApplicationTrial | undefined = trial?.applicationId === actionPackage.applicationId ? trial : undefined
       if (!sourceTrial || sourceTrial.status !== 'completed') {
@@ -249,6 +247,15 @@ async function buildPreview(
   if (duplicateActivities.length) {
     warnings.push('发现同名活动。进入规划器后请复用现有活动，或修改候选行为名称和标准，避免创建重复活动。')
   }
+  if (replacesCurrentDraft) {
+    warnings.push('当前目标规划草稿会被这份行动包替换；原草稿尚未启动的内容不会进入历史。')
+  }
+  if (actionPackage.schemaVersion === 2 && activeTrial) {
+    warnings.push('当前 7 天试跑仍在进行；可以先保存规划草稿，但本轮试跑结束前不能启动新阶段。')
+  }
+  if (actionPackage.schemaVersion === 2 && activeSeason) {
+    warnings.push('当前 28 天赛季仍在进行；可以先保存规划草稿，但当前赛季结束前不能启动新阶段。')
+  }
   if (actionPackage.schemaVersion === 1 && activeSeason) {
     warnings.push('当前赛季仍在进行；v1 行动包只会保存为下个赛季草稿，不会修改当前关键行为。')
   } else if (currentKeyCount > 0) {
@@ -265,6 +272,7 @@ async function buildPreview(
     activeTrial: Boolean(activeTrial),
     currentKeyCount,
     resultingKeyCount,
+    replacesCurrentDraft,
     unchanged: [
       '完成记录、XP 和金币',
       '奖励、奖励券和奖励基金',
