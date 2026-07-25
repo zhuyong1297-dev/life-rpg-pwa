@@ -7,6 +7,7 @@ import {
   getTierLevels,
 } from './domain'
 import type { KnowledgeActionPackagePreview } from './knowledge-action-package'
+import { packagePrimaryKnowledge } from './knowledge-action-package'
 
 function behaviorScheduleLabel(preview: KnowledgeActionPackagePreview, index: number) {
   const behavior = preview.actionPackage.behaviors[index]
@@ -33,6 +34,7 @@ export function KnowledgeActionImportModal({
   onConfirm: () => void
 }) {
   const blocked = preview.blockingIssues.length > 0
+  const primaryKnowledge = packagePrimaryKnowledge(preview.actionPackage)
   useEffect(() => {
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -53,7 +55,7 @@ export function KnowledgeActionImportModal({
           <div>
             <span className="modal-kicker">Obsidian 知识行动包</span>
             <h2 id="knowledge-package-title">导入预览</h2>
-            <p>这里只生成规划草稿，不会直接创建活动。</p>
+            <p>这里只生成规划草稿；确认完成后才会启动 7 天试跑或 28 天赛季。</p>
           </div>
           <button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button>
         </header>
@@ -63,9 +65,17 @@ export function KnowledgeActionImportModal({
             <BookOpen aria-hidden="true" />
             <div>
               <small>知识来源</small>
-              <h3>{preview.actionPackage.knowledge.title}</h3>
-              <code>{preview.actionPackage.knowledge.reference}</code>
-              <p>{preview.actionPackage.knowledge.principle}</p>
+              <h3>{primaryKnowledge.title}</h3>
+              <code>{primaryKnowledge.reference}</code>
+              <p>{primaryKnowledge.principle}</p>
+              {preview.actionPackage.schemaVersion === 2 && (
+                <>
+                  <small>{preview.actionPackage.phase === 'trial' ? '7 天试跑' : '28 天正式赛季'} · {preview.actionPackage.applicationId}</small>
+                  {preview.actionPackage.knowledge.supporting.map((item) => (
+                    <p key={item.reference}><b>辅助：{item.title}</b> — {item.contribution}</p>
+                  ))}
+                </>
+              )}
             </div>
           </section>
 
@@ -76,6 +86,7 @@ export function KnowledgeActionImportModal({
               <div><dt>成功标准</dt><dd>{preview.actionPackage.application.successCriterion}</dd></div>
               <div><dt>当前基线</dt><dd>{preview.actionPackage.application.baseline}</dd></div>
               <div><dt>期望结果</dt><dd>{preview.actionPackage.application.targetOutcome}</dd></div>
+              {preview.actionPackage.schemaVersion === 2 && <div><dt>现实指标</dt><dd>{preview.actionPackage.application.outcomeIndicator}</dd></div>}
             </dl>
           </section>
 
@@ -143,7 +154,7 @@ export function KnowledgeActionImportModal({
         </div>
 
         <footer className="knowledge-package-footer">
-          <span>{blocked ? '请先解决以上问题' : '下一步仍需完成四步规划和现实检查'}</span>
+          <span>{blocked ? '请先解决以上问题' : '下一步仍需完成四步规划和现实检查；不会按打卡自动升级阶段'}</span>
           <button className="primary-action" type="button" disabled={blocked || submitting} onClick={onConfirm}>
             {submitting ? '正在生成草稿…' : '进入规划确认'}<ChevronRight aria-hidden="true" />
           </button>

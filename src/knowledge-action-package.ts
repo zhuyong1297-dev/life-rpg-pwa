@@ -1,14 +1,22 @@
 import { z } from 'zod'
 import { db, type LifeRpgDatabase } from './db'
 import {
+  ApplicationKnowledgeSchema,
   CoachPlanDraftSchema,
   CoachPlanNewBehaviorSchema,
   type Activity,
+  type ApplicationTrial,
   type CoachPlanDraft,
 } from './domain'
 
 export const KNOWLEDGE_ACTION_PACKAGE_TYPE = 'earth-online.obsidian-knowledge-action' as const
-export const KNOWLEDGE_ACTION_PACKAGE_SCHEMA_VERSION = 1 as const
+export const KNOWLEDGE_ACTION_PACKAGE_SCHEMA_VERSION = 2 as const
+
+const stableId = z.string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, '标识只能包含字母、数字、点、下划线、冒号和连字符')
 
 export const KnowledgeActionBehaviorSchema = CoachPlanNewBehaviorSchema
   .omit({ id: true, source: true, confirmed: true })
@@ -19,14 +27,18 @@ export const KnowledgeActionBehaviorSchema = CoachPlanNewBehaviorSchema
   })
   .strict()
 
-export const KnowledgeActionPackageSchema = z.object({
+const behaviorList = z.array(KnowledgeActionBehaviorSchema).min(1).max(3)
+  .superRefine((behaviors, context) => {
+    const titles = behaviors.map((behavior) => normalizeTitle(behavior.title))
+    if (new Set(titles).size !== titles.length) {
+      context.addIssue({ code: 'custom', message: '同一行动包中的行为标题不能重复' })
+    }
+  })
+
+export const KnowledgeActionPackageV1Schema = z.object({
   packageType: z.literal(KNOWLEDGE_ACTION_PACKAGE_TYPE),
-  schemaVersion: z.literal(KNOWLEDGE_ACTION_PACKAGE_SCHEMA_VERSION),
-  packageId: z.string()
-    .trim()
-    .min(1)
-    .max(120)
-    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, 'packageId 只能包含字母、数字、点、下划线、冒号和连字符'),
+  schemaVersion: z.literal(1),
+  packageId: stableId,
   knowledge: z.object({
     title: z.string().trim().min(1).max(120),
     reference: z.string().trim().min(1).max(300),
@@ -38,15 +50,41 @@ export const KnowledgeActionPackageSchema = z.object({
     baseline: z.string().trim().min(1).max(280),
     targetOutcome: z.string().trim().min(1).max(280),
   }).strict(),
-  behaviors: z.array(KnowledgeActionBehaviorSchema).min(1).max(3),
+  behaviors: behaviorList,
+}).strict()
+
+export const KnowledgeActionPackageV2Schema = z.object({
+  packageType: z.literal(KNOWLEDGE_ACTION_PACKAGE_TYPE),
+  schemaVersion: z.literal(2),
+  packageId: stableId,
+  applicationId: stableId,
+  phase: z.enum(['trial', 'season']),
+  derivedFromResultPackageId: stableId.nullable().optional(),
+  knowledge: ApplicationKnowledgeSchema,
+  application: z.object({
+    goal: z.string().trim().min(1).max(40),
+    successCriterion: z.string().trim().min(1).max(180),
+    baseline: z.string().trim().min(1).max(280),
+    targetOutcome: z.string().trim().min(1).max(280),
+    outcomeIndicator: z.string().trim().min(1).max(180),
+  }).strict(),
+  behaviors: behaviorList,
 }).strict().superRefine((actionPackage, context) => {
-  const titles = actionPackage.behaviors.map((behavior) => normalizeTitle(behavior.title))
-  if (new Set(titles).size !== titles.length) {
-    context.addIssue({ code: 'custom', path: ['behaviors'], message: '同一行动包中的行为标题不能重复' })
+  if (actionPackage.phase === 'trial' && actionPackage.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '7 天试跑不能引用阶段结果包' })
+  }
+  if (actionPackage.phase === 'season' && !actionPackage.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '28 天正式赛季必须引用试跑结果包' })
   }
 })
 
+export const KnowledgeActionPackageSchema = z.discriminatedUnion('schemaVersion', [
+  KnowledgeActionPackageV1Schema,
+  KnowledgeActionPackageV2Schema,
+])
+
 export type KnowledgeActionPackage = z.infer<typeof KnowledgeActionPackageSchema>
+export type KnowledgeActionPackageV2 = z.infer<typeof KnowledgeActionPackageV2Schema>
 
 export interface DuplicateActivityMatch {
   behaviorIndex: number
@@ -63,12 +101,13 @@ export interface KnowledgeActionPackagePreview {
   blockingIssues: string[]
   warnings: string[]
   activeSeason: boolean
+  activeTrial: boolean
   currentKeyCount: number
   resultingKeyCount: number
   unchanged: string[]
 }
 
-function normalizeTitle(value: string) {
+export function normalizeTitle(value: string) {
   return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('zh-CN')
 }
 
@@ -77,17 +116,28 @@ function activityState(activity: Activity): DuplicateActivityMatch['state'] {
   return activity.enabled ? '进行中' : '已暂停'
 }
 
+export function packagePrimaryKnowledge(actionPackage: KnowledgeActionPackage) {
+  return actionPackage.schemaVersion === 1
+    ? actionPackage.knowledge
+    : actionPackage.knowledge.primary
+}
+
 export function knowledgeActionPackageToDraft(
   actionPackage: KnowledgeActionPackage,
   now = new Date(),
 ): CoachPlanDraft {
   const timestamp = now.toISOString()
+  const v2 = actionPackage.schemaVersion === 2 ? actionPackage : undefined
+  const primary = packagePrimaryKnowledge(actionPackage)
   return CoachPlanDraftSchema.parse({
-    id: `knowledge-plan:${actionPackage.packageId}`,
+    id: v2
+      ? `application-plan:${v2.applicationId}:${v2.phase}`
+      : `knowledge-plan:${actionPackage.packageId}`,
     title: actionPackage.application.goal,
     successCriterion: actionPackage.application.successCriterion,
     baseline: actionPackage.application.baseline,
     targetOutcome: actionPackage.application.targetOutcome,
+    outcomeIndicator: v2?.application.outcomeIndicator,
     currentStep: 1,
     status: 'editing',
     behaviors: actionPackage.behaviors.map((behavior, index) => ({
@@ -96,15 +146,27 @@ export function knowledgeActionPackageToDraft(
       source: 'new',
       confirmed: false,
     })),
-    knowledgeSource: {
-      packageType: actionPackage.packageType,
-      schemaVersion: actionPackage.schemaVersion,
-      packageId: actionPackage.packageId,
-      knowledgeTitle: actionPackage.knowledge.title,
-      knowledgeReference: actionPackage.knowledge.reference,
-      principle: actionPackage.knowledge.principle,
-      importedAt: timestamp,
-    },
+    knowledgeSource: v2
+      ? {
+          packageType: v2.packageType,
+          schemaVersion: 2,
+          packageId: v2.packageId,
+          applicationId: v2.applicationId,
+          phase: v2.phase,
+          derivedFromResultPackageId: v2.derivedFromResultPackageId ?? undefined,
+          knowledge: v2.knowledge,
+          outcomeIndicator: v2.application.outcomeIndicator,
+          importedAt: timestamp,
+        }
+      : {
+          packageType: actionPackage.packageType,
+          schemaVersion: 1,
+          packageId: actionPackage.packageId,
+          knowledgeTitle: primary.title,
+          knowledgeReference: primary.reference,
+          principle: primary.principle,
+          importedAt: timestamp,
+        },
     badDayConfirmed: false,
     evidenceConfirmed: false,
     createdAt: timestamp,
@@ -117,13 +179,17 @@ async function buildPreview(
   database: LifeRpgDatabase,
   now: Date,
 ): Promise<KnowledgeActionPackagePreview> {
-  const [activities, settings, activeSeason] = await Promise.all([
+  const [activities, settings, seasons] = await Promise.all([
     database.activities.toArray(),
     database.settings.toArray(),
-    database.seasons.where('status').equals('active').first(),
+    database.seasons.toArray(),
   ])
+  const activeSeason = seasons.find((season) => season.status === 'active')
   const currentDraftSetting = settings.find((setting) => setting.key === 'coachPlanDraft')
   const currentDraft = currentDraftSetting?.key === 'coachPlanDraft' ? currentDraftSetting.value : undefined
+  const trialSetting = settings.find((setting) => setting.key === 'applicationTrial')
+  const trial = trialSetting?.key === 'applicationTrial' ? trialSetting.value : undefined
+  const activeTrial = trial?.status === 'active' ? trial : undefined
   const metaSetting = settings.find((setting) => setting.key === 'meta')
   const imports = metaSetting?.key === 'meta' ? metaSetting.value.knowledgeActionImports ?? [] : []
   const blockingIssues: string[] = []
@@ -132,8 +198,36 @@ async function buildPreview(
     blockingIssues.push('这份知识行动包已经生成了当前规划草稿')
   } else if (imports.some((record) => record.packageId === actionPackage.packageId)) {
     blockingIssues.push('这份知识行动包已经激活过，不能重复导入')
+  } else if (trial?.sourcePackageId === actionPackage.packageId) {
+    blockingIssues.push('这份知识行动包已经启动过试跑，不能重复导入')
   } else if (currentDraft) {
     blockingIssues.push('当前已有一份目标规划草稿，请先完成或重新规划后再导入')
+  }
+
+  if (actionPackage.schemaVersion === 2) {
+    if (activeTrial) blockingIssues.push('当前 7 天试跑尚未结束，同一时间只能进行一个 Application')
+    if (activeSeason) blockingIssues.push('当前 28 天赛季尚未结束，同一时间只能进行一个 Application')
+    if (actionPackage.phase === 'season') {
+      const sourceTrial: ApplicationTrial | undefined = trial?.applicationId === actionPackage.applicationId ? trial : undefined
+      if (!sourceTrial || sourceTrial.status !== 'completed') {
+        blockingIssues.push('找不到同一 Application 已完成的 7 天试跑')
+      } else if (!['continue', 'adjust'].includes(sourceTrial.decision!)) {
+        blockingIssues.push('试跑决定为停止，不能启动正式赛季')
+      } else {
+        const expectedResultId = `result:${sourceTrial.applicationId}:trial:${sourceTrial.sourcePackageId}`
+        if (actionPackage.derivedFromResultPackageId !== expectedResultId) {
+          blockingIssues.push('正式赛季没有引用本机生成的试跑结果包')
+        }
+      }
+    } else if (trial && trial.applicationId !== actionPackage.applicationId) {
+      const completedSeason = seasons.some((season) =>
+        season.status === 'completed'
+        && season.applicationContext?.applicationId === trial.applicationId)
+      const pendingSeason = trial.status === 'completed'
+        && ['continue', 'adjust'].includes(trial.decision!)
+        && !completedSeason
+      if (pendingSeason) blockingIssues.push('上一个 Application 已通过试跑但尚未完成 28 天赛季')
+    }
   }
 
   const duplicateActivities = actionPackage.behaviors.flatMap((behavior, behaviorIndex) =>
@@ -150,16 +244,15 @@ async function buildPreview(
   const currentKeyCount = activities.filter((activity) => activity.isKey && activity.enabled && !activity.archivedAt).length
   const resultingKeyCount = actionPackage.behaviors.length
   if (currentKeyCount > 3) blockingIssues.push('当前关键行为已经超过 3 项，请先修正活动状态')
-  if (resultingKeyCount > 3) blockingIssues.push('启用后的关键行为不能超过 3 项')
 
   const warnings: string[] = []
   if (duplicateActivities.length) {
     warnings.push('发现同名活动。进入规划器后请复用现有活动，或修改候选行为名称和标准，避免创建重复活动。')
   }
-  if (activeSeason) {
-    warnings.push('当前赛季仍在进行；导入只会保存为下个赛季草稿，不会修改当前关键行为。')
+  if (actionPackage.schemaVersion === 1 && activeSeason) {
+    warnings.push('当前赛季仍在进行；v1 行动包只会保存为下个赛季草稿，不会修改当前关键行为。')
   } else if (currentKeyCount > 0) {
-    warnings.push(`正式启动新赛季时，现有 ${currentKeyCount} 项关键行为会由确认后的行为方案替换。`)
+    warnings.push(`启动阶段时，现有 ${currentKeyCount} 项关键行为会暂时由确认后的行为方案替换。`)
   }
 
   return {
@@ -169,14 +262,14 @@ async function buildPreview(
     blockingIssues,
     warnings,
     activeSeason: Boolean(activeSeason),
+    activeTrial: Boolean(activeTrial),
     currentKeyCount,
     resultingKeyCount,
     unchanged: [
-      '现有活动与关键行为',
       '完成记录、XP 和金币',
-      '当前赛季与赛季证据',
       '奖励、奖励券和奖励基金',
       '复盘、账本与历史记录',
+      '每日完成流水与全量备份',
     ],
   }
 }

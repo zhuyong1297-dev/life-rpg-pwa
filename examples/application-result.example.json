@@ -1,0 +1,31 @@
+{
+  "packageType": "earth-online.obsidian-application-result",
+  "schemaVersion": 1,
+  "resultPackageId": "result:app-20990101-learning-loop:trial:example.learning-loop.trial.v1",
+  "applicationId": "app-20990101-learning-loop",
+  "phase": "trial",
+  "sourcePackageId": "example.learning-loop.trial.v1",
+  "period": {
+    "startsOn": "2099-01-01",
+    "endsOn": "2099-01-07"
+  },
+  "outcome": {
+    "indicator": "两次学习中旧知识被实际复用的次数与帮助",
+    "baseline": "遇到新问题时通常直接搜索，旧笔记很少被调用",
+    "target": "形成先复用、再补充、再沉淀的最小循环",
+    "observed": "两次学习都调用了旧知识，其中一次避免了重复搜索"
+  },
+  "decision": "adjust",
+  "decisionReason": "保留前置检索，但把记录要求从三句缩短为一句",
+  "behaviors": [
+    {
+      "activityId": "example-learning-search",
+      "title": "学习前检索旧知识",
+      "planned": 7,
+      "completed": 2,
+      "activeDays": 2,
+      "totalDurationMinutes": 8
+    }
+  ],
+  "exportedAt": "2099-01-07T08:00:00.000Z"
+}

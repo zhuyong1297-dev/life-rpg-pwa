@@ -49,6 +49,8 @@ import {
   calibrateSeasonWithStableLife,
   cancelRewardClaim,
   cancelTodayCompletion,
+  completeApplicationSeason,
+  completeApplicationTrial,
   completeSeason,
   completeActivity,
   createActivity,
@@ -85,6 +87,7 @@ import {
 } from './db'
 import {
   addDays,
+  applicationDecisions,
   coachBehaviorRoleLabels,
   CoachPlanDraftSchema,
   createCoachPlanDraft,
@@ -126,6 +129,8 @@ import {
   tierLevels,
   TieredGoalSchema,
   type Activity,
+  type ApplicationDecision,
+  type ApplicationTrial,
   type CoachBehaviorRole,
   type CoachPlanBehavior,
   type CoachPlanDraft,
@@ -157,6 +162,13 @@ import {
   previewKnowledgeActionPackage,
   type KnowledgeActionPackagePreview,
 } from './knowledge-action-package'
+import {
+  applicationResultFilename,
+  createPlanningContextPackage,
+  createSeasonResultPackage,
+  createTrialResultPackage,
+  planningContextFilename,
+} from './application-bridge'
 import {
   V5GrowthPage,
   V5Navigation,
@@ -470,7 +482,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.1.0 预览版' : 'V5.1.0'
+const displayVersion = isPreview ? 'V5.2.0 预览版' : 'V5.2.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -594,6 +606,8 @@ function App() {
   const growthDomainSystem = metaSetting?.key === 'meta' ? metaSetting.value.growthDomainSystem : undefined
   const coachDraftSetting = snapshot.settings.find((item) => item.key === 'coachPlanDraft')
   const coachDraft = coachDraftSetting?.key === 'coachPlanDraft' ? coachDraftSetting.value : undefined
+  const applicationTrialSetting = snapshot.settings.find((item) => item.key === 'applicationTrial')
+  const applicationTrial = applicationTrialSetting?.key === 'applicationTrial' ? applicationTrialSetting.value : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
   const pendingRewardClaim = snapshot.rewardClaims
     .filter((claim) => claim.status === 'reserved')
@@ -893,13 +907,17 @@ function App() {
             onFinish={async (draft) => {
               const readyDraft = { ...draft, currentStep: 4 as const, status: 'ready' as const }
               await saveCoachPlanDraft(readyDraft)
-              if (activeSeason) {
+              if (activeSeason && draft.knowledgeSource?.schemaVersion !== 2) {
                 await refresh()
                 setNotice('下个赛季方案已保存，当前赛季和关键行为没有改变')
               } else {
                 await activateCoachPlanDraft(readyDraft.id, today)
                 await refresh()
-                setNotice('28 天成长赛季已启动，规划行为已设为关键行动')
+                setNotice(
+                  draft.knowledgeSource?.schemaVersion === 2 && draft.knowledgeSource.phase === 'trial'
+                    ? '7 天知识应用试跑已启动，原关键行为会在试跑结束后恢复'
+                    : '28 天成长赛季已启动，规划行为已设为关键行动',
+                )
               }
               navigateTo('today')
             }}
@@ -972,7 +990,7 @@ function App() {
               todayPriorityIds={todayActionPriorityIds}
               feedback={feedback}
               activeCompletion={activeCompletion}
-              seasonTitle={activeSeason?.title}
+              seasonTitle={activeSeason?.title ?? (applicationTrial?.status === 'active' ? `7 天试跑 · ${applicationTrial.title}` : undefined)}
               coachPlanLabel={coachDraft ? '继续规划' : '规划一个 28 天目标'}
               onComplete={requestCompletion}
               onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
@@ -981,8 +999,12 @@ function App() {
               onCreate={() => setCreateOpen(true)}
               onUndo={() => void undoLast()}
               onOpenSeason={() => {
-                setSeasonHubInitialView('overview')
-                setSeasonHubOpen(true)
+                if (activeSeason) {
+                  setSeasonHubInitialView('overview')
+                  setSeasonHubOpen(true)
+                } else {
+                  navigateTo('settings')
+                }
               }}
               onRecordDailySignal={(seasonId) => {
                 setFeedback(null)
@@ -1102,6 +1124,9 @@ function App() {
             preferences={preferences}
             activities={snapshot.activities}
             completions={snapshot.completions}
+            applicationTrial={applicationTrial}
+            seasons={snapshot.seasons}
+            today={today}
             onManage={() => setActivityManagerOpen(true)}
             onPreferences={async (value) => {
               await updatePreferences(value)
@@ -1375,9 +1400,21 @@ function App() {
               throw error
             }
           }}
-          onComplete={async (seasonId, result, evidence) => {
+          onComplete={async (seasonId, result, evidence, applicationReview) => {
             try {
-              await completeSeason(seasonId, result, evidence, today)
+              if (applicationReview) {
+                await completeApplicationSeason(
+                  seasonId,
+                  result,
+                  evidence,
+                  applicationReview.observedOutcome,
+                  applicationReview.decision,
+                  applicationReview.decisionReason,
+                  today,
+                )
+              } else {
+                await completeSeason(seasonId, result, evidence, today)
+              }
               await refresh()
               setNotice('赛季结论已进入个人策略库')
             } catch (error) {
@@ -1454,6 +1491,8 @@ function CoachPlanScreen({
   const eligibleActivities = activities.filter((activity) => activity.type === 'habit' && activity.enabled && !activity.archivedAt)
   const selectedActivityIds = new Set(draft.behaviors.flatMap((behavior) => behavior.source === 'existing' ? [behavior.activityId] : []))
   const activityById = new Map(activities.map((activity) => [activity.id, activity]))
+  const applicationPhase = draft.knowledgeSource?.schemaVersion === 2 ? draft.knowledgeSource.phase : undefined
+  const cycleLabel = applicationPhase === 'trial' ? '7 天试跑' : '28 天赛季'
 
   function stepError(step: number) {
     if (step === 1 && (!draft.title.trim() || !draft.successCriterion.trim() || !draft.baseline.trim() || !draft.targetOutcome.trim())) return '请先完整填写现实结果和可验证标准'
@@ -1505,7 +1544,7 @@ function CoachPlanScreen({
     <section className="coach-plan-screen" aria-labelledby="coach-plan-title">
       <header className="coach-plan-header">
         <button className="coach-back" type="button" onClick={onBack}><ChevronLeft aria-hidden="true" />返回</button>
-        <div><span className="modal-kicker">个人成长教练</span><h1 id="coach-plan-title">目标规划器</h1><p>把一个现实目标拆成最多三项能真正执行的行为。</p></div>
+        <div><span className="modal-kicker">个人成长教练</span><h1 id="coach-plan-title">目标规划器</h1><p>把一个现实目标拆成最多三项能真正执行的行为，准备{cycleLabel}。</p></div>
         <button className={replaceConfirm ? 'coach-restart confirming' : 'coach-restart'} type="button" onClick={() => {
           if (!replaceConfirm) return setReplaceConfirm(true)
           setDraft(createCoachPlanDraft())
@@ -1527,9 +1566,17 @@ function CoachPlanScreen({
           <BookOpen aria-hidden="true" />
           <div>
             <span>来自 Obsidian 知识行动包</span>
-            <strong>{draft.knowledgeSource.knowledgeTitle}</strong>
-            <code>{draft.knowledgeSource.knowledgeReference}</code>
-            <p>{draft.knowledgeSource.principle}</p>
+            <strong>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.knowledgeTitle : draft.knowledgeSource.knowledge.primary.title}</strong>
+            <code>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.knowledgeReference : draft.knowledgeSource.knowledge.primary.reference}</code>
+            <p>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.principle : draft.knowledgeSource.knowledge.primary.principle}</p>
+            {draft.knowledgeSource.schemaVersion === 2 && (
+              <>
+                <small>{draft.knowledgeSource.phase === 'trial' ? '7 天试跑' : '28 天正式赛季'} · 结果指标：{draft.knowledgeSource.outcomeIndicator}</small>
+                {draft.knowledgeSource.knowledge.supporting.map((item) => (
+                  <p key={item.reference}><b>辅助：{item.title}</b> — {item.contribution}</p>
+                ))}
+              </>
+            )}
           </div>
         </aside>
       )}
@@ -1537,10 +1584,10 @@ function CoachPlanScreen({
       <div className="coach-plan-body">
         {draft.currentStep === 1 && (
           <section className="coach-step-panel">
-            <div className="coach-step-heading"><span>第 1 步</span><h2>先定义现实结果</h2><p>成功标准必须能在 28 天后用事实回答，而不是“获得多少 XP”。</p></div>
+            <div className="coach-step-heading"><span>第 1 步</span><h2>先定义现实结果</h2><p>成功标准必须能在{cycleLabel}结束后用事实回答，而不是“获得多少 XP”。</p></div>
             <label className="full-field">成长主题<input maxLength={40} value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="例如：建立稳定的生活节奏" /></label>
             <label className="full-field">开始状态<textarea maxLength={280} value={draft.baseline} onChange={(event) => updateDraft({ baseline: event.target.value })} placeholder="现在具体是什么状态？" /></label>
-            <label className="full-field">期望结果<textarea maxLength={280} value={draft.targetOutcome} onChange={(event) => updateDraft({ targetOutcome: event.target.value })} placeholder="28 天后希望现实中发生什么变化？" /></label>
+            <label className="full-field">期望结果<textarea maxLength={280} value={draft.targetOutcome} onChange={(event) => updateDraft({ targetOutcome: event.target.value })} placeholder={`${cycleLabel}结束后希望现实中发生什么变化？`} /></label>
             <label className="full-field">可验证成功标准<textarea maxLength={180} value={draft.successCriterion} onChange={(event) => updateDraft({ successCriterion: event.target.value })} placeholder="写出日期、次数、结果或可观察证据" /></label>
           </section>
         )}
@@ -1605,7 +1652,7 @@ function CoachPlanScreen({
         {draft.currentStep < 4 ? (
           <button className="primary-action" type="button" onClick={goNext}>下一步<ChevronRight aria-hidden="true" /></button>
         ) : (
-          <button className="primary-action" type="button" disabled={submitting || !draft.badDayConfirmed || !draft.evidenceConfirmed} onClick={() => void finish()}><ShieldCheck aria-hidden="true" />{submitting ? '正在保存…' : activeSeason ? '保存为下个赛季' : '启动 28 天赛季'}</button>
+          <button className="primary-action" type="button" disabled={submitting || !draft.badDayConfirmed || !draft.evidenceConfirmed} onClick={() => void finish()}><ShieldCheck aria-hidden="true" />{submitting ? '正在保存…' : activeSeason && applicationPhase === undefined ? '保存为下个赛季' : applicationPhase === 'trial' ? '启动 7 天试跑' : '启动 28 天赛季'}</button>
         )}
       </footer>
     </section>
@@ -2714,10 +2761,152 @@ function RatingControl({ label, value, onChange }: { label: string; value: numbe
   )
 }
 
+function ApplicationBridgePanel({
+  trial,
+  seasons,
+  activities,
+  completions,
+  today,
+  onRefresh,
+  onNotice,
+}: {
+  trial?: ApplicationTrial
+  seasons: Snapshot['seasons']
+  activities: Activity[]
+  completions: Completion[]
+  today: string
+  onRefresh: () => Promise<void>
+  onNotice: (message: string) => void
+}) {
+  const [observedOutcome, setObservedOutcome] = useState('')
+  const [decision, setDecision] = useState<ApplicationDecision>('continue')
+  const [decisionReason, setDecisionReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const activeSeason = seasons.find((season) => season.status === 'active')
+  const latestApplicationSeason = [...seasons]
+    .filter((season) => season.status === 'completed' && season.applicationContext)
+    .sort((left, right) => right.endsOn.localeCompare(left.endsOn))[0]
+
+  async function exportPlanningContext() {
+    const context = createPlanningContextPackage(trial, activeSeason, activities)
+    const method = await shareJsonWithFallback(planningContextFilename(), context)
+    onNotice(method === 'shared' ? '规划上下文已打开系统分享' : '规划上下文 JSON 已下载')
+  }
+
+  async function exportTrialResult() {
+    if (!trial) return
+    const result = createTrialResultPackage(trial)
+    const method = await shareJsonWithFallback(applicationResultFilename(result), result)
+    onNotice(method === 'shared' ? '7 天结果包已打开系统分享' : '7 天结果包 JSON 已下载')
+  }
+
+  async function exportSeasonResult() {
+    if (!latestApplicationSeason) return
+    const result = createSeasonResultPackage(latestApplicationSeason, completions)
+    const method = await shareJsonWithFallback(applicationResultFilename(result), result)
+    onNotice(method === 'shared' ? '28 天结果包已打开系统分享' : '28 天结果包 JSON 已下载')
+  }
+
+  async function finishTrial() {
+    if (!trial || !observedOutcome.trim() || !decisionReason.trim()) return
+    try {
+      setSubmitting(true)
+      await completeApplicationTrial(
+        trial.applicationId,
+        observedOutcome,
+        decision,
+        decisionReason,
+        today,
+      )
+      await onRefresh()
+      setObservedOutcome('')
+      setDecisionReason('')
+      onNotice('7 天试跑已由你完成判断，原关键行为已恢复')
+    } catch (error) {
+      onNotice(`试跑复盘失败：${errorMessage(error)}`)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="application-bridge-panel">
+      <div className="knowledge-import-entry">
+        <span className="feature-summary-icon"><ShieldCheck aria-hidden="true" /></span>
+        <span>
+          <strong>Obsidian 双向交换</strong>
+          <small>只交换当前阶段、关键行为定义和阶段聚合结果；不包含每日流水、XP、金币或愿望。</small>
+        </span>
+        <button className="file-button" type="button" onClick={() => void exportPlanningContext()}>
+          <Download aria-hidden="true" />规划上下文
+        </button>
+      </div>
+
+      {trial?.status === 'active' && (
+        <section className="knowledge-package-section">
+          <div className="knowledge-package-section-heading">
+            <h3>7 天试跑：{trial.title}</h3>
+            <span>{trial.startsOn} — {trial.endsOn}</span>
+          </div>
+          <p><b>主原则：</b>{trial.knowledge.primary.title}</p>
+          <p><b>现实指标：</b>{trial.outcomeIndicator}</p>
+          {today < trial.endsOn ? (
+            <p className="empty-state">第 7 个游戏日结束后，由你根据现实变化决定继续、调整或停止。完成率不会自动替你做决定。</p>
+          ) : (
+            <div className="season-inline-editor season-complete-form">
+              <label>{trial.outcomeIndicator}<textarea required maxLength={500} value={observedOutcome} onChange={(event) => setObservedOutcome(event.target.value)} placeholder="记录实际状态或数值，不要写 XP 或金币" /></label>
+              <div className="segmented-control" aria-label="试跑决定">
+                {applicationDecisions.map((item) => (
+                  <button type="button" className={decision === item ? 'selected' : ''} key={item} onClick={() => setDecision(item)}>
+                    {item === 'continue' ? '继续' : item === 'adjust' ? '调整' : '停止'}
+                  </button>
+                ))}
+              </div>
+              <label>决定理由<textarea required maxLength={500} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="为什么继续、调整或停止？" /></label>
+              <button className="primary-action" type="button" disabled={submitting || !observedOutcome.trim() || !decisionReason.trim()} onClick={() => void finishTrial()}>
+                <ClipboardCheck aria-hidden="true" />{submitting ? '正在保存…' : '保存人工判断'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {trial?.status === 'completed' && (
+        <div className="knowledge-import-entry">
+          <span className="feature-summary-icon"><ClipboardCheck aria-hidden="true" /></span>
+          <span>
+            <strong>7 天结果：{trial.decision === 'continue' ? '继续' : trial.decision === 'adjust' ? '调整' : '停止'}</strong>
+            <small>{trial.observedOutcome}</small>
+          </span>
+          <button className="file-button" type="button" onClick={() => void exportTrialResult()}>
+            <Download aria-hidden="true" />分享结果包
+          </button>
+        </div>
+      )}
+
+      {latestApplicationSeason && (
+        <div className="knowledge-import-entry">
+          <span className="feature-summary-icon"><CalendarDays aria-hidden="true" /></span>
+          <span>
+            <strong>28 天结果：{latestApplicationSeason.title}</strong>
+            <small>{latestApplicationSeason.observedOutcome}</small>
+          </span>
+          <button className="file-button" type="button" onClick={() => void exportSeasonResult()}>
+            <Download aria-hidden="true" />分享结果包
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsPage({
   preferences,
   activities,
   completions,
+  applicationTrial,
+  seasons,
+  today,
   onPreferences,
   onKnowledgePackageFile,
   onRefresh,
@@ -2727,6 +2916,9 @@ function SettingsPage({
   preferences: Preferences
   activities: Activity[]
   completions: Completion[]
+  applicationTrial?: ApplicationTrial
+  seasons: Snapshot['seasons']
+  today: string
   onPreferences: (value: Preferences) => Promise<void>
   onKnowledgePackageFile: (file?: File) => void
   onRefresh: () => Promise<void>
@@ -2876,11 +3068,20 @@ function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>存档与恢复</span><h2>本地数据</h2></div></div>
+        <ApplicationBridgePanel
+          trial={applicationTrial}
+          seasons={seasons}
+          activities={activities}
+          completions={completions}
+          today={today}
+          onRefresh={onRefresh}
+          onNotice={onNotice}
+        />
         <div className="knowledge-import-entry">
           <span className="feature-summary-icon"><BookOpen aria-hidden="true" /></span>
           <span>
-            <strong>Obsidian 知识行动包</strong>
-            <small>校验并预填目标规划草稿，不会恢复备份或直接创建活动。</small>
+            <strong>Obsidian Application 行动包</strong>
+            <small>兼容旧 v1 赛季包；v2 支持 7 天试跑与 28 天正式赛季。导入只会先生成规划草稿。</small>
           </span>
           <label className="file-button"><Upload aria-hidden="true" />选择行动包
             <input
@@ -3788,6 +3989,21 @@ function downloadFile(name: string, content: string, type: string) {
   anchor.download = name
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+async function shareJsonWithFallback(name: string, value: unknown): Promise<'shared' | 'downloaded'> {
+  const content = JSON.stringify(value, null, 2)
+  const file = new File([content], name, { type: 'application/json' })
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    try {
+      await navigator.share({ files: [file], title: name })
+      return 'shared'
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return 'shared'
+    }
+  }
+  downloadFile(name, content, 'application/json')
+  return 'downloaded'
 }
 
 function errorMessage(error: unknown) {

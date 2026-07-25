@@ -1,0 +1,31 @@
+{
+  "packageType": "earth-online.obsidian-planning-context",
+  "schemaVersion": 1,
+  "exportedAt": "2099-01-07T08:00:00.000Z",
+  "activeCycle": {
+    "phase": "trial",
+    "title": "让学习笔记真正参与下一次学习",
+    "startsOn": "2099-01-01",
+    "endsOn": "2099-01-07"
+  },
+  "keyBehaviors": [
+    {
+      "id": "example-learning-search",
+      "title": "学习前检索旧知识",
+      "cue": "准备搜索新资料前",
+      "protocol": "先搜索 Knowledge；找到可用结论时写下一句本次如何复用。",
+      "domain": "learning",
+      "difficulty": "简单",
+      "goal": {
+        "kind": "tiered",
+        "metric": "duration",
+        "unit": "秒",
+        "inputUnit": "分钟",
+        "thresholds": [120, 300]
+      },
+      "schedule": {
+        "kind": "daily"
+      }
+    }
+  ]
+}

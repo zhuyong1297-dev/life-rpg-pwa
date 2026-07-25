@@ -226,7 +226,7 @@ export const CoachPlanBehaviorSchema = z.discriminatedUnion('source', [
   CoachPlanNewBehaviorSchema,
 ])
 
-export const CoachPlanKnowledgeSourceSchema = z.object({
+export const CoachPlanKnowledgeSourceV1Schema = z.object({
   packageType: z.literal('earth-online.obsidian-knowledge-action'),
   schemaVersion: z.literal(1),
   packageId: z.string().trim().min(1).max(120),
@@ -236,6 +236,45 @@ export const CoachPlanKnowledgeSourceSchema = z.object({
   importedAt: timestamp,
 }).strict()
 
+export const ApplicationKnowledgeSchema = z.object({
+  primary: z.object({
+    kind: z.literal('principle'),
+    title: z.string().trim().min(1).max(120),
+    reference: z.string().trim().min(1).max(300),
+    principle: z.string().trim().min(1).max(280),
+  }).strict(),
+  supporting: z.array(z.object({
+    kind: z.enum(['principle', 'procedure', 'practice']),
+    title: z.string().trim().min(1).max(120),
+    reference: z.string().trim().min(1).max(300),
+    contribution: z.string().trim().min(1).max(280),
+  }).strict()).max(2),
+}).strict()
+
+export const CoachPlanKnowledgeSourceV2Schema = z.object({
+  packageType: z.literal('earth-online.obsidian-knowledge-action'),
+  schemaVersion: z.literal(2),
+  packageId: z.string().trim().min(1).max(120),
+  applicationId: z.string().trim().min(1).max(120),
+  phase: z.enum(['trial', 'season']),
+  derivedFromResultPackageId: z.string().trim().min(1).max(120).optional(),
+  knowledge: ApplicationKnowledgeSchema,
+  outcomeIndicator: z.string().trim().min(1).max(180),
+  importedAt: timestamp,
+}).strict().superRefine((source, context) => {
+  if (source.phase === 'trial' && source.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '7 天试跑不能派生自阶段结果包' })
+  }
+  if (source.phase === 'season' && !source.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '28 天正式赛季必须引用试跑结果包' })
+  }
+})
+
+export const CoachPlanKnowledgeSourceSchema = z.union([
+  CoachPlanKnowledgeSourceV1Schema,
+  CoachPlanKnowledgeSourceV2Schema,
+])
+
 export const CoachPlanDraftSchema = z
   .object({
     id: z.string().min(1),
@@ -243,6 +282,7 @@ export const CoachPlanDraftSchema = z
     successCriterion: z.string().trim().max(180),
     baseline: z.string().trim().max(280),
     targetOutcome: z.string().trim().max(280),
+    outcomeIndicator: z.string().trim().min(1).max(180).optional(),
     currentStep: z.number().int().min(1).max(4),
     status: z.enum(['editing', 'ready']),
     behaviors: z.array(CoachPlanBehaviorSchema).max(3),
@@ -290,6 +330,71 @@ export type CoachPlanBehavior = z.infer<typeof CoachPlanBehaviorSchema>
 export type CoachPlanDraft = z.infer<typeof CoachPlanDraftSchema>
 export type CoachBehaviorRole = (typeof coachBehaviorRoles)[number]
 export type CoachPlanKnowledgeSource = z.infer<typeof CoachPlanKnowledgeSourceSchema>
+
+export const applicationDecisions = ['continue', 'adjust', 'stop'] as const
+
+export const ApplicationTrialActivitySchema = z.object({
+  activityId: z.string().min(1),
+  title: z.string().trim().min(1).max(60),
+  cue: z.string().trim().min(1).max(80).optional(),
+  protocol: z.string().trim().min(1).max(280).optional(),
+  domain: z.enum(growthDomains),
+  difficulty: z.enum(difficulties),
+  goal: ActivityGoalSchema,
+  schedule: ScheduleSchema,
+})
+
+export const ApplicationTrialBehaviorResultSchema = z.object({
+  activityId: z.string().min(1),
+  title: z.string().trim().min(1).max(60),
+  planned: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  activeDays: z.number().int().nonnegative(),
+  totalDurationMinutes: z.number().int().nonnegative().optional(),
+})
+
+export const ApplicationTrialSchema = z.object({
+  id: z.string().min(1),
+  version: z.literal(1),
+  applicationId: z.string().trim().min(1).max(120),
+  sourcePackageId: z.string().trim().min(1).max(120),
+  sourcePlanId: z.string().min(1),
+  title: z.string().trim().min(1).max(40),
+  successCriterion: z.string().trim().min(1).max(180),
+  baseline: z.string().trim().min(1).max(280),
+  targetOutcome: z.string().trim().min(1).max(280),
+  outcomeIndicator: z.string().trim().min(1).max(180),
+  knowledge: ApplicationKnowledgeSchema,
+  startsOn: dateString,
+  endsOn: dateString,
+  focusActivities: z.array(ApplicationTrialActivitySchema).min(1).max(3),
+  previousKeyActivityIds: z.array(z.string().min(1)).max(3),
+  status: z.enum(['active', 'completed']),
+  observedOutcome: z.string().trim().min(1).max(500).optional(),
+  decision: z.enum(applicationDecisions).optional(),
+  decisionReason: z.string().trim().min(1).max(500).optional(),
+  behaviorResults: z.array(ApplicationTrialBehaviorResultSchema).max(3).optional(),
+  completedAt: timestamp.optional(),
+  createdAt: timestamp,
+}).superRefine((trial, context) => {
+  if (trial.endsOn !== addDays(trial.startsOn, 6)) {
+    context.addIssue({ code: 'custom', path: ['endsOn'], message: '应用试跑必须连续 7 个游戏日' })
+  }
+  const focusIds = trial.focusActivities.map((activity) => activity.activityId)
+  if (new Set(focusIds).size !== focusIds.length) {
+    context.addIssue({ code: 'custom', path: ['focusActivities'], message: '试跑行为不能重复' })
+  }
+  const completionFields = [trial.observedOutcome, trial.decision, trial.decisionReason, trial.behaviorResults, trial.completedAt]
+  if (trial.status === 'completed' && completionFields.some((value) => value === undefined)) {
+    context.addIssue({ code: 'custom', path: ['observedOutcome'], message: '结束试跑必须记录现实结果、人工决定和聚合行为数据' })
+  }
+  if (trial.status === 'active' && completionFields.some((value) => value !== undefined)) {
+    context.addIssue({ code: 'custom', path: ['observedOutcome'], message: '进行中的试跑不能保存结束结果' })
+  }
+})
+
+export type ApplicationTrial = z.infer<typeof ApplicationTrialSchema>
+export type ApplicationDecision = (typeof applicationDecisions)[number]
 
 export function createCoachPlanDraft(now = new Date(), id: string = crypto.randomUUID()): CoachPlanDraft {
   const timestampValue = now.toISOString()
@@ -704,6 +809,7 @@ export const SettingSchema = z.discriminatedUnion('key', [
   z.object({ key: z.literal('preferences'), value: PreferencesSchema }),
   z.object({ key: z.literal('meta'), value: MetaSchema }),
   z.object({ key: z.literal('coachPlanDraft'), value: CoachPlanDraftSchema }),
+  z.object({ key: z.literal('applicationTrial'), value: ApplicationTrialSchema }),
   z.object({ key: z.literal('rewardSystem'), value: RewardSystemSchema }),
 ])
 

@@ -1,0 +1,50 @@
+{
+  "packageType": "earth-online.obsidian-knowledge-action",
+  "schemaVersion": 2,
+  "packageId": "example.learning-loop.trial.v1",
+  "applicationId": "app-20990101-learning-loop",
+  "phase": "trial",
+  "knowledge": {
+    "primary": {
+      "kind": "principle",
+      "title": "可复用成果进入下一轮才会形成复利",
+      "reference": "20 Knowledge/可复用成果进入下一轮才会形成复利.md",
+      "principle": "每次学习至少留下一个能被下一次直接调用的成果。"
+    },
+    "supporting": [
+      {
+        "kind": "procedure",
+        "title": "学习前先检索已有知识",
+        "reference": "20 Knowledge/学习前先检索已有知识.md",
+        "contribution": "把复用动作放在搜索新资料之前，降低重复劳动。"
+      }
+    ]
+  },
+  "application": {
+    "goal": "让学习笔记真正参与下一次学习",
+    "successCriterion": "两次新学习都先调用已有知识并留下实际帮助记录",
+    "baseline": "遇到新问题时通常直接搜索，旧笔记很少被调用",
+    "targetOutcome": "形成先复用、再补充、再沉淀的最小循环",
+    "outcomeIndicator": "两次学习中旧知识被实际复用的次数与帮助"
+  },
+  "behaviors": [
+    {
+      "role": "progress",
+      "title": "学习前检索旧知识",
+      "cue": "准备搜索新资料前",
+      "protocol": "先搜索 Knowledge；找到可用结论时写下一句本次如何复用。",
+      "domain": "learning",
+      "difficulty": "简单",
+      "goal": {
+        "kind": "tiered",
+        "metric": "duration",
+        "unit": "秒",
+        "inputUnit": "分钟",
+        "thresholds": [120, 300]
+      },
+      "schedule": {
+        "kind": "daily"
+      }
+    }
+  ]
+}

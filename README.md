@@ -2,11 +2,11 @@
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
 
-当前线上正式版与手机预览版均运行 V5.1.0。V5.1.0 增加安全的 Obsidian 知识行动包：行动包先经过独立 Zod 校验和冲突预览，只生成目标规划草稿，用户逐项确认并完成现实检查后才由既有赛季事务激活行为。
+当前 `ui-redesign` 分支是 V5.2.0 手机预览候选；线上正式版在手机验收前仍保持 V5.1.0。V5.2.0 把 Obsidian 中的持久原则接入现实目标：先进行独立 7 天试跑，由用户根据现实结果决定继续、调整或停止；通过后再由 Obsidian 生成新的 28 天正式赛季行动包。
 
 首页把普通习惯拆为“每日行动”和“本周进度”。每周目标使用紧凑里程碑轨道；组合目标先选择活动预设时长再记录，打开选择窗口本身不会写入数据。
 
-V5.1.0 继续使用 Backup JSON schema 11，兼容恢复 schema 1 至 10；Dexie version 4 和八张表保持不变。知识行动包是另一种 JSON，只能进入规划器，不能恢复或覆盖数据库。
+V5.2.0 继续使用 Backup JSON schema 11、Dexie version 4 和八张表。7 天试跑保存在 `settings.applicationTrial`，不会新增数据表。Obsidian 交换包与全量备份使用不同的 `packageType` 和入口，不能恢复或覆盖数据库。
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
@@ -36,12 +36,14 @@ pnpm privacy:scan
 
 - IndexedDB 八张表是唯一事实来源，不需要账号或后端。
 - 全量备份使用 JSON schema 11 并兼容恢复 schema 1 至 10；愿望图片、奖励券、逐次进度与规划草稿进入全量备份。
-- Obsidian 知识行动包使用独立 `packageType` 和 schema 1，只保存必要的知识标题、稳定引用、现实目标与候选行为，不保存笔记全文。
+- Obsidian 行动包 schema 1 继续兼容旧 28 天方案；schema 2 支持一个主原则、最多两个辅助知识、7 天试跑与 28 天正式赛季。
+- `earth-online.obsidian-planning-context` 只导出当前阶段和最多三项关键行为定义。
+- `earth-online.obsidian-application-result` 只导出阶段周期、聚合完成数据、现实指标、人工决定和理由；不包含每日流水、XP、金币、愿望或账本。
 - 两种 JSON 使用不同入口和事务；知识行动包绝不调用全量恢复。
 - 公开仓库只包含通用代码与人物素材，不包含个人活动、账本或迁移文件。
 - `.private/` 只用于本机迁移验收，已被 Git 忽略。
 
-虚构示例：[examples/obsidian-knowledge-action-package.example.json](examples/obsidian-knowledge-action-package.example.json)
+虚构示例：[旧 schema 1 行动包](examples/obsidian-knowledge-action-package.example.json) · [7 天行动包](examples/obsidian-application-trial.action.example.json) · [28 天行动包](examples/obsidian-application-season.action.example.json) · [规划上下文](examples/planning-context.example.json) · [阶段结果](examples/application-result.example.json)
 
 ## 部署
 

@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import {
   ActivityGoalSchema,
+  CoachPlanKnowledgeSourceV2Schema,
   ScheduleSchema,
   addDays,
+  applicationDecisions,
   attributes,
   growthDomains,
   difficulties,
@@ -94,10 +96,16 @@ export const SeasonSchema = z
     dailyPlans: z.array(SeasonDailyPlanSchema).default([]),
     dailySignals: z.array(SeasonDailySignalSchema).default([]),
     calibration: SeasonCalibrationSchema.optional(),
+    applicationContext: CoachPlanKnowledgeSourceV2Schema
+      .refine((source) => source.phase === 'season', '赛季应用上下文必须来自 season 行动包')
+      .optional(),
     suggestions: z.array(CoachSuggestionSchema).default([]),
     status: z.enum(['active', 'completed']),
     finalResult: z.enum(seasonResults).optional(),
     finalEvidence: z.string().trim().min(1).max(500).optional(),
+    observedOutcome: z.string().trim().min(1).max(500).optional(),
+    applicationDecision: z.enum(applicationDecisions).optional(),
+    decisionReason: z.string().trim().min(1).max(500).optional(),
     completedAt: timestamp.optional(),
     createdAt: timestamp,
   })
@@ -140,9 +148,21 @@ export const SeasonSchema = z
         context.addIssue({ code: 'custom', path: ['suggestions', index, 'responseNote'], message: '修改后接受必须说明调整' })
       }
     })
-    const completionFields = [season.finalResult, season.finalEvidence, season.completedAt]
+    const completionFields = [
+      season.finalResult,
+      season.finalEvidence,
+      season.observedOutcome,
+      season.applicationDecision,
+      season.decisionReason,
+      season.completedAt,
+    ]
     if (season.status === 'completed' && completionFields.some((value) => value === undefined)) {
-      context.addIssue({ code: 'custom', path: ['finalResult'], message: '结束赛季必须记录结果和现实证据' })
+      const requiredFields = season.applicationContext
+        ? completionFields
+        : [season.finalResult, season.finalEvidence, season.completedAt]
+      if (requiredFields.some((value) => value === undefined)) {
+        context.addIssue({ code: 'custom', path: ['finalResult'], message: '结束赛季必须记录结果和现实证据' })
+      }
     }
     if (season.status === 'active' && completionFields.some((value) => value !== undefined)) {
       context.addIssue({ code: 'custom', path: ['finalResult'], message: '进行中的赛季不能保存结束结果' })

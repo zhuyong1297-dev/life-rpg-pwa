@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   CalendarRange,
+  BookOpen,
   Check,
   ChevronRight,
   ClipboardCheck,
@@ -13,7 +14,7 @@ import {
   Target,
   X,
 } from 'lucide-react'
-import { addDays, domainLabel, formatTierGoalValue, type Activity, type CoachPlanDraft, type Completion, type WeeklyReview } from './domain'
+import { addDays, applicationDecisions, domainLabel, formatTierGoalValue, type Activity, type ApplicationDecision, type CoachPlanDraft, type Completion, type WeeklyReview } from './domain'
 import {
   canCalibrateSeason,
   getSeasonDailyActivityIds,
@@ -124,7 +125,16 @@ interface SeasonHubProps {
   onCalibrate: (seasonId: string) => Promise<void>
   onSaveSignal: (seasonId: string, signal: { wakeWindowMet: boolean; morningEnergy: number; control: number }) => Promise<void>
   onRespond: (seasonId: string, suggestionId: string, status: Exclude<SuggestionStatus, 'pending'>, note?: string) => Promise<void>
-  onComplete: (seasonId: string, result: SeasonResult, evidence: string) => Promise<void>
+  onComplete: (
+    seasonId: string,
+    result: SeasonResult,
+    evidence: string,
+    applicationReview?: {
+      observedOutcome: string
+      decision: ApplicationDecision
+      decisionReason: string
+    },
+  ) => Promise<void>
 }
 
 export function SeasonHubModal(props: SeasonHubProps) {
@@ -364,12 +374,46 @@ function SuggestionList({ season, onRespond }: { season: Season; onRespond: Seas
 function CompleteSeasonForm({ season, onComplete }: { season: Season; onComplete: SeasonHubProps['onComplete'] }) {
   const [result, setResult] = useState<SeasonResult>('部分达成')
   const [evidence, setEvidence] = useState('')
+  const [observedOutcome, setObservedOutcome] = useState('')
+  const [decision, setDecision] = useState<ApplicationDecision>('continue')
+  const [decisionReason, setDecisionReason] = useState('')
+  const application = season.applicationContext
+  const ready = evidence.trim()
+    && (!application || (observedOutcome.trim() && decisionReason.trim()))
   return (
     <section className="season-inline-editor season-complete-form">
       <h3>结束 28 天赛季</h3><p>只根据现实证据判断结果，不使用 XP 代替成果。</p>
+      {application && (
+        <aside className="coach-knowledge-source">
+          <BookOpen aria-hidden="true" />
+          <div>
+            <small>主原则</small>
+            <strong>{application.knowledge.primary.title}</strong>
+            <p>{application.knowledge.primary.principle}</p>
+          </div>
+        </aside>
+      )}
       <div className="segmented-control" aria-label="赛季结果">{seasonResults.map((item) => <button type="button" className={result === item ? 'selected' : ''} key={item} onClick={() => setResult(item)}>{item}</button>)}</div>
       <label>现实证据<textarea required maxLength={500} value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="发生了什么变化？哪些证据支持你的判断？" /></label>
-      <button className="primary-action" type="button" disabled={!evidence.trim()} onClick={() => void onComplete(season.id, result, evidence).catch(() => undefined)}><ClipboardCheck aria-hidden="true" />保存赛季结论</button>
+      {application && (
+        <>
+          <label>{application.outcomeIndicator}<textarea required maxLength={500} value={observedOutcome} onChange={(event) => setObservedOutcome(event.target.value)} placeholder="写下指标在 28 天后的实际状态或数值" /></label>
+          <div className="segmented-control" aria-label="下一阶段决定">
+            {applicationDecisions.map((item) => (
+              <button type="button" className={decision === item ? 'selected' : ''} key={item} onClick={() => setDecision(item)}>
+                {item === 'continue' ? '继续' : item === 'adjust' ? '调整' : '停止'}
+              </button>
+            ))}
+          </div>
+          <label>决定理由<textarea required maxLength={500} value={decisionReason} onChange={(event) => setDecisionReason(event.target.value)} placeholder="为什么继续、调整或停止？" /></label>
+        </>
+      )}
+      <button className="primary-action" type="button" disabled={!ready} onClick={() => void onComplete(
+        season.id,
+        result,
+        evidence,
+        application ? { observedOutcome, decision, decisionReason } : undefined,
+      ).catch(() => undefined)}><ClipboardCheck aria-hidden="true" />保存赛季结论</button>
     </section>
   )
 }

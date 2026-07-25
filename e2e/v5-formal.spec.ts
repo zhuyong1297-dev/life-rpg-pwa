@@ -17,6 +17,93 @@ async function createSimpleActivity(page: Page, title: string) {
   await page.getByRole('button', { name: '创建', exact: true }).click()
 }
 
+async function seedFinishedApplicationTrialWindow(page: Page) {
+  await page.evaluate(async () => {
+    const current = new Date()
+    current.setHours(current.getHours() - 4)
+    const endsOn = [
+      current.getFullYear(),
+      String(current.getMonth() + 1).padStart(2, '0'),
+      String(current.getDate()).padStart(2, '0'),
+    ].join('-')
+    const start = new Date(`${endsOn}T12:00:00`)
+    start.setDate(start.getDate() - 6)
+    const startsOn = [
+      start.getFullYear(),
+      String(start.getMonth() + 1).padStart(2, '0'),
+      String(start.getDate()).padStart(2, '0'),
+    ].join('-')
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction(['activities', 'settings'], 'readwrite')
+    const activity = {
+      id: 'e2e-application-trial-behavior',
+      title: '学习前检索旧知识',
+      cue: '准备搜索新资料前',
+      protocol: '先搜索 Knowledge，并写下一句本次如何复用。',
+      type: 'habit',
+      domain: 'learning',
+      difficulty: '简单',
+      goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [120, 300] },
+      schedule: { kind: 'daily' },
+      isKey: true,
+      enabled: true,
+      revision: 1,
+      createdAt: new Date().toISOString(),
+    }
+    transaction.objectStore('activities').put(activity)
+    transaction.objectStore('settings').put({
+      key: 'applicationTrial',
+      value: {
+        id: 'trial:app-20990101-e2e',
+        version: 1,
+        applicationId: 'app-20990101-e2e',
+        sourcePackageId: 'e2e.application.trial.v1',
+        sourcePlanId: 'application-plan:app-20990101-e2e:trial',
+        title: '让旧知识参与下一次学习',
+        successCriterion: '两次学习都先调用已有知识',
+        baseline: '新问题通常从重新搜索开始',
+        targetOutcome: '先复用再补充来源',
+        outcomeIndicator: '两次学习中旧知识被实际复用的次数与帮助',
+        knowledge: {
+          primary: {
+            kind: 'principle',
+            title: '可复用成果进入下一轮才会形成复利',
+            reference: '20 Knowledge/复利原则.md',
+            principle: '每次学习至少留下一个能被下一次调用的成果。',
+          },
+          supporting: [],
+        },
+        startsOn,
+        endsOn,
+        focusActivities: [{
+          activityId: activity.id,
+          title: activity.title,
+          cue: activity.cue,
+          protocol: activity.protocol,
+          domain: activity.domain,
+          difficulty: activity.difficulty,
+          goal: activity.goal,
+          schedule: activity.schedule,
+        }],
+        previousKeyActivityIds: [],
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      },
+    })
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
+}
+
 test.beforeEach(async ({ page }) => {
   await openV5(page)
 })
@@ -110,22 +197,34 @@ test('目标规划器和愿望商店保留为可返回的二级页面', async ({
   await expect(page.getByRole('heading', { name: '成长', exact: true })).toBeVisible()
 })
 
-test('320px 可以预览知识行动包并进入规划确认而不直接创建活动', async ({ page }, testInfo) => {
+test('320px 可以预览 v2 试跑行动包并进入规划确认而不直接创建活动', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'narrow', '专门覆盖 320px 移动端导入预览')
   const actionPackage = {
     packageType: 'earth-online.obsidian-knowledge-action',
-    schemaVersion: 1,
+    schemaVersion: 2,
     packageId: 'demo.focus-principle.v1',
+    applicationId: 'app-20990101-focus-demo',
+    phase: 'trial',
     knowledge: {
-      title: '单点推进原则',
-      reference: 'Knowledge/方法/单点推进.md',
-      principle: '一次只推进一个可验证结果，把其他想法留到工作段结束后处理。',
+      primary: {
+        kind: 'principle',
+        title: '单点推进原则',
+        reference: '20 Knowledge/单点推进.md',
+        principle: '一次只推进一个可验证结果，把其他想法留到工作段结束后处理。',
+      },
+      supporting: [{
+        kind: 'procedure',
+        title: '开工前写唯一结果',
+        reference: '20 Knowledge/开工前写唯一结果.md',
+        contribution: '把抽象原则变成工作开始前的触发协议。',
+      }],
     },
     application: {
       goal: '建立稳定开工节奏',
       successCriterion: '28 天内至少 20 天完成基础开工行为',
       baseline: '开始工作时容易被其他想法带走',
       targetOutcome: '每天可以更快进入第一段有效工作',
+      outcomeIndicator: '一周内从坐下到开始唯一任务的平均等待时间',
     },
     behaviors: [{
       role: 'start',
@@ -150,6 +249,8 @@ test('320px 可以预览知识行动包并进入规划确认而不直接创建�
   await expect(preview).toBeVisible()
   await expect(preview).toContainText('只生成规划草稿')
   await expect(preview).toContainText('写下当前唯一结果')
+  await expect(preview).toContainText('7 天试跑')
+  await expect(preview).toContainText('开工前写唯一结果')
   await expect(preview).toContainText('完成记录、XP 和金币')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
   await page.screenshot({ path: 'test-results/knowledge-action-import-320.png', fullPage: true })
@@ -158,9 +259,33 @@ test('320px 可以预览知识行动包并进入规划确认而不直接创建�
   await expect(page).toHaveURL(/#\/coach\/plan$/)
   await expect(page.getByText('来自 Obsidian 知识行动包')).toBeVisible()
   await expect(page.getByText('单点推进原则', { exact: true })).toBeVisible()
+  await expect(page.getByText(/结果指标：一周内从坐下到开始唯一任务的平均等待时间/)).toBeVisible()
   await expect(page.getByLabel('成长主题')).toHaveValue('建立稳定开工节奏')
   await page.getByRole('button', { name: '下一步' }).click()
   await expect(page.getByText('写下当前唯一结果', { exact: true })).toBeVisible()
+})
+
+test('7 天试跑复盘与最小结果导出在各视口可用', async ({ page }, testInfo) => {
+  await seedFinishedApplicationTrialWindow(page)
+  await page.getByRole('button', { name: '我的', exact: true }).last().click()
+  await expect(page.getByRole('heading', { name: '7 天试跑：让旧知识参与下一次学习' })).toBeVisible()
+  await expect(page.getByText('可复用成果进入下一轮才会形成复利', { exact: false })).toBeVisible()
+  await page.getByLabel('两次学习中旧知识被实际复用的次数与帮助').fill('两次学习都先调用了旧知识，其中一次避免了重复搜索')
+  await page.getByRole('button', { name: '调整' }).click()
+  await page.getByLabel('决定理由').fill('保留前置检索，但把记录要求缩短为一句')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: `test-results/application-trial-review-${testInfo.project.name}.png`, fullPage: true })
+  await page.getByRole('button', { name: '保存人工判断' }).click()
+  await expect(page.getByText('7 天结果：调整')).toBeVisible()
+
+  const nativeShare = await page.evaluate(() => Boolean(navigator.share))
+  if (nativeShare) {
+    await page.getByRole('button', { name: '分享结果包' }).click()
+  } else {
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', { name: '分享结果包' }).click()
+    expect((await download).suggestedFilename()).toBe('app-20990101-e2e.trial.result.json')
+  }
 })
 
 test('V5 核心页面在当前视口无横向溢出', async ({ page }) => {

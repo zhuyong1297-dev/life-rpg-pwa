@@ -1,0 +1,52 @@
+{
+  "packageType": "earth-online.obsidian-knowledge-action",
+  "schemaVersion": 2,
+  "packageId": "example.learning-loop.season.v1",
+  "applicationId": "app-20990101-learning-loop",
+  "phase": "season",
+  "derivedFromResultPackageId": "result:app-20990101-learning-loop:trial:example.learning-loop.trial.v1",
+  "knowledge": {
+    "primary": {
+      "kind": "principle",
+      "title": "可复用成果进入下一轮才会形成复利",
+      "reference": "20 Knowledge/可复用成果进入下一轮才会形成复利.md",
+      "principle": "每次学习至少留下一个能被下一次直接调用的成果。"
+    },
+    "supporting": [
+      {
+        "kind": "procedure",
+        "title": "学习前先检索已有知识",
+        "reference": "20 Knowledge/学习前先检索已有知识.md",
+        "contribution": "保留试跑中有效的前置检索动作。"
+      }
+    ]
+  },
+  "application": {
+    "goal": "让学习笔记持续参与新学习",
+    "successCriterion": "28 天内至少四次先复用已有知识，再补充来源",
+    "baseline": "7 天试跑中完成两次复用，但记录负担偏高",
+    "targetOutcome": "保持复用频率并把记录压缩到一句话",
+    "outcomeIndicator": "28 天内旧知识被实际复用的次数与节省的重复搜索"
+  },
+  "behaviors": [
+    {
+      "role": "progress",
+      "title": "学习前检索旧知识",
+      "cue": "准备搜索新资料前",
+      "protocol": "先搜索 Knowledge；只记录一条本次直接复用的结论。",
+      "domain": "learning",
+      "difficulty": "简单",
+      "goal": {
+        "kind": "tiered",
+        "metric": "duration",
+        "unit": "秒",
+        "inputUnit": "分钟",
+        "thresholds": [120, 300]
+      },
+      "schedule": {
+        "kind": "weekly",
+        "times": 4
+      }
+    }
+  ]
+}

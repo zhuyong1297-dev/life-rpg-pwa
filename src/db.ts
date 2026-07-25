@@ -2,6 +2,9 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   ActivitySchema,
   type Activity,
+  ApplicationTrialSchema,
+  type ApplicationDecision,
+  type ApplicationTrial,
   CompletionSchema,
   CoachPlanDraftSchema,
   type CoachPlanDraft,
@@ -59,6 +62,7 @@ import {
   type SeasonDailySignal,
   type SuggestionStatus,
 } from './season'
+import { aggregateApplicationBehaviors } from './application-bridge'
 
 export class LifeRpgDatabase extends Dexie {
   activities!: EntityTable<Activity, 'id'>
@@ -331,12 +335,26 @@ export async function activateCoachPlanDraft(
   return database.transaction('rw', database.settings, database.seasons, database.activities, async () => {
     const alreadyCreated = await database.seasons.filter((season) => season.sourcePlanId === draftId).first()
     if (alreadyCreated) return alreadyCreated
+    const storedTrialSetting = await database.settings.get('applicationTrial')
+    const storedTrial = storedTrialSetting?.key === 'applicationTrial'
+      ? ApplicationTrialSchema.parse(storedTrialSetting.value)
+      : undefined
+    if (storedTrial?.sourcePlanId === draftId) return storedTrial
 
     const setting = await database.settings.get('coachPlanDraft')
     if (setting?.key !== 'coachPlanDraft' || setting.value.id !== draftId) throw new Error('找不到这份目标规划草稿')
     const draft = CoachPlanDraftSchema.parse(setting.value)
     if (draft.status !== 'ready') throw new Error('请先完成四步规划和现实检查')
-    if (await database.seasons.where('status').equals('active').count()) throw new Error('当前赛季尚未结束，只能先保存为下个赛季')
+    const activeSeason = await database.seasons.where('status').equals('active').first()
+    const source = draft.knowledgeSource
+    const isV2 = source?.schemaVersion === 2
+    if (storedTrial?.status === 'active') {
+      throw new Error('当前已有进行中的 7 天试跑，同一时间不能启动赛季')
+    }
+    if (isV2 && activeSeason) {
+      throw new Error('当前已有进行中的 Application，同一时间只能进行一个试跑或赛季')
+    }
+    if (!isV2 && activeSeason) throw new Error('当前赛季尚未结束，只能先保存为下个赛季')
 
     const existingPlans = draft.behaviors.filter((behavior) => behavior.source === 'existing')
     const existingActivities = await database.activities.bulkGet(existingPlans.map((behavior) => behavior.activityId))
@@ -365,6 +383,9 @@ export async function activateCoachPlanDraft(
       : [])
 
     const allActivities = await database.activities.toArray()
+    const previousKeyActivityIds = allActivities
+      .filter((activity) => activity.isKey && activity.enabled && !activity.archivedAt)
+      .map((activity) => activity.id)
     const selectedExistingIds = new Set(existingPlans.map((behavior) => behavior.activityId))
     await database.activities.bulkPut(allActivities
       .filter((activity) => activity.isKey || selectedExistingIds.has(activity.id))
@@ -374,6 +395,40 @@ export async function activateCoachPlanDraft(
     const selectedActivities = draft.behaviors.map((behavior) => behavior.source === 'existing'
       ? existingActivities[existingPlans.findIndex((plan) => plan.id === behavior.id)]!
       : createdActivities.find((activity) => activity.id === `coach-activity:${draft.id}:${behavior.id}`)!)
+    if (source?.schemaVersion === 2 && source.phase === 'trial') {
+      const trial = ApplicationTrialSchema.parse({
+        id: `trial:${source.applicationId}`,
+        version: 1,
+        applicationId: source.applicationId,
+        sourcePackageId: source.packageId,
+        sourcePlanId: draft.id,
+        title: draft.title,
+        successCriterion: draft.successCriterion,
+        baseline: draft.baseline,
+        targetOutcome: draft.targetOutcome,
+        outcomeIndicator: source.outcomeIndicator,
+        knowledge: source.knowledge,
+        startsOn: eventDate,
+        endsOn: addDays(eventDate, 6),
+        focusActivities: selectedActivities.map((activity) => ({
+          activityId: activity.id,
+          title: activity.title,
+          cue: activity.cue,
+          protocol: activity.protocol,
+          domain: activity.domain,
+          difficulty: activity.difficulty,
+          goal: activity.goal,
+          schedule: activity.schedule,
+        })),
+        previousKeyActivityIds,
+        status: 'active',
+        createdAt,
+      })
+      await database.settings.put({ key: 'applicationTrial', value: trial })
+      await database.settings.delete('coachPlanDraft')
+      return trial
+    }
+
     const season = SeasonSchema.parse({
       id: `season:${draft.id}`,
       sourcePlanId: draft.id,
@@ -387,6 +442,7 @@ export async function activateCoachPlanDraft(
       dailyPlans: [],
       dailySignals: [],
       suggestions: [],
+      applicationContext: source?.schemaVersion === 2 ? source : undefined,
       status: 'active',
       createdAt,
     })
@@ -396,6 +452,15 @@ export async function activateCoachPlanDraft(
       const meta = storedMeta?.key === 'meta' ? storedMeta.value : {}
       const existingImports = meta.knowledgeActionImports ?? []
       if (!existingImports.some((record) => record.packageId === draft.knowledgeSource!.packageId)) {
+        const knowledge = draft.knowledgeSource.schemaVersion === 1
+          ? {
+              title: draft.knowledgeSource.knowledgeTitle,
+              reference: draft.knowledgeSource.knowledgeReference,
+            }
+          : {
+              title: draft.knowledgeSource.knowledge.primary.title,
+              reference: draft.knowledgeSource.knowledge.primary.reference,
+            }
         await database.settings.put({
           key: 'meta',
           value: {
@@ -404,8 +469,8 @@ export async function activateCoachPlanDraft(
               ...existingImports.slice(-199),
               {
                 packageId: draft.knowledgeSource.packageId,
-                knowledgeTitle: draft.knowledgeSource.knowledgeTitle,
-                knowledgeReference: draft.knowledgeSource.knowledgeReference,
+                knowledgeTitle: knowledge.title,
+                knowledgeReference: knowledge.reference,
                 draftId: draft.id,
                 seasonId: season.id,
                 activatedAt: createdAt,
@@ -420,10 +485,69 @@ export async function activateCoachPlanDraft(
   })
 }
 
+export async function getApplicationTrial(database = db) {
+  const setting = await database.settings.get('applicationTrial')
+  return setting?.key === 'applicationTrial' ? ApplicationTrialSchema.parse(setting.value) : undefined
+}
+
+export async function completeApplicationTrial(
+  applicationId: string,
+  observedOutcome: string,
+  decision: ApplicationDecision,
+  decisionReason: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.settings, database.activities, database.completions, async () => {
+    const setting = await database.settings.get('applicationTrial')
+    if (setting?.key !== 'applicationTrial') throw new Error('找不到进行中的 7 天试跑')
+    const trial = ApplicationTrialSchema.parse(setting.value)
+    if (trial.applicationId !== applicationId || trial.status !== 'active') throw new Error('找不到进行中的 7 天试跑')
+    if (eventDate < trial.endsOn) throw new Error(`试跑将在 ${trial.endsOn} 游戏日结束`)
+    if (!observedOutcome.trim() || !decisionReason.trim()) throw new Error('请填写现实结果和决定理由')
+
+    const behaviorResults = aggregateApplicationBehaviors(
+      trial.focusActivities.map((activity) => ({
+        id: activity.activityId,
+        title: activity.title,
+        schedule: activity.schedule,
+      })),
+      await database.completions.toArray(),
+      trial.startsOn,
+      trial.endsOn,
+    )
+    const previousIds = new Set(trial.previousKeyActivityIds)
+    const focusIds = new Set(trial.focusActivities.map((activity) => activity.activityId))
+    const activities = await database.activities.toArray()
+    const changed = activities
+      .filter((activity) => focusIds.has(activity.id) || previousIds.has(activity.id))
+      .map((activity) => ActivitySchema.parse({
+        ...activity,
+        isKey: previousIds.has(activity.id) && activity.enabled && !activity.archivedAt,
+      }))
+    if (changed.length) await database.activities.bulkPut(changed)
+
+    const completed = ApplicationTrialSchema.parse({
+      ...trial,
+      status: 'completed',
+      observedOutcome: observedOutcome.trim(),
+      decision,
+      decisionReason: decisionReason.trim(),
+      behaviorResults,
+      completedAt: new Date().toISOString(),
+    })
+    await database.settings.put({ key: 'applicationTrial', value: completed })
+    return completed
+  })
+}
+
 export async function createSeason(input: CreateSeasonInput, startsOn: string | undefined = undefined, database = db) {
   const eventDate = startsOn ?? await currentGameDate(database)
-  return database.transaction('rw', database.seasons, database.activities, async () => {
+  return database.transaction('rw', database.seasons, database.activities, database.settings, async () => {
     if (await database.seasons.where('status').equals('active').count()) throw new Error('同一时间只能进行一个成长赛季')
+    const trial = await database.settings.get('applicationTrial')
+    if (trial?.key === 'applicationTrial' && trial.value.status === 'active') throw new Error('当前 7 天试跑尚未结束，不能启动成长赛季')
     const uniqueIds = [...new Set(input.focusActivityIds)]
     if (uniqueIds.length < 1 || uniqueIds.length > 3) throw new Error('成长赛季需要选择 1 至 3 项核心行为')
     const activities = await database.activities.bulkGet(uniqueIds)
@@ -514,6 +638,44 @@ export async function completeSeason(
       status: 'completed',
       finalResult: result,
       finalEvidence: evidence,
+      completedAt: new Date().toISOString(),
+    })
+    await database.seasons.put(next)
+    return next
+  })
+}
+
+export async function completeApplicationSeason(
+  seasonId: string,
+  result: SeasonResult,
+  evidence: string,
+  observedOutcome: string,
+  decision: ApplicationDecision,
+  decisionReason: string,
+  occurredOn: string | undefined = undefined,
+  database = db,
+) {
+  const eventDate = occurredOn ?? await currentGameDate(database)
+  return database.transaction('rw', database.seasons, async () => {
+    const storedSeason = await database.seasons.get(seasonId)
+    if (!storedSeason || storedSeason.status !== 'active') throw new Error('找不到进行中的成长赛季')
+    const season = SeasonSchema.parse(storedSeason)
+    if (!season.applicationContext) throw new Error('这不是知识应用赛季')
+    if (eventDate < season.endsOn) throw new Error(`赛季将在 ${season.endsOn} 游戏日结束`)
+    if (!season.suggestions.some((suggestion) => suggestion.status === 'accepted' || suggestion.status === 'modified')) {
+      throw new Error('结束赛季前至少接受或调整一条成长建议')
+    }
+    if (!evidence.trim() || !observedOutcome.trim() || !decisionReason.trim()) {
+      throw new Error('请填写现实证据、结果指标变化和决定理由')
+    }
+    const next = SeasonSchema.parse({
+      ...season,
+      status: 'completed',
+      finalResult: result,
+      finalEvidence: evidence.trim(),
+      observedOutcome: observedOutcome.trim(),
+      applicationDecision: decision,
+      decisionReason: decisionReason.trim(),
       completedAt: new Date().toISOString(),
     })
     await database.seasons.put(next)

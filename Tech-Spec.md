@@ -1,10 +1,10 @@
-# 地球 Online V5.1.0 技术规格
+# 地球 Online V5.2.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.1.0` 复用既有 App 控制器、Dexie 事务和领域模型，并新增与全量备份完全隔离的 Obsidian 知识行动包导入管线。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。
+`V5.2.0` 在既有 App 控制器、Dexie 事务和领域模型上增加 Application 双向桥接。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表；7 天试跑使用 `settings.applicationTrial`，备份继续使用 JSON schema 11。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 
@@ -19,7 +19,7 @@
 | `rewardClaims` | `id`；`rewardId`、`status`、`plannedFor` | 奖励预留、兑现、取消与轻复盘 |
 | `weeklyReviews` | `id`；`weekStart` | 坚持率、帮助、阻力和决策 |
 | `seasons` | `id`；`status`、`startsOn`、`endsOn` | 28 天赛季、活动快照、今日重点和本地建议 |
-| `settings` | `key` | 本机偏好、版本信息和唯一目标规划草稿 |
+| `settings` | `key` | 本机偏好、版本信息、唯一目标规划草稿和独立 7 天 Application 试跑 |
 
 ## 3. 核心模型
 
@@ -47,7 +47,9 @@
 - `Season.calibration` 保存一次性蓝图 ID、校准时间和旧赛季定义；`dailySignals` 保存每个游戏日唯一的起床达标、晨间精力、掌控感和真实记录时间。
 - `CoachSuggestion` 保存周起始日、规则类型、依据、预期作用和用户响应；响应不会直接写入 `activities`。
 - `settings.coachPlanDraft` 保存唯一目标规划草稿，区分复用现有活动和新建行为方案；草稿可处于 `editing` 或通过完整校验的 `ready` 状态。
-- 知识行动包来源作为 `CoachPlanDraft.knowledgeSource` 保存 `packageId`、标题、稳定引用、短原则和导入时间；不保存 Obsidian 全文。
+- schema 1 知识行动包来源继续保存旧标题、稳定引用和短原则；schema 2 保存 `applicationId`、阶段、一个主原则、最多两个辅助知识、结果指标和导入时间，不保存 Obsidian 全文。
+- `settings.applicationTrial` 保存 7 天周期、知识上下文、现实目标、核心行为快照、原关键行为 ID 和用户阶段结论；不复制每日流水。
+- 知识应用赛季在既有 `Season` 上附加可选 `applicationContext`；结束时额外保存现实指标、用户决定和理由。普通旧赛季继续兼容。
 - `settings.meta.knowledgeActionImports` 最多保存 200 条已激活追溯记录，通过 `packageId → draftId → seasonId` 解释知识方案来源；活动模型和追加式流水不增加来源字段。
 - `Season.sourcePlanId` 可选保存来源草稿 ID，用于双击启用的幂等判断；不改变赛季快照或历史解释。
 
@@ -139,12 +141,17 @@
 
 ### Obsidian 知识行动包
 
-1. `KnowledgeActionPackageSchema` 使用独立常量 `packageType = earth-online.obsidian-knowledge-action` 与 `schemaVersion = 1`，不引用 `BackupSchema`。
-2. 候选行为基于 `CoachPlanNewBehaviorSchema` 去掉内部 ID、`source` 和 `confirmed`，并继续校验标题、触发条件、执行协议、领域、难度、分层目标、频率和可选 `HH:mm`。
+1. `KnowledgeActionPackageSchema` 使用独立常量 `packageType = earth-online.obsidian-knowledge-action`，并以 discriminated union 同时接受 schema 1 与 schema 2，不引用 `BackupSchema`。
+2. schema 1 保持旧契约；schema 2 接受稳定 `packageId`、`applicationId`、`trial | season`、一主两辅知识、现实结果字段和 1 至 3 项行为，主知识必须是 `principle`。
 3. 文件选择先运行 Zod 完整校验和只读预览；预览读取当前草稿、已激活 packageId、活动标题、关键行为数量和活动赛季，不执行写入。
 4. `importKnowledgeActionPackage` 在独立 `rw` 事务内重新校验重复包、当前草稿和关键行为上限，只写一条 `settings.coachPlanDraft`；失败自动回滚。
 5. 候选行为写入草稿时全部为 `confirmed: false`。导入器不调用 `createActivity`、`activateCoachPlanDraft` 或 `restoreBackup`。
 6. 同名活动以规范化标题匹配并作为预览警告，用户在规划器中决定复用或修改；系统不自动绑定或创建替代项。
+7. schema 2 `trial` 激活事务原子创建/复用行为、临时切换关键行为、写入 `settings.applicationTrial` 并删除草稿；严格设置 `endsOn = startsOn + 6`。
+8. 试跑完成事务只允许第 7 个游戏日及以后执行，聚合完成数与活跃日，保存用户现实结果/决定/理由，并恢复仍有效的原关键行为。
+9. schema 2 `season` 只有在同一 Application 的试跑已完成、决定为继续或调整且 `derivedFromResultPackageId` 匹配本机结果时可激活；随后复用既有 28 天 Season 事务。
+10. 试跑或赛季进行中时拒绝启动另一阶段；写入失败必须回滚活动、关键状态、草稿、试跑或赛季。
+11. `earth-online.obsidian-planning-context / schema 1` 只导出当前阶段与最多三项关键行为定义；`earth-online.obsidian-application-result / schema 1` 只导出阶段边界、行为聚合、现实指标和用户决定，不得包含每日日期流水、XP、金币、愿望、奖励或账本。
 
 ### 赛季校准与每日状态
 
@@ -157,11 +164,11 @@
 
 ## 6. 导入导出
 
-- 全量 Backup JSON 使用 `BackupSchema` 和 `restoreBackup`：schema 11 包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度和目标规划草稿，并兼容读取 schema 1～10。
+- 全量 Backup JSON 使用 `BackupSchema` 和 `restoreBackup`：schema 11 包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度、目标规划草稿和 `settings.applicationTrial`，并兼容读取 schema 1～10。
 - 导入时校验主目标和候选队列必须指向启用愿望；旧备份恢复后奖励券为空，旧商品进入待整理。
 - Zod 先在事务外校验结构和业务约束。
 - 校验通过后在一个 `rw` 事务中清空并批量写入全部表；任何异常自动回滚。
-- 知识行动包 JSON 使用 `KnowledgeActionPackageSchema` 和 `importKnowledgeActionPackage`，只生成规划草稿，不清空表、不替换备份、不修改活动、完成、账本、奖励、复盘或赛季。
+- Application 行动包 JSON 使用 `KnowledgeActionPackageSchema` 和 `importKnowledgeActionPackage`，只生成规划草稿；阶段启动必须经过目标规划器和独立事务。
 - 两类 JSON 通过不同的文件入口、`packageType`/`schemaVersion` 和确认文案区分；不得互相回退解析。
 - Markdown 从当前账本派生，只用于人类阅读。
 
@@ -206,8 +213,8 @@
 ## 9. 测试分层
 
 - Vitest：奖励、等级路线、游戏日边界、有效行动日志、两/三层目标、三档 Web Audio 与振动、关键行为上限、余额、撤销和幂等。
-- fake-indexeddb：事务原子性、规划草稿保存与启用幂等、知识行动包校验/重复检测/写入回滚、失效复用回滚、领域迁移、赛季校准、每日状态、游戏日过渡、商品管理、里程碑固化、永久移除定义和旧备份导入回滚。
-- Playwright：Hash 刷新与返回、四步规划、草稿恢复、赛季创建、透明建议、两/三层选级、完成证据、活动管理、行动日志、五栏导航、320px/Android/桌面响应式和离线启动。
+- fake-indexeddb：事务原子性、规划草稿保存与启用幂等、v1/v2 行动包校验、7 天试跑期限/回滚/关键行为恢复、结果包隐私、正式赛季来源校验、领域迁移、赛季校准、游戏日过渡和旧备份恢复。
+- Playwright：Hash 刷新与返回、四步规划、v2 试跑预览、试跑人工复盘、结果下载、赛季创建、透明建议、完成证据、五栏导航、320px/Android/桌面响应式和离线启动。
 - 发布前扫描源码、`dist` 和 Git 历史中的个人数据与凭据模式。
 
 ## 10. 失败策略
