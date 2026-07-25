@@ -1,10 +1,10 @@
-# 地球 Online V5.0.2 技术规格
+# 地球 Online V5.1.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.0.2` 正式版与预览版复用同一 App 控制器、Dexie 事务和领域模型，行动与成长使用 V5 视图；复盘、愿望、设置及创建继续调用既有真实组件。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。
+`V5.1.0` 预览版复用既有 App 控制器、Dexie 事务和领域模型，并新增与全量备份完全隔离的 Obsidian 知识行动包导入管线。正式版继续固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 
@@ -47,6 +47,8 @@
 - `Season.calibration` 保存一次性蓝图 ID、校准时间和旧赛季定义；`dailySignals` 保存每个游戏日唯一的起床达标、晨间精力、掌控感和真实记录时间。
 - `CoachSuggestion` 保存周起始日、规则类型、依据、预期作用和用户响应；响应不会直接写入 `activities`。
 - `settings.coachPlanDraft` 保存唯一目标规划草稿，区分复用现有活动和新建行为方案；草稿可处于 `editing` 或通过完整校验的 `ready` 状态。
+- 知识行动包来源作为 `CoachPlanDraft.knowledgeSource` 保存 `packageId`、标题、稳定引用、短原则和导入时间；不保存 Obsidian 全文。
+- `settings.meta.knowledgeActionImports` 最多保存 200 条已激活追溯记录，通过 `packageId → draftId → seasonId` 解释知识方案来源；活动模型和追加式流水不增加来源字段。
 - `Season.sourcePlanId` 可选保存来源草稿 ID，用于双击启用的幂等判断；不改变赛季快照或历史解释。
 
 ## 4. 游戏日
@@ -133,6 +135,16 @@
 4. 存在活动赛季时最终操作只写入 `ready` 草稿；不创建活动、不修改当前关键状态、赛季快照或账本。
 5. 没有活动赛季时，单个 Dexie `rw` 事务校验复用活动、创建新活动、降级其他关键行为、创建 28 天赛季并删除草稿。
 6. 新活动和赛季使用来源草稿派生的确定性 ID；重复启用先按 `sourcePlanId` 返回既有赛季，失败时事务整体回滚。
+7. 如果草稿带有知识来源，激活事务在创建赛季后同步追加最小追溯记录；追溯写入、活动创建、关键行为切换、赛季创建和草稿删除属于同一个事务。
+
+### Obsidian 知识行动包
+
+1. `KnowledgeActionPackageSchema` 使用独立常量 `packageType = earth-online.obsidian-knowledge-action` 与 `schemaVersion = 1`，不引用 `BackupSchema`。
+2. 候选行为基于 `CoachPlanNewBehaviorSchema` 去掉内部 ID、`source` 和 `confirmed`，并继续校验标题、触发条件、执行协议、领域、难度、分层目标、频率和可选 `HH:mm`。
+3. 文件选择先运行 Zod 完整校验和只读预览；预览读取当前草稿、已激活 packageId、活动标题、关键行为数量和活动赛季，不执行写入。
+4. `importKnowledgeActionPackage` 在独立 `rw` 事务内重新校验重复包、当前草稿和关键行为上限，只写一条 `settings.coachPlanDraft`；失败自动回滚。
+5. 候选行为写入草稿时全部为 `confirmed: false`。导入器不调用 `createActivity`、`activateCoachPlanDraft` 或 `restoreBackup`。
+6. 同名活动以规范化标题匹配并作为预览警告，用户在规划器中决定复用或修改；系统不自动绑定或创建替代项。
 
 ### 赛季校准与每日状态
 
@@ -145,10 +157,12 @@
 
 ## 6. 导入导出
 
-- JSON schema 11 备份包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度和目标规划草稿，并兼容读取 schema 1～10。
+- 全量 Backup JSON 使用 `BackupSchema` 和 `restoreBackup`：schema 11 包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度和目标规划草稿，并兼容读取 schema 1～10。
 - 导入时校验主目标和候选队列必须指向启用愿望；旧备份恢复后奖励券为空，旧商品进入待整理。
 - Zod 先在事务外校验结构和业务约束。
 - 校验通过后在一个 `rw` 事务中清空并批量写入全部表；任何异常自动回滚。
+- 知识行动包 JSON 使用 `KnowledgeActionPackageSchema` 和 `importKnowledgeActionPackage`，只生成规划草稿，不清空表、不替换备份、不修改活动、完成、账本、奖励、复盘或赛季。
+- 两类 JSON 通过不同的文件入口、`packageType`/`schemaVersion` 和确认文案区分；不得互相回退解析。
 - Markdown 从当前账本派生，只用于人类阅读。
 
 ## 7. 界面架构
@@ -192,7 +206,7 @@
 ## 9. 测试分层
 
 - Vitest：奖励、等级路线、游戏日边界、有效行动日志、两/三层目标、三档 Web Audio 与振动、关键行为上限、余额、撤销和幂等。
-- fake-indexeddb：事务原子性、规划草稿保存与启用幂等、失效复用回滚、领域迁移、赛季校准、每日状态、游戏日过渡、商品管理、里程碑固化、永久移除定义和 schema 1～9 导入回滚。
+- fake-indexeddb：事务原子性、规划草稿保存与启用幂等、知识行动包校验/重复检测/写入回滚、失效复用回滚、领域迁移、赛季校准、每日状态、游戏日过渡、商品管理、里程碑固化、永久移除定义和旧备份导入回滚。
 - Playwright：Hash 刷新与返回、四步规划、草稿恢复、赛季创建、透明建议、两/三层选级、完成证据、活动管理、行动日志、五栏导航、320px/Android/桌面响应式和离线启动。
 - 发布前扫描源码、`dist` 和 Git 历史中的个人数据与凭据模式。
 

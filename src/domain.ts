@@ -203,7 +203,7 @@ const CoachPlanExistingBehaviorSchema = z.object({
   confirmed: z.boolean(),
 })
 
-const CoachPlanNewBehaviorSchema = z.object({
+export const CoachPlanNewBehaviorSchema = z.object({
   id: z.string().min(1),
   role: z.enum(coachBehaviorRoles),
   source: z.literal('new'),
@@ -226,6 +226,16 @@ export const CoachPlanBehaviorSchema = z.discriminatedUnion('source', [
   CoachPlanNewBehaviorSchema,
 ])
 
+export const CoachPlanKnowledgeSourceSchema = z.object({
+  packageType: z.literal('earth-online.obsidian-knowledge-action'),
+  schemaVersion: z.literal(1),
+  packageId: z.string().trim().min(1).max(120),
+  knowledgeTitle: z.string().trim().min(1).max(120),
+  knowledgeReference: z.string().trim().min(1).max(300),
+  principle: z.string().trim().min(1).max(280),
+  importedAt: timestamp,
+}).strict()
+
 export const CoachPlanDraftSchema = z
   .object({
     id: z.string().min(1),
@@ -236,6 +246,7 @@ export const CoachPlanDraftSchema = z
     currentStep: z.number().int().min(1).max(4),
     status: z.enum(['editing', 'ready']),
     behaviors: z.array(CoachPlanBehaviorSchema).max(3),
+    knowledgeSource: CoachPlanKnowledgeSourceSchema.optional(),
     badDayConfirmed: z.boolean(),
     evidenceConfirmed: z.boolean(),
     createdAt: timestamp,
@@ -278,6 +289,7 @@ export const CoachPlanDraftSchema = z
 export type CoachPlanBehavior = z.infer<typeof CoachPlanBehaviorSchema>
 export type CoachPlanDraft = z.infer<typeof CoachPlanDraftSchema>
 export type CoachBehaviorRole = (typeof coachBehaviorRoles)[number]
+export type CoachPlanKnowledgeSource = z.infer<typeof CoachPlanKnowledgeSourceSchema>
 
 export function createCoachPlanDraft(now = new Date(), id: string = crypto.randomUUID()): CoachPlanDraft {
   const timestampValue = now.toISOString()
@@ -678,6 +690,14 @@ export const MetaSchema = z.object({
     gameDate: dateString,
     activityIds: z.array(z.string().min(1)).max(5).refine((ids) => new Set(ids).size === ids.length, '今日优先行动不能重复'),
   }).optional(),
+  knowledgeActionImports: z.array(z.object({
+    packageId: z.string().trim().min(1).max(120),
+    knowledgeTitle: z.string().trim().min(1).max(120),
+    knowledgeReference: z.string().trim().min(1).max(300),
+    draftId: z.string().min(1),
+    seasonId: z.string().min(1),
+    activatedAt: timestamp,
+  }).strict()).max(200).optional(),
 })
 
 export const SettingSchema = z.discriminatedUnion('key', [

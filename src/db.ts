@@ -391,6 +391,30 @@ export async function activateCoachPlanDraft(
       createdAt,
     })
     await database.seasons.add(season)
+    if (draft.knowledgeSource) {
+      const storedMeta = await database.settings.get('meta')
+      const meta = storedMeta?.key === 'meta' ? storedMeta.value : {}
+      const existingImports = meta.knowledgeActionImports ?? []
+      if (!existingImports.some((record) => record.packageId === draft.knowledgeSource!.packageId)) {
+        await database.settings.put({
+          key: 'meta',
+          value: {
+            ...meta,
+            knowledgeActionImports: [
+              ...existingImports.slice(-199),
+              {
+                packageId: draft.knowledgeSource.packageId,
+                knowledgeTitle: draft.knowledgeSource.knowledgeTitle,
+                knowledgeReference: draft.knowledgeSource.knowledgeReference,
+                draftId: draft.id,
+                seasonId: season.id,
+                activatedAt: createdAt,
+              },
+            ],
+          },
+        })
+      }
+    }
     await database.settings.delete('coachPlanDraft')
     return season
   })

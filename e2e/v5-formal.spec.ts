@@ -42,6 +42,7 @@ test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async
   await expect(page.getByRole('button', { name: '完成 V5 闭环验证' })).toBeVisible()
 
   await page.getByRole('button', { name: '完成 V5 闭环验证' }).click()
+  await expect(page.locator('.v5-feedback')).toContainText('+5 XP')
   await page.reload()
   await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '成长', exact: true }).last().click()
@@ -107,6 +108,59 @@ test('目标规划器和愿望商店保留为可返回的二级页面', async ({
   await expect(page.getByRole('heading', { name: '奖励愿望' })).toBeVisible()
   await page.getByRole('button', { name: '返回' }).click()
   await expect(page.getByRole('heading', { name: '成长', exact: true })).toBeVisible()
+})
+
+test('320px 可以预览知识行动包并进入规划确认而不直接创建活动', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'narrow', '专门覆盖 320px 移动端导入预览')
+  const actionPackage = {
+    packageType: 'earth-online.obsidian-knowledge-action',
+    schemaVersion: 1,
+    packageId: 'demo.focus-principle.v1',
+    knowledge: {
+      title: '单点推进原则',
+      reference: 'Knowledge/方法/单点推进.md',
+      principle: '一次只推进一个可验证结果，把其他想法留到工作段结束后处理。',
+    },
+    application: {
+      goal: '建立稳定开工节奏',
+      successCriterion: '28 天内至少 20 天完成基础开工行为',
+      baseline: '开始工作时容易被其他想法带走',
+      targetOutcome: '每天可以更快进入第一段有效工作',
+    },
+    behaviors: [{
+      role: 'start',
+      title: '写下当前唯一结果',
+      scheduledTime: '09:00',
+      cue: '第一段工作开始前',
+      protocol: '写下一个当前结果和一个可以立即执行的动作。',
+      domain: 'career',
+      difficulty: '简单',
+      goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [120, 300] },
+      schedule: { kind: 'daily' },
+    }],
+  }
+
+  await page.getByRole('button', { name: '我的', exact: true }).last().click()
+  await page.getByLabel('选择行动包').setInputFiles({
+    name: 'knowledge-action-demo.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(actionPackage)),
+  })
+  const preview = page.getByRole('dialog', { name: '导入预览' })
+  await expect(preview).toBeVisible()
+  await expect(preview).toContainText('只生成规划草稿')
+  await expect(preview).toContainText('写下当前唯一结果')
+  await expect(preview).toContainText('完成记录、XP 和金币')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+  await page.screenshot({ path: 'test-results/knowledge-action-import-320.png', fullPage: true })
+
+  await preview.getByRole('button', { name: '进入规划确认' }).click()
+  await expect(page).toHaveURL(/#\/coach\/plan$/)
+  await expect(page.getByText('来自 Obsidian 知识行动包')).toBeVisible()
+  await expect(page.getByText('单点推进原则', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('成长主题')).toHaveValue('建立稳定开工节奏')
+  await page.getByRole('button', { name: '下一步' }).click()
+  await expect(page.getByText('写下当前唯一结果', { exact: true })).toBeVisible()
 })
 
 test('V5 核心页面在当前视口无横向溢出', async ({ page }) => {

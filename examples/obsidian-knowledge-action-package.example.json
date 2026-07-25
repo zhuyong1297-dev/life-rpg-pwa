@@ -1,0 +1,56 @@
+{
+  "packageType": "earth-online.obsidian-knowledge-action",
+  "schemaVersion": 1,
+  "packageId": "demo.compound-interest.learning.v1",
+  "knowledge": {
+    "title": "复利法则",
+    "reference": "Knowledge/思维模型/复利法则.md",
+    "principle": "把足够小且可以持续的投入放进正向反馈循环。"
+  },
+  "application": {
+    "goal": "建立稳定学习节奏",
+    "successCriterion": "28 天内至少 20 天完成基础学习，并产出 4 份学习笔记",
+    "baseline": "学习容易依赖临时动力，连续性不足",
+    "targetOutcome": "形成每天可启动、每周有产出的学习节奏"
+  },
+  "behaviors": [
+    {
+      "role": "start",
+      "title": "打开当天学习材料",
+      "scheduledTime": "08:30",
+      "cue": "早餐结束后",
+      "protocol": "打开材料并写下一句今天要理解的问题。",
+      "domain": "learning",
+      "difficulty": "简单",
+      "goal": {
+        "kind": "tiered",
+        "metric": "duration",
+        "unit": "秒",
+        "inputUnit": "分钟",
+        "thresholds": [120, 300]
+      },
+      "schedule": {
+        "kind": "daily"
+      }
+    },
+    {
+      "role": "progress",
+      "title": "完成一次深度学习",
+      "cue": "第一段完整空闲时间开始时",
+      "protocol": "只处理一个学习问题，结束后写三句摘要。",
+      "domain": "learning",
+      "difficulty": "普通",
+      "goal": {
+        "kind": "tiered",
+        "metric": "duration",
+        "unit": "秒",
+        "inputUnit": "分钟",
+        "thresholds": [600, 1500]
+      },
+      "schedule": {
+        "kind": "weekly",
+        "times": 4
+      }
+    }
+  ]
+}

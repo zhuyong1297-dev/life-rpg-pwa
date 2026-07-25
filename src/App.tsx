@@ -151,6 +151,12 @@ import {
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from './feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from './SeasonExperience'
 import { RewardExperience } from './RewardExperience'
+import { KnowledgeActionImportModal } from './KnowledgeActionImportModal'
+import {
+  importKnowledgeActionPackage,
+  previewKnowledgeActionPackage,
+  type KnowledgeActionPackagePreview,
+} from './knowledge-action-package'
 import {
   V5GrowthPage,
   V5Navigation,
@@ -464,7 +470,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.0.2 预览版' : 'V5.0.2'
+const displayVersion = isPreview ? 'V5.1.0 预览版' : 'V5.1.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -486,6 +492,8 @@ function App() {
   const [seasonHubOpen, setSeasonHubOpen] = useState(false)
   const [seasonHubInitialView, setSeasonHubInitialView] = useState<'overview' | 'signal'>('overview')
   const [feedback, setFeedback] = useState<AwardFeedback | null>(null)
+  const [knowledgePackagePreview, setKnowledgePackagePreview] = useState<KnowledgeActionPackagePreview | null>(null)
+  const [knowledgePackageImporting, setKnowledgePackageImporting] = useState(false)
   const progressLocks = useRef(new Set<string>())
   const [clock, setClock] = useState(() => new Date())
 
@@ -493,6 +501,32 @@ function App() {
     setNoticeState(message ? { message, tone } : null)
   }, [])
   const setErrorNotice = useCallback((message: string) => setNotice(message, 'error'), [setNotice])
+
+  async function openKnowledgePackagePreview(file?: File) {
+    if (!file) return
+    try {
+      const input = JSON.parse(await file.text())
+      setKnowledgePackagePreview(await previewKnowledgeActionPackage(input))
+    } catch (error) {
+      setErrorNotice(`知识行动包无效：${errorMessage(error)}`)
+    }
+  }
+
+  async function confirmKnowledgePackageImport() {
+    if (!knowledgePackagePreview) return
+    try {
+      setKnowledgePackageImporting(true)
+      await importKnowledgeActionPackage(knowledgePackagePreview.actionPackage)
+      await refresh()
+      setKnowledgePackagePreview(null)
+      setNotice('知识行动包已转为规划草稿，请逐项确认后再启动')
+      navigateTo('coach/plan')
+    } catch (error) {
+      setErrorNotice(errorMessage(error))
+    } finally {
+      setKnowledgePackageImporting(false)
+    }
+  }
 
   useEffect(() => {
     if (!window.location.hash) navigateTo('today', true)
@@ -1073,12 +1107,21 @@ function App() {
               await updatePreferences(value)
               await refresh()
             }}
+            onKnowledgePackageFile={(file) => void openKnowledgePackagePreview(file)}
             onRefresh={refresh}
             onNotice={setNotice}
           />
         )}
       </main>
 
+      {knowledgePackagePreview && (
+        <KnowledgeActionImportModal
+          preview={knowledgePackagePreview}
+          submitting={knowledgePackageImporting}
+          onClose={() => setKnowledgePackagePreview(null)}
+          onConfirm={() => void confirmKnowledgePackageImport()}
+        />
+      )}
       {createOpen && (
         <CreateActivityModal
           today={today}
@@ -1478,6 +1521,18 @@ function CoachPlanScreen({
       </ol>
 
       {error && <div className="coach-error" role="alert">{error}</div>}
+
+      {draft.knowledgeSource && (
+        <aside className="coach-knowledge-source" aria-label="导入的知识来源">
+          <BookOpen aria-hidden="true" />
+          <div>
+            <span>来自 Obsidian 知识行动包</span>
+            <strong>{draft.knowledgeSource.knowledgeTitle}</strong>
+            <code>{draft.knowledgeSource.knowledgeReference}</code>
+            <p>{draft.knowledgeSource.principle}</p>
+          </div>
+        </aside>
+      )}
 
       <div className="coach-plan-body">
         {draft.currentStep === 1 && (
@@ -2664,6 +2719,7 @@ function SettingsPage({
   activities,
   completions,
   onPreferences,
+  onKnowledgePackageFile,
   onRefresh,
   onNotice,
   onManage,
@@ -2672,6 +2728,7 @@ function SettingsPage({
   activities: Activity[]
   completions: Completion[]
   onPreferences: (value: Preferences) => Promise<void>
+  onKnowledgePackageFile: (file?: File) => void
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
   onManage: () => void
@@ -2819,6 +2876,23 @@ function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>存档与恢复</span><h2>本地数据</h2></div></div>
+        <div className="knowledge-import-entry">
+          <span className="feature-summary-icon"><BookOpen aria-hidden="true" /></span>
+          <span>
+            <strong>Obsidian 知识行动包</strong>
+            <small>校验并预填目标规划草稿，不会恢复备份或直接创建活动。</small>
+          </span>
+          <label className="file-button"><Upload aria-hidden="true" />选择行动包
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => {
+                onKnowledgePackageFile(event.target.files?.[0])
+                event.currentTarget.value = ''
+              }}
+            />
+          </label>
+        </div>
         <div className="data-actions">
           <button type="button" onClick={() => void exportJson()}><Download aria-hidden="true" />导出 JSON</button>
           <button type="button" onClick={() => void exportMarkdown()}><Download aria-hidden="true" />导出账本</button>
