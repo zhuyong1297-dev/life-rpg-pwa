@@ -2,7 +2,7 @@
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
 
-当前 `ui-redesign` 分支是 V5.2.0 手机预览候选；线上正式版在手机验收前仍保持 V5.1.0。V5.2.0 把 Obsidian 中的持久原则接入现实目标：先进行独立 7 天试跑，由用户根据现实结果决定继续、调整或停止；通过后再由 Obsidian 生成新的 28 天正式赛季行动包。
+当前线上正式版与手机预览版均运行 V5.2.0。V5.2.0 把 Obsidian 中的持久原则接入现实目标：先进行独立 7 天试跑，由用户根据现实结果决定继续、调整或停止；通过后再由 Obsidian 生成新的 28 天正式赛季行动包。
 
 首页把普通习惯拆为“每日行动”和“本周进度”。每周目标使用紧凑里程碑轨道；组合目标先选择活动预设时长再记录，打开选择窗口本身不会写入数据。
 
@@ -10,7 +10,7 @@ V5.2.0 继续使用 Backup JSON schema 11、Dexie version 4 和八张表。7 天
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
-正式版本：[地球 Online V5.1.0](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.1.0)
+正式版本：[地球 Online V5.2.0](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.2.0)
 
 手机预览地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
 
