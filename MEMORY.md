@@ -4,8 +4,8 @@
 
 ## 当前基线
 
-- 正式版与预览版均运行 `V5.3.0`；两者复用同一 App 数据控制器，分别只读写 `earth-online-v2` 与 `earth-online-preview-v2`。
-- 当前数据契约为 Dexie version 4、八张表、JSON schema 11；schema 1 至 10 可恢复，Markdown 只用于阅读归档。
+- 正式版运行 `V5.3.0`，预览版候选为 `V5.4.0`；两者复用同一 App 数据控制器，分别只读写 `earth-online-v2` 与 `earth-online-preview-v2`。
+- 当前预览数据契约为 Dexie version 4、八张表、JSON schema 12；schema 1 至 11 可恢复，Markdown 只用于阅读归档。
 - 正式入口为 `https://zhuyong1297-dev.github.io/life-rpg-pwa/`，预览入口为其 `/preview/` 子路径；两者使用独立数据库、manifest 和 Service Worker scope。
 - `main` 与 `ui-redesign` 分别承载正式和预览；功能先在手机预览验收，再快进正式分支并创建不可变 Release。
 
@@ -17,8 +17,9 @@
 - 六个成长领域使用稳定 ID `health`、`learning`、`creation`、`career`、`life`、`mindset`；按现实结果分类，旧属性只留在旧历史。
 - 活跃关键行为最多三项。同一时间只允许一个 7 天 Application 试跑或一个 28 天赛季；两者保存目标、现实成功标准、起点、期望结果和核心活动快照，XP 不判断阶段成败。
 - 本地建议必须展示依据和作用，未经确认不修改活动。目标规划器使用 `#/coach/plan`，当前赛季存在时只保存下赛季方案。
-- schema 1 知识行动包继续兼容旧 28 天流程；schema 2 必须有一个 `principle` 主知识，可带最多两个 `principle | procedure | practice` 辅助知识，并以稳定 `applicationId` 串联试跑、结果和正式赛季。进行中的试跑或赛季允许先导入并确认下一份草稿，但只在预览明确替换影响后覆盖旧草稿，阶段激活仍严格互斥。
+- schema 1 知识行动包继续兼容旧 28 天流程；schema 2 必须有一个 `principle` 主知识，可带最多两个 `principle | procedure | practice` 辅助知识，并以稳定 `applicationId` 串联试跑、结果和正式赛季；schema 3 保留相同追溯关系并支持评分目标。进行中的试跑或赛季允许先导入并确认下一份草稿，但只在预览明确替换影响后覆盖旧草稿，阶段激活仍严格互斥。
 - 7 天试跑保存在 `settings.applicationTrial`，不新增 Dexie 表或备份 schema。试跑结束后恢复仍有效的原关键行为；是否继续、调整或停止由用户填写现实结果后人工决定，不按完成率自动升级。
+- 每日评分目标是独立的 `rating` goal，只记录 1～5 分现实体验；任意分数使用相同固定难度奖励，当天改分和备注不得改动账本。修正 7 天试跑时归档旧活动定义并用新 ID 重启，旧成长永久保留但不计入新证据。
 - 规划上下文只包含当前阶段和关键行为定义；阶段结果只包含周期、聚合完成数据、现实指标、人工决定和理由。两者不得包含每日完成日期、XP、金币、愿望、账本或历史。
 - 赛季校准是前三个游戏日的可选事务，只能由用户连续两次确认触发；升级、初始化、快照读取和 Service Worker 更新不得自动执行。
 - 28 天赛季允许提前结项；`endsOn` 保留计划周期，`concludedOn` 保存实际结束日，所有历史策略与 Application 聚合使用实际结束日。结项不可撤销，提前结束必须写明原因并经过摘要、勾选和最终确认。

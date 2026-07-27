@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   ActivityGoalSchema,
   CoachPlanKnowledgeSourceV2Schema,
+  CoachPlanKnowledgeSourceV3Schema,
   ScheduleSchema,
   addDays,
   applicationDecisions,
@@ -96,7 +97,7 @@ export const SeasonSchema = z
     dailyPlans: z.array(SeasonDailyPlanSchema).default([]),
     dailySignals: z.array(SeasonDailySignalSchema).default([]),
     calibration: SeasonCalibrationSchema.optional(),
-    applicationContext: CoachPlanKnowledgeSourceV2Schema
+    applicationContext: z.union([CoachPlanKnowledgeSourceV2Schema, CoachPlanKnowledgeSourceV3Schema])
       .refine((source) => source.phase === 'season', '赛季应用上下文必须来自 season 行动包')
       .optional(),
     suggestions: z.array(CoachSuggestionSchema).default([]),
@@ -331,7 +332,11 @@ export function getSeasonStrategy(season: Season, reviews: WeeklyReview[], compl
       impact: average('impact'),
       friction: average('friction'),
       cadence: activity.schedule.kind === 'daily' ? '每天' : activity.schedule.kind === 'weekly' ? `每周 ${activity.schedule.times} 次` : '单次',
-      baseLayer: activity.goal.kind === 'tiered' ? formatTierGoalValue(activity.goal, 1) : `${activity.goal.count}${activity.goal.unit}`,
+      baseLayer: activity.goal.kind === 'tiered'
+        ? formatTierGoalValue(activity.goal, 1)
+        : activity.goal.kind === 'rating'
+          ? `评分 1–${activity.goal.scale}`
+          : `${activity.goal.count}${activity.goal.unit}`,
     }
   })
   const reviewed = metrics.filter((metric) => metric.impact > 0)

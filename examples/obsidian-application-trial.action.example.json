@@ -1,6 +1,6 @@
 {
   "packageType": "earth-online.obsidian-knowledge-action",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "packageId": "example.learning-loop.trial.v1",
   "applicationId": "app-20990101-learning-loop",
   "phase": "trial",

@@ -3,14 +3,15 @@ import { db, type LifeRpgDatabase } from './db'
 import {
   ApplicationKnowledgeSchema,
   CoachPlanDraftSchema,
-  CoachPlanNewBehaviorSchema,
+  CoachPlanNewBehaviorBaseSchema,
+  TieredGoalSchema,
   type Activity,
   type ApplicationTrial,
   type CoachPlanDraft,
 } from './domain'
 
 export const KNOWLEDGE_ACTION_PACKAGE_TYPE = 'earth-online.obsidian-knowledge-action' as const
-export const KNOWLEDGE_ACTION_PACKAGE_SCHEMA_VERSION = 2 as const
+export const KNOWLEDGE_ACTION_PACKAGE_SCHEMA_VERSION = 3 as const
 
 const stableId = z.string()
   .trim()
@@ -18,7 +19,7 @@ const stableId = z.string()
   .max(120)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/, '标识只能包含字母、数字、点、下划线、冒号和连字符')
 
-export const KnowledgeActionBehaviorSchema = CoachPlanNewBehaviorSchema
+const KnowledgeActionBehaviorBaseSchema = CoachPlanNewBehaviorBaseSchema
   .omit({ id: true, source: true, confirmed: true })
   .extend({
     title: z.string().trim().min(1).max(60),
@@ -26,6 +27,24 @@ export const KnowledgeActionBehaviorSchema = CoachPlanNewBehaviorSchema
     protocol: z.string().trim().min(1).max(280),
   })
   .strict()
+
+export const KnowledgeActionBehaviorSchema = KnowledgeActionBehaviorBaseSchema.superRefine((behavior, context) => {
+  if (behavior.goal.kind === 'rating' && behavior.schedule.kind !== 'daily') {
+    context.addIssue({ code: 'custom', path: ['schedule'], message: '评分体验只能设置为每日习惯' })
+  }
+})
+
+const LegacyKnowledgeActionBehaviorSchema = KnowledgeActionBehaviorBaseSchema.extend({
+  goal: TieredGoalSchema,
+})
+
+const legacyBehaviorList = z.array(LegacyKnowledgeActionBehaviorSchema).min(1).max(3)
+  .superRefine((behaviors, context) => {
+    const titles = behaviors.map((behavior) => normalizeTitle(behavior.title))
+    if (new Set(titles).size !== titles.length) {
+      context.addIssue({ code: 'custom', message: '同一行动包中的行为标题不能重复' })
+    }
+  })
 
 const behaviorList = z.array(KnowledgeActionBehaviorSchema).min(1).max(3)
   .superRefine((behaviors, context) => {
@@ -50,12 +69,37 @@ export const KnowledgeActionPackageV1Schema = z.object({
     baseline: z.string().trim().min(1).max(280),
     targetOutcome: z.string().trim().min(1).max(280),
   }).strict(),
-  behaviors: behaviorList,
+  behaviors: legacyBehaviorList,
 }).strict()
 
 export const KnowledgeActionPackageV2Schema = z.object({
   packageType: z.literal(KNOWLEDGE_ACTION_PACKAGE_TYPE),
   schemaVersion: z.literal(2),
+  packageId: stableId,
+  applicationId: stableId,
+  phase: z.enum(['trial', 'season']),
+  derivedFromResultPackageId: stableId.nullable().optional(),
+  knowledge: ApplicationKnowledgeSchema,
+  application: z.object({
+    goal: z.string().trim().min(1).max(40),
+    successCriterion: z.string().trim().min(1).max(180),
+    baseline: z.string().trim().min(1).max(280),
+    targetOutcome: z.string().trim().min(1).max(280),
+    outcomeIndicator: z.string().trim().min(1).max(180),
+  }).strict(),
+  behaviors: legacyBehaviorList,
+}).strict().superRefine((actionPackage, context) => {
+  if (actionPackage.phase === 'trial' && actionPackage.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '7 天试跑不能引用阶段结果包' })
+  }
+  if (actionPackage.phase === 'season' && !actionPackage.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '28 天正式赛季必须引用试跑结果包' })
+  }
+})
+
+export const KnowledgeActionPackageV3Schema = z.object({
+  packageType: z.literal(KNOWLEDGE_ACTION_PACKAGE_TYPE),
+  schemaVersion: z.literal(3),
   packageId: stableId,
   applicationId: stableId,
   phase: z.enum(['trial', 'season']),
@@ -81,6 +125,7 @@ export const KnowledgeActionPackageV2Schema = z.object({
 export const KnowledgeActionPackageSchema = z.discriminatedUnion('schemaVersion', [
   KnowledgeActionPackageV1Schema,
   KnowledgeActionPackageV2Schema,
+  KnowledgeActionPackageV3Schema,
 ])
 
 export type KnowledgeActionPackage = z.infer<typeof KnowledgeActionPackageSchema>
@@ -128,17 +173,17 @@ export function knowledgeActionPackageToDraft(
   now = new Date(),
 ): CoachPlanDraft {
   const timestamp = now.toISOString()
-  const v2 = actionPackage.schemaVersion === 2 ? actionPackage : undefined
+  const modern = actionPackage.schemaVersion === 1 ? undefined : actionPackage
   const primary = packagePrimaryKnowledge(actionPackage)
   return CoachPlanDraftSchema.parse({
-    id: v2
-      ? `application-plan:${v2.applicationId}:${v2.phase}`
+    id: modern
+      ? `application-plan:${modern.applicationId}:${modern.phase}`
       : `knowledge-plan:${actionPackage.packageId}`,
     title: actionPackage.application.goal,
     successCriterion: actionPackage.application.successCriterion,
     baseline: actionPackage.application.baseline,
     targetOutcome: actionPackage.application.targetOutcome,
-    outcomeIndicator: v2?.application.outcomeIndicator,
+    outcomeIndicator: modern?.application.outcomeIndicator,
     currentStep: 1,
     status: 'editing',
     behaviors: actionPackage.behaviors.map((behavior, index) => ({
@@ -147,16 +192,16 @@ export function knowledgeActionPackageToDraft(
       source: 'new',
       confirmed: false,
     })),
-    knowledgeSource: v2
+    knowledgeSource: modern
       ? {
-          packageType: v2.packageType,
-          schemaVersion: 2,
-          packageId: v2.packageId,
-          applicationId: v2.applicationId,
-          phase: v2.phase,
-          derivedFromResultPackageId: v2.derivedFromResultPackageId ?? undefined,
-          knowledge: v2.knowledge,
-          outcomeIndicator: v2.application.outcomeIndicator,
+          packageType: modern.packageType,
+          schemaVersion: modern.schemaVersion,
+          packageId: modern.packageId,
+          applicationId: modern.applicationId,
+          phase: modern.phase,
+          derivedFromResultPackageId: modern.derivedFromResultPackageId ?? undefined,
+          knowledge: modern.knowledge,
+          outcomeIndicator: modern.application.outcomeIndicator,
           importedAt: timestamp,
         }
       : {
@@ -204,7 +249,7 @@ async function buildPreview(
     blockingIssues.push('这份知识行动包已经启动过试跑，不能重复导入')
   }
 
-  if (actionPackage.schemaVersion === 2) {
+  if (actionPackage.schemaVersion !== 1) {
     if (actionPackage.phase === 'season') {
       const sourceTrial: ApplicationTrial | undefined = trial?.applicationId === actionPackage.applicationId ? trial : undefined
       if (!sourceTrial || sourceTrial.status !== 'completed') {
@@ -250,10 +295,10 @@ async function buildPreview(
   if (replacesCurrentDraft) {
     warnings.push('当前目标规划草稿会被这份行动包替换；原草稿尚未启动的内容不会进入历史。')
   }
-  if (actionPackage.schemaVersion === 2 && activeTrial) {
+  if (actionPackage.schemaVersion !== 1 && activeTrial) {
     warnings.push('当前 7 天试跑仍在进行；可以先保存规划草稿，但本轮试跑结束前不能启动新阶段。')
   }
-  if (actionPackage.schemaVersion === 2 && activeSeason) {
+  if (actionPackage.schemaVersion !== 1 && activeSeason) {
     warnings.push('当前 28 天赛季仍在进行；可以先保存规划草稿，但当前赛季结束前不能启动新阶段。')
   }
   if (actionPackage.schemaVersion === 1 && activeSeason) {

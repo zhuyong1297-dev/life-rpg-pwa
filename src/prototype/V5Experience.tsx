@@ -45,6 +45,7 @@ import {
   getTierLevels,
   getTotalXpForLevel,
   growthDomains,
+  isRatingGoal,
   isTieredGoal,
   rewardTable,
   startOfWeek,
@@ -69,9 +70,11 @@ export interface V5FeedbackView {
   coins: number
   progressLabel?: string
   tier?: TierLevel
+  ratingValue?: number
+  ratingPrompt?: string
   level: ReturnType<typeof getLevel>
   leveledUp?: boolean
-  followUp?: { kind: 'daily-signal'; seasonId: string }
+  followUp?: { kind: 'daily-signal'; seasonId: string } | { kind: 'rating-note'; activityId: string }
 }
 
 export function getV5NextTier(activity: Activity, completion?: Completion): TierLevel | undefined {
@@ -82,6 +85,7 @@ export function getV5NextTier(activity: Activity, completion?: Completion): Tier
 }
 
 function v5TierProgressLabel(activity: Activity, completion: Completion) {
+  if (completion.ratingValue !== undefined) return `${completion.ratingValue}/5 已记录 · 可修改`
   const nextTier = getV5NextTier(activity, completion)
   return nextTier
     ? `${tierLabels[completion.tier!]}已达标 · 可升级${tierLabels[nextTier]}`
@@ -89,21 +93,23 @@ function v5TierProgressLabel(activity: Activity, completion: Completion) {
 }
 
 export function getV5FeedbackDisplay(feedback: V5FeedbackView, condensed: boolean) {
-  const showFollowUp = condensed && feedback.followUp?.kind === 'daily-signal'
+  const showFollowUp = condensed && Boolean(feedback.followUp)
   return {
     showFollowUp,
     title: showFollowUp
-      ? '今日闭环还差一步'
+      ? feedback.followUp?.kind === 'rating-note' ? '体验已记录' : '今日闭环还差一步'
       : condensed
         ? '本次行动已记录'
         : feedback.leveledUp
           ? `升级到 Lv.${feedback.level.level}`
           : feedback.title,
     detail: showFollowUp
-      ? '约 15 秒记录今日状态'
+      ? feedback.followUp?.kind === 'rating-note' ? '可以补充影响因素，也可以稍后修改评分' : '约 15 秒记录今日状态'
       : condensed
         ? '可在 10 秒内撤销'
-        : feedback.progressLabel ?? domainLabel(feedback.domain),
+        : feedback.ratingValue
+          ? `${feedback.ratingPrompt ?? feedback.title} ${feedback.ratingValue}/5`
+          : feedback.progressLabel ?? domainLabel(feedback.domain),
   }
 }
 
@@ -199,7 +205,7 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>{preview ? 'V5.3.0 预览版' : 'V5.3.0'}</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5.4.0 预览版' : 'V5.3.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
@@ -249,6 +255,7 @@ export function V5TodayPage({
   onUndo,
   onOpenSeason,
   onRecordDailySignal,
+  onEditRating,
   onOpenCoach,
   onSetTodayPriority,
 }: {
@@ -273,6 +280,7 @@ export function V5TodayPage({
   onUndo: () => void
   onOpenSeason: () => void
   onRecordDailySignal: (seasonId: string) => void
+  onEditRating: (activityId: string) => void
   onOpenCoach: () => void
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
@@ -366,6 +374,7 @@ export function V5TodayPage({
               }}
               onFollowUp={() => {
                 if (feedback.followUp?.kind === 'daily-signal') onRecordDailySignal(feedback.followUp.seasonId)
+                if (feedback.followUp?.kind === 'rating-note') onEditRating(feedback.followUp.activityId)
               }}
             />
           )}
@@ -694,7 +703,7 @@ function V5Feedback({
         )}
       </div>
       <div className="v5-feedback-actions">
-        {display.showFollowUp && <button className="primary" type="button" onClick={onFollowUp}>记录状态</button>}
+        {display.showFollowUp && <button className="primary" type="button" onClick={onFollowUp}>{feedback.followUp?.kind === 'rating-note' ? '补充影响因素' : '记录状态'}</button>}
         <button type="button" onClick={onUndo}><RotateCcw size={16} />撤销</button>
       </div>
     </div>
@@ -752,7 +761,7 @@ function V5FocusAction({
           ))}
         </div>
       ) : (
-        <button className="v5-primary-button v5-wide" type="button" aria-label={`完成 ${activity.title}`} onClick={onComplete}>记录完成</button>
+        <button className="v5-primary-button v5-wide" type="button" aria-label={`${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`} onClick={onComplete}>{isRatingGoal(activity) ? '记录体验' : '记录完成'}</button>
       )}
       {protocolOpen && (
         <div className="v5-protocol-backdrop" role="presentation" onClick={() => setProtocolOpen(false)}>
@@ -782,7 +791,7 @@ function V5TimelineRow({
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
-      <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
+      <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
         {completion ? nextTier ? <Sparkles size={18} /> : <Check size={19} /> : <Clock3 size={18} />}
       </button>
       <div><strong>{activity.title}</strong><span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span></div>
@@ -907,7 +916,7 @@ function V5CompactActionRow({
         <span>{meta}</span>
         {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
       </div>
-      <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `完成 ${activity.title}`}>
+      <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
         {completion ? nextTier ? <Sparkles size={18} /> : <Check size={18} /> : <ChevronRight size={19} />}
       </button>
     </article>

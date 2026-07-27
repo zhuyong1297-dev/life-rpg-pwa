@@ -2,11 +2,11 @@
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
 
-当前线上正式版与手机预览版均运行 V5.3.0。该版本把备份、恢复和 Obsidian 交换集中到独立数据中心，并允许 28 天赛季在任何一天经过二次确认后提前结项。
+当前线上正式版运行 V5.3.0，手机预览版候选为 V5.4.0。预览版新增每日评分习惯：选择 1～5 分即可记录现实体验，分数不改变固定奖励；试跑修正会在用户次日明确确认后用新活动 ID 重新开始。
 
 首页把普通习惯拆为“每日行动”和“本周进度”。每周目标使用紧凑里程碑轨道；组合目标先选择活动预设时长再记录，打开选择窗口本身不会写入数据。
 
-V5.3.0 继续使用 Backup JSON schema 11、Dexie version 4 和八张表。恢复完整备份会先展示差异且不会立即写库；Obsidian 交换包与全量备份使用不同的 `packageType` 和入口，不能互相恢复。
+V5.4.0 预览使用 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。恢复完整备份会先展示差异且不会立即写库；Obsidian 交换包与全量备份使用不同的 `packageType` 和入口，不能互相恢复。
 
 在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
 
@@ -35,8 +35,8 @@ pnpm privacy:scan
 ## 数据与隐私
 
 - IndexedDB 八张表是唯一事实来源，不需要账号或后端。
-- 全量备份使用 JSON schema 11 并兼容恢复 schema 1 至 10；愿望图片、奖励券、逐次进度与规划草稿进入全量备份。
-- Obsidian 行动包 schema 1 继续兼容旧 28 天方案；schema 2 支持一个主原则、最多两个辅助知识、7 天试跑与 28 天正式赛季。
+- 全量备份使用 JSON schema 12 并兼容恢复 schema 1 至 11；评分快照、愿望图片、奖励券、逐次进度与规划草稿进入全量备份。
+- Obsidian 行动包 schema 1 继续兼容旧 28 天方案；schema 2 支持一个主原则、最多两个辅助知识、7 天试跑与 28 天正式赛季；schema 3 进一步支持评分体验目标。
 - `earth-online.obsidian-planning-context` 只导出当前阶段和最多三项关键行为定义。
 - `earth-online.obsidian-application-result` 只导出阶段周期、聚合完成数据、现实指标、人工决定和理由；不包含每日流水、XP、金币、愿望或账本。
 - 两种 JSON 使用不同入口和事务；知识行动包绝不调用全量恢复。

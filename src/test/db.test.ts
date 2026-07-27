@@ -43,6 +43,7 @@ import {
   undoLatestIncrementalProgress,
   updateActivityGoal,
   updateHabit,
+  updateTodayRating,
   updateReward,
   type NewActivity,
 } from '../db'
@@ -65,6 +66,18 @@ const dailyHabit: NewActivity = {
 const tieredHabit: NewActivity = {
   ...dailyHabit,
   goal: { kind: 'tiered', metric: 'duration', unit: '分钟', thresholds: [5, 20, 45] },
+}
+
+const ratingHabit: NewActivity = {
+  ...dailyHabit,
+  title: '每日体验评分',
+  goal: {
+    kind: 'rating',
+    scale: 5,
+    prompt: '今天的恢复感如何？',
+    anchors: { low: '很差', middle: '一般', high: '很好' },
+    notePrompt: '主要影响因素',
+  },
 }
 
 const configuredReward = {
@@ -100,6 +113,42 @@ afterEach(async () => {
 })
 
 describe('IndexedDB 事务', () => {
+  it('评分 1 至 5 都只发固定奖励，当天改分和备注不改变账本', async () => {
+    const activity = await createActivity(ratingHabit, database)
+    const first = await completeActivity(activity.id, '2026-07-27', { ratingValue: 1 }, database)
+    expect(first.awarded).toBe(true)
+    expect(first.event).toMatchObject({ xpDelta: 10, coinDelta: 5 })
+    if (!first.completion) throw new Error('评分完成记录缺失')
+    expect(first.completion).toMatchObject({ ratingValue: 1, ratingGoalSnapshot: ratingHabit.goal })
+
+    const duplicate = await completeActivity(activity.id, '2026-07-27', { ratingValue: 5 }, database)
+    expect(duplicate.awarded).toBe(false)
+    const ledgerBeforeEdit = await database.ledgerEvents.toArray()
+    const updated = await updateTodayRating(
+      activity.id,
+      5,
+      '昨晚较早停止使用屏幕',
+      '2026-07-27',
+      database,
+      new Date(2026, 6, 27, 12, 0),
+    )
+    expect(updated).toMatchObject({ ratingValue: 5, note: '昨晚较早停止使用屏幕' })
+    expect(await database.ledgerEvents.toArray()).toEqual(ledgerBeforeEdit)
+    await expect(updateTodayRating(
+      activity.id,
+      3,
+      undefined,
+      '2026-07-27',
+      database,
+      new Date(2026, 6, 28, 12, 0),
+    )).rejects.toThrow('当前游戏日')
+
+    expect(await undoCompletion(first.completion.id, database)).toBe(true)
+    const redone = await completeActivity(activity.id, '2026-07-27', { ratingValue: 2 }, database)
+    expect(redone.awarded).toBe(true)
+    expect(calculateStats(await database.ledgerEvents.toArray())).toMatchObject({ totalXp: 10, coins: 5 })
+  })
+
   it('目标规划启用会原子切换关键行为并且重复提交幂等', async () => {
     const oldKey = await createActivity({ ...dailyHabit, title: '旧关键行为' }, database)
     const reusable = await createActivity({ ...dailyHabit, title: '继续复用', isKey: false }, database)
@@ -1125,7 +1174,7 @@ describe('IndexedDB 事务', () => {
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.baselineLevel : undefined).toBe(1)
   })
 
-  it('schema 11 备份保存奖励券与规划草稿并兼容 schema 5 至 schema 10', async () => {
+  it('schema 12 备份保存评分数据并兼容 schema 1 至 schema 11', async () => {
     const activity = await createActivity(dailyHabit, database)
     const priorityActivity = await createActivity({ ...dailyHabit, title: '今日优先行动', isKey: false }, database)
     const timedActivity = await createActivity({ ...dailyHabit, title: '定时行动', scheduledTime: '21:30', isKey: false }, database)
@@ -1136,7 +1185,7 @@ describe('IndexedDB 事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 11, appVersion: '5.3.0', rewardClaims: [], seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 12, appVersion: '5.4.0', rewardClaims: [], seasons: [{ id: season.id }] })
     expect(current.activities.find((item) => item.id === timedActivity.id)?.scheduledTime).toBe('21:30')
     expect(current.settings.find((setting) => setting.key === 'meta')).toMatchObject({ value: { todayActionPriority: { gameDate: '2026-01-05', activityIds: [priorityActivity.id] } } })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
@@ -1150,8 +1199,8 @@ describe('IndexedDB 事务', () => {
     await restoreBackup({ ...current, schemaVersion: 6, appVersion: '3.2.0' }, database)
     const { seasons: _seasons, ...legacy } = current
     await restoreBackup({ ...legacy, schemaVersion: 5, appVersion: '2.6.0' }, database)
-    await restoreBackup({ ...current, appVersion: '5.0.0' }, database)
-    await restoreBackup({ ...current, appVersion: '5.0.1' }, database)
+    await restoreBackup({ ...current, schemaVersion: 11, appVersion: '5.0.0' }, database)
+    await restoreBackup({ ...current, schemaVersion: 11, appVersion: '5.0.1' }, database)
     await restoreBackup(current, database)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.levelSystem?.highestLevelReached : undefined).toBe(1)

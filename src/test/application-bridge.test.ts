@@ -7,6 +7,7 @@ import { createBackup, restoreBackup } from '../backup'
 import {
   completeApplicationSeason,
   completeApplicationTrial,
+  completeActivity,
   createActivity,
   createSeason,
   getApplicationTrial,
@@ -14,6 +15,8 @@ import {
   initializeDatabase,
   LifeRpgDatabase,
   activateCoachPlanDraft,
+  activateApplicationTrialRestart,
+  prepareApplicationTrialRestart,
 } from '../db'
 import {
   ApplicationResultPackageSchema,
@@ -25,6 +28,7 @@ import {
 import {
   importKnowledgeActionPackage,
   KnowledgeActionPackageV2Schema,
+  KnowledgeActionPackageV3Schema,
   KnowledgeActionPackageSchema,
   previewKnowledgeActionPackage,
   type KnowledgeActionPackageV2,
@@ -71,6 +75,41 @@ const trialPackage: KnowledgeActionPackageV2 = {
   }],
 }
 
+const ratingTrialPackage = KnowledgeActionPackageV3Schema.parse({
+  ...trialPackage,
+  schemaVersion: 3,
+  packageId: 'demo.application.rating-trial.v1',
+  applicationId: 'app-20260727-rating-demo',
+  behaviors: [
+    {
+      role: 'start',
+      title: '每日恢复体验',
+      cue: '起床后',
+      protocol: '按真实体验选择一分到五分',
+      domain: 'health',
+      difficulty: '简单',
+      goal: {
+        kind: 'rating',
+        scale: 5,
+        prompt: '今天的恢复感如何？',
+        anchors: { low: '很差', middle: '一般', high: '很好' },
+        notePrompt: '主要影响因素',
+      },
+      schedule: { kind: 'daily' },
+    },
+    {
+      role: 'maintain',
+      title: '晚间缓冲',
+      cue: '准备休息前',
+      protocol: '把手机移到床外并安静坐两分钟',
+      domain: 'life',
+      difficulty: '简单',
+      goal: { kind: 'tiered', metric: 'duration', unit: '秒', inputUnit: '分钟', thresholds: [120, 300] },
+      schedule: { kind: 'daily' },
+    },
+  ],
+})
+
 beforeEach(async () => {
   database = new LifeRpgDatabase(`application-bridge-test-${crypto.randomUUID()}`)
   await initializeDatabase(database)
@@ -94,10 +133,10 @@ function readyDraft<T extends Awaited<ReturnType<typeof importKnowledgeActionPac
 
 describe('Obsidian Application 双向桥接', () => {
   it('仓库中的四份虚构交换样例符合公开契约', () => {
-    expect(KnowledgeActionPackageSchema.parse(trialActionExample).schemaVersion).toBe(2)
+    expect(KnowledgeActionPackageSchema.parse(trialActionExample).schemaVersion).toBe(3)
     expect(KnowledgeActionPackageSchema.parse(seasonActionExample).schemaVersion).toBe(2)
-    expect(PlanningContextPackageSchema.parse(planningContextExample).schemaVersion).toBe(1)
-    expect(ApplicationResultPackageSchema.parse(applicationResultExample).schemaVersion).toBe(1)
+    expect(PlanningContextPackageSchema.parse(planningContextExample).schemaVersion).toBe(2)
+    expect(ApplicationResultPackageSchema.parse(applicationResultExample).schemaVersion).toBe(2)
   })
 
   it('校验一主两辅并拒绝非 principle 主知识', () => {
@@ -124,6 +163,98 @@ describe('Obsidian Application 双向桥接', () => {
         ],
       },
     })).toThrow()
+  })
+
+  it('行动包 v3 和结果包 v2 完整保留评分语义与证据覆盖率', async () => {
+    const draft = await importKnowledgeActionPackage(ratingTrialPackage, database)
+    expect(draft.behaviors[0]).toMatchObject({
+      source: 'new',
+      goal: { kind: 'rating', prompt: '今天的恢复感如何？' },
+    })
+    await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
+    const trial = await activateCoachPlanDraft(draft.id, '2026-07-27', database)
+    const ratingActivity = trial.focusActivities.find((activity) => activity.goal.kind === 'rating')!
+    for (let index = 0; index < 5; index += 1) {
+      await completeActivity(
+        ratingActivity.activityId,
+        `2026-07-${String(27 + index).padStart(2, '0')}`,
+        { ratingValue: index + 1 },
+        database,
+      )
+    }
+    const completed = await completeApplicationTrial(
+      ratingTrialPackage.applicationId,
+      '评分记录覆盖了五天，可以作为初步现实证据',
+      'adjust',
+      '保留评分，继续调整晚间行为',
+      '2026-08-02',
+      database,
+    )
+    expect(completed.behaviorResults?.find((item) => item.activityId === ratingActivity.activityId)?.ratingSummary)
+      .toEqual({ recordedDays: 5, average: 3, evidenceSufficient: true })
+    const result = createTrialResultPackage(completed)
+    expect(result.schemaVersion).toBe(2)
+    if (result.schemaVersion !== 2) throw new Error('结果包版本错误')
+    expect(result.behaviors.find((item) => item.activityId === ratingActivity.activityId)?.ratingSummary)
+      .toEqual({ recordedDays: 5, average: 3, evidenceSufficient: true })
+  })
+
+  it('试跑修正次日原子归档旧行为并用新 ID 重新开始', async () => {
+    const draft = await importKnowledgeActionPackage(ratingTrialPackage, database)
+    await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
+    await activateCoachPlanDraft(draft.id, '2026-07-27', database)
+    const original = (await getApplicationTrial(database))!
+    const oldRating = original.focusActivities.find((activity) => activity.goal.kind === 'rating')!
+    await completeActivity(oldRating.activityId, '2026-07-27', { ratingValue: 2 }, database)
+    const before = await getSnapshot(database)
+    const pending = await prepareApplicationTrialRestart(
+      original.id,
+      original.focusActivities.map((activity) => ({
+        sourceActivityId: activity.activityId,
+        title: activity.title,
+        scheduledTime: activity.scheduledTime,
+        cue: activity.cue,
+        protocol: activity.protocol,
+        domain: activity.domain,
+        difficulty: activity.difficulty,
+        goal: activity.activityId === oldRating.activityId
+          ? {
+              kind: 'rating' as const,
+              scale: 5 as const,
+              prompt: '醒来后身体恢复得怎么样？',
+              anchors: { low: '没有恢复', middle: '普通', high: '精力充足' },
+              notePrompt: '影响恢复的因素',
+            }
+          : activity.goal,
+        schedule: activity.schedule,
+      })),
+      database,
+      new Date(2026, 6, 27, 12, 0),
+    )
+    expect(pending.notBefore).toBe('2026-07-28')
+    await expect(activateApplicationTrialRestart(database, new Date(2026, 6, 27, 12, 0))).rejects.toThrow('04:00')
+
+    const snapshotWithPending = await getSnapshot(database)
+    const put = vi.spyOn(database.settings, 'put').mockRejectedValueOnce(new Error('模拟重启写入失败'))
+    await expect(activateApplicationTrialRestart(database, new Date(2026, 6, 28, 12, 0))).rejects.toThrow('模拟重启写入失败')
+    put.mockRestore()
+    expect(await getSnapshot(database)).toEqual(snapshotWithPending)
+
+    const restarted = await activateApplicationTrialRestart(database, new Date(2026, 6, 28, 12, 0))
+    expect(restarted).toMatchObject({
+      restartOfTrialId: original.id,
+      startsOn: '2026-07-28',
+      endsOn: '2026-08-03',
+      status: 'active',
+    })
+    expect(restarted.focusActivities.map((activity) => activity.activityId))
+      .not.toEqual(original.focusActivities.map((activity) => activity.activityId))
+    for (const activity of original.focusActivities) {
+      expect(await database.activities.get(activity.activityId)).toMatchObject({ enabled: false, isKey: false })
+    }
+    expect(await database.completions.toArray()).toEqual(before.completions)
+    expect(await database.ledgerEvents.toArray()).toEqual(before.ledgerEvents)
+    expect((await activateApplicationTrialRestart(database, new Date(2026, 6, 28, 12, 1))).id).toBe(restarted.id)
   })
 
   it('启动严格 7 天试跑，结束后恢复仍有效的旧关键行为', async () => {
@@ -179,12 +310,12 @@ describe('Obsidian Application 双向桥接', () => {
     expect(await getSnapshot(database)).toEqual(before)
   })
 
-  it('试跑继续进入既有备份 schema 11，恢复时不增加表', async () => {
+  it('试跑继续进入备份 schema 12，恢复时不增加表', async () => {
     const draft = await importKnowledgeActionPackage(trialPackage, database)
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
     const backup = await createBackup(database)
-    expect(backup).toMatchObject({ schemaVersion: 11, appVersion: '5.3.0' })
+    expect(backup).toMatchObject({ schemaVersion: 12, appVersion: '5.4.0' })
     expect(backup.settings.find((setting) => setting.key === 'applicationTrial')).toBeDefined()
 
     const restored = new LifeRpgDatabase(`application-bridge-restore-${crypto.randomUUID()}`)

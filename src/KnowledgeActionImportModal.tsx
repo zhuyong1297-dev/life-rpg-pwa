@@ -17,6 +17,7 @@ function behaviorScheduleLabel(preview: KnowledgeActionPackagePreview, index: nu
 
 function behaviorGoalLabel(preview: KnowledgeActionPackagePreview, index: number) {
   const goal = preview.actionPackage.behaviors[index].goal
+  if (goal.kind === 'rating') return `评分体验 · ${goal.prompt}`
   return getTierLevels(goal)
     .map((tier) => `${tier === 1 ? '基础' : tier === 2 ? '标准' : '突破'} ${formatTierGoalValue(goal, tier)}`)
     .join(' · ')

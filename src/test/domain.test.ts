@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ActivitySchema, CoachPlanDraftSchema, CompletionSchema, TieredGoalSchema, attributes, calculateStats, createCoachPlanDraft, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getRewardPriceSuggestions, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
+import { ActivitySchema, CoachPlanDraftSchema, CoachPlanNewBehaviorSchema, CompletionSchema, RatingGoalSchema, TieredGoalSchema, attributes, calculateStats, createCoachPlanDraft, effectiveGameDate, formatDurationSeconds, formatTierGoalValue, gameDate, getCharacterStage, getCharacterStageName, getJourneyMonths, getLevel, getLevelReport, getMilestoneVoucherCost, getNextVoucherLevel, getRewardPriceSuggestions, getTierAchievement, getTierReward, getTierUpgradeXp, getTotalXpForLevel, growthDomainDetails, growthDomains, legacyDomainSuggestions, rewardTable, type Completion, type LedgerEvent, type LevelMilestone } from '../domain'
 
 describe('领域规则', () => {
   it('目标规划草稿允许未完成状态，但 ready 必须通过现实检查', () => {
@@ -74,6 +74,46 @@ describe('领域规则', () => {
     expect(gameDate(new Date(2027, 0, 1, 3, 0))).toBe('2026-12-31')
     expect(gameDate(new Date(2028, 2, 1, 3, 0))).toBe('2028-02-29')
     expect(gameDate(new Date(2028, 2, 1, 4, 0))).toBe('2028-03-01')
+  })
+
+  it('评分目标只接受每日习惯并完整保存问题与锚点', () => {
+    const goal = RatingGoalSchema.parse({
+      kind: 'rating',
+      scale: 5,
+      prompt: '今天的恢复感如何？',
+      anchors: { low: '很差', middle: '一般', high: '很好' },
+      notePrompt: '主要影响因素',
+    })
+    const base = {
+      id: 'rating-habit',
+      title: '每日恢复感',
+      type: 'habit',
+      domain: 'health',
+      difficulty: '简单',
+      goal,
+      schedule: { kind: 'daily' },
+      isKey: false,
+      enabled: true,
+      createdAt: '2026-07-27T00:00:00.000Z',
+    }
+    expect(ActivitySchema.parse(base).goal).toEqual(goal)
+    expect(() => ActivitySchema.parse({ ...base, schedule: { kind: 'weekly', times: 3 } })).toThrow('每日习惯')
+    expect(() => ActivitySchema.parse({ ...base, type: 'task', schedule: { kind: 'once' }, plannedOn: '2026-07-27' })).toThrow()
+    expect(() => RatingGoalSchema.parse({ ...goal, prompt: '' })).toThrow()
+    expect(() => RatingGoalSchema.parse({ ...goal, anchors: { ...goal.anchors, high: 'a'.repeat(61) } })).toThrow()
+    expect(() => CoachPlanNewBehaviorSchema.parse({
+      id: 'rating-plan',
+      role: 'start',
+      source: 'new',
+      title: '记录恢复感',
+      cue: '起床后',
+      protocol: '按真实体验选择一分到五分',
+      domain: 'health',
+      difficulty: '简单',
+      goal,
+      schedule: { kind: 'weekly', times: 5 },
+      confirmed: true,
+    })).toThrow('每日习惯')
   })
 
   it('每日行动执行时间只接受规范 HH:mm', () => {

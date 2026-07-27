@@ -54,6 +54,7 @@ import {
   completeApplicationTrial,
   completeSeason,
   completeActivity,
+  activateApplicationTrialRestart,
   createActivity,
   createSeason,
   createReward,
@@ -68,6 +69,7 @@ import {
   permanentlyDeleteActivity,
   saveWeeklyReview,
   saveCoachPlanDraft,
+  prepareApplicationTrialRestart,
   saveSeasonDailySignal,
   setActivityEnabled,
   setActivityKey,
@@ -77,6 +79,7 @@ import {
   setTodayActionPriority,
   undoCompletion,
   undoLatestIncrementalProgress,
+  updateTodayRating,
   updateHabit,
   restoreActivity,
   syncLevelMilestones,
@@ -116,6 +119,7 @@ import {
   identityMessage,
   formatDurationSeconds,
   isDurationGoal,
+  isRatingGoal,
   isTieredGoal,
   isIncrementalGoal,
   effectiveGameDate,
@@ -129,9 +133,11 @@ import {
   tierLabels,
   tierLevels,
   TieredGoalSchema,
+  RatingGoalSchema,
   type Activity,
   type ApplicationDecision,
   type ApplicationTrial,
+  type ApplicationTrialRestart,
   type CoachBehaviorRole,
   type CoachPlanBehavior,
   type CoachPlanDraft,
@@ -149,6 +155,7 @@ import {
   type TierLevel,
   type TierMetric,
   type TieredGoal,
+  type RatingGoal,
   type TimeInputUnit,
   type WeeklyReview,
   type JourneyEntry,
@@ -224,11 +231,13 @@ interface AwardFeedback {
   progressLabel?: string
   tier?: TierLevel
   achievedLabel?: string
+  ratingValue?: number
+  ratingPrompt?: string
   upgraded?: boolean
   leveledUp?: boolean
   level: ReturnType<typeof getLevel>
   rewardGoal?: { title: string; remaining: number }
-  followUp?: { kind: 'daily-signal'; seasonId: string }
+  followUp?: { kind: 'daily-signal'; seasonId: string } | { kind: 'rating-note'; activityId: string }
 }
 
 type NoticeTone = 'info' | 'success' | 'warning' | 'error'
@@ -262,6 +271,50 @@ interface TierGoalDraft {
   combinedThresholds: [CombinedThresholdDraft, CombinedThresholdDraft, CombinedThresholdDraft]
   progressMode: 'direct' | 'incremental'
   durationOptionsSeconds: StringQuad
+}
+
+interface RatingGoalDraft {
+  prompt: string
+  low: string
+  middle: string
+  high: string
+  notePrompt: string
+}
+
+function defaultRatingGoalDraft(): RatingGoalDraft {
+  return {
+    prompt: '今天的体验如何？',
+    low: '很差',
+    middle: '一般',
+    high: '很好',
+    notePrompt: '主要影响因素',
+  }
+}
+
+function ratingGoalDraftFromGoal(goal?: RatingGoal): RatingGoalDraft {
+  return goal
+    ? {
+        prompt: goal.prompt,
+        low: goal.anchors.low,
+        middle: goal.anchors.middle,
+        high: goal.anchors.high,
+        notePrompt: goal.notePrompt ?? '',
+      }
+    : defaultRatingGoalDraft()
+}
+
+function buildRatingGoal(draft: RatingGoalDraft): RatingGoal {
+  return RatingGoalSchema.parse({
+    kind: 'rating',
+    scale: 5,
+    prompt: draft.prompt.trim(),
+    anchors: {
+      low: draft.low.trim(),
+      middle: draft.middle.trim(),
+      high: draft.high.trim(),
+    },
+    notePrompt: draft.notePrompt.trim() || undefined,
+  })
 }
 
 function defaultTierGoalDraft(): TierGoalDraft {
@@ -321,6 +374,7 @@ function tierGoalDraftFromGoal(goal: TieredGoal): TierGoalDraft {
 function tierGoalDraftFromLegacy(activity: Activity): TierGoalDraft {
   const draft = defaultTierGoalDraft()
   if (activity.goal.kind === 'tiered') return tierGoalDraftFromGoal(activity.goal)
+  if (activity.goal.kind === 'rating') return draft
   if (isDurationGoal(activity)) return { ...draft, durationSeconds: ['', String(activity.goal.count * 60), ''] }
   return { ...draft, metric: 'count', countUnit: activity.goal.unit, countThresholds: ['', String(activity.goal.count), ''] }
 }
@@ -484,7 +538,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.3.0 预览版' : 'V5.3.0'
+const displayVersion = isPreview ? 'V5.4.0 预览版' : 'V5.3.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -610,6 +664,8 @@ function App() {
   const coachDraft = coachDraftSetting?.key === 'coachPlanDraft' ? coachDraftSetting.value : undefined
   const applicationTrialSetting = snapshot.settings.find((item) => item.key === 'applicationTrial')
   const applicationTrial = applicationTrialSetting?.key === 'applicationTrial' ? applicationTrialSetting.value : undefined
+  const applicationTrialRestartSetting = snapshot.settings.find((item) => item.key === 'applicationTrialRestart')
+  const applicationTrialRestart = applicationTrialRestartSetting?.key === 'applicationTrialRestart' ? applicationTrialRestartSetting.value : undefined
   const targetReward = snapshot.rewards.find((reward) => reward.id === targetRewardId && reward.enabled)
   const pendingRewardClaim = snapshot.rewardClaims
     .filter((claim) => claim.status === 'reserved')
@@ -686,7 +742,9 @@ function App() {
       const completedTierGoal = getCompletionTierGoal(result.completion, result.activity)
       const nextLevel = getLevel(nextStats.totalXp)
       const leveledUp = nextLevel.level > level.level
-      const followUp = activity.cue === '23:00'
+      const followUp = result.completion.ratingValue !== undefined
+        ? { kind: 'rating-note' as const, activityId: activity.id }
+        : activity.cue === '23:00'
         && activeSeason?.calibration
         && !activeSeason.dailySignals.some((signal) => signal.date === today)
         ? { kind: 'daily-signal' as const, seasonId: activeSeason.id }
@@ -701,6 +759,8 @@ function App() {
         coins: result.event.coinDelta,
         durationMinutes: result.completion.durationMinutes,
         tier: result.completion.tier,
+        ratingValue: result.completion.ratingValue,
+        ratingPrompt: result.completion.ratingGoalSnapshot?.prompt,
         achievedLabel: result.completion.tier && completedTierGoal
           ? formatTierGoalValue(completedTierGoal, result.completion.tier)
           : undefined,
@@ -804,6 +864,7 @@ function App() {
     if (incrementalGoal?.metric === 'combined') setDurationActivity(activity)
     else if (incrementalGoal) void finishIncremental(activity)
     else if (isTieredGoal(activity)) setTierActivity(activity)
+    else if (isRatingGoal(activity)) setNoteActivity(activity)
     else if (isDurationGoal(activity) || activity.difficulty === '困难' || activity.difficulty === 'Boss') setNoteActivity(activity)
     else void finishActivity(activity)
   }
@@ -913,7 +974,7 @@ function App() {
               if (activeSeason || applicationTrial?.status === 'active') {
                 await refresh()
                 setNotice(
-                  draft.knowledgeSource?.schemaVersion === 2 && draft.knowledgeSource.phase === 'trial'
+                  draft.knowledgeSource && draft.knowledgeSource.schemaVersion !== 1 && draft.knowledgeSource.phase === 'trial'
                     ? '7 天试跑方案已保存，当前阶段结束后再回来启动'
                     : '下个赛季方案已保存，当前阶段和关键行为没有改变',
                 )
@@ -921,7 +982,7 @@ function App() {
                 await activateCoachPlanDraft(readyDraft.id, today)
                 await refresh()
                 setNotice(
-                  draft.knowledgeSource?.schemaVersion === 2 && draft.knowledgeSource.phase === 'trial'
+                  draft.knowledgeSource && draft.knowledgeSource.schemaVersion !== 1 && draft.knowledgeSource.phase === 'trial'
                     ? '7 天知识应用试跑已启动，原关键行为会在试跑结束后恢复'
                     : '28 天成长赛季已启动，规划行为已设为关键行动',
                 )
@@ -1032,6 +1093,13 @@ function App() {
                 }
                 setSeasonHubOpen(true)
               }}
+              onEditRating={(activityId) => {
+                const activity = snapshot.activities.find((item) => item.id === activityId)
+                if (activity) {
+                  setFeedback(null)
+                  setCompletionActivity(activity)
+                }
+              }}
               onOpenCoach={() => navigateTo('coach/plan')}
               onSetTodayPriority={async (activity, prioritized) => {
                 try {
@@ -1121,11 +1189,33 @@ function App() {
             today={today}
             season={activeSeason}
             applicationTrial={applicationTrial}
+            applicationTrialRestart={applicationTrialRestart}
             onOpenSeason={() => setSeasonHubOpen(true)}
             onCompleteTrial={async (trial, observedOutcome, decision, decisionReason) => {
               await completeApplicationTrial(trial.applicationId, observedOutcome, decision, decisionReason, today)
               await refresh()
               setNotice('7 天试跑已由你完成判断，原关键行为已恢复')
+            }}
+            onPrepareTrialRestart={async (trial, activityId, goal) => {
+              const replacements = trial.focusActivities.map((activity) => ({
+                sourceActivityId: activity.activityId,
+                title: activity.title,
+                scheduledTime: activity.scheduledTime,
+                cue: activity.cue,
+                protocol: activity.protocol,
+                domain: activity.domain,
+                difficulty: activity.difficulty,
+                goal: activity.activityId === activityId ? goal : activity.goal,
+                schedule: activity.activityId === activityId ? { kind: 'daily' as const } : activity.schedule,
+              }))
+              await prepareApplicationTrialRestart(trial.id, replacements)
+              await refresh()
+              setNotice('修正方案已保存；下一个游戏日 04:00 后由你明确启动')
+            }}
+            onActivateTrialRestart={async () => {
+              await activateApplicationTrialRestart()
+              await refresh()
+              setNotice('新的 7 天试跑已启动；旧成长与奖励全部保留')
             }}
             onSave={async (review) => {
               try {
@@ -1285,6 +1375,16 @@ function App() {
           onUpgrade={(tier) => {
             setCompletionActivity(null)
             void finishActivity(completionActivity, { tier })
+          }}
+          onUpdateRating={async (ratingValue, note) => {
+            try {
+              await updateTodayRating(completionActivity.id, ratingValue, note, today)
+              await refresh()
+              setNotice('今天的评分已更新，XP 和金币没有变化')
+            } catch (error) {
+              setErrorNotice(errorMessage(error))
+              throw error
+            }
           }}
           onCancel={async () => {
             const completion = activeCompletion(completionActivity)
@@ -1514,7 +1614,7 @@ function CoachPlanScreen({
   const eligibleActivities = activities.filter((activity) => activity.type === 'habit' && activity.enabled && !activity.archivedAt)
   const selectedActivityIds = new Set(draft.behaviors.flatMap((behavior) => behavior.source === 'existing' ? [behavior.activityId] : []))
   const activityById = new Map(activities.map((activity) => [activity.id, activity]))
-  const applicationPhase = draft.knowledgeSource?.schemaVersion === 2 ? draft.knowledgeSource.phase : undefined
+  const applicationPhase = draft.knowledgeSource && draft.knowledgeSource.schemaVersion !== 1 ? draft.knowledgeSource.phase : undefined
   const cycleLabel = applicationPhase === 'trial' ? '7 天试跑' : '28 天赛季'
   const finishLabel = activeSeason || activeTrial
     ? applicationPhase === 'trial' ? '保存试跑方案' : '保存为下个赛季'
@@ -1544,7 +1644,7 @@ function CoachPlanScreen({
     if (activity.goal.kind === 'tiered') {
       const achievement = getTierAchievement(activity.goal, 1)
       summary.seconds += (achievement.durationSeconds ?? 0) * times
-    } else if (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') {
+    } else if (activity.goal.kind !== 'rating' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟')) {
       summary.seconds += activity.goal.count * 60 * times
     }
     return summary
@@ -1595,7 +1695,7 @@ function CoachPlanScreen({
             <strong>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.knowledgeTitle : draft.knowledgeSource.knowledge.primary.title}</strong>
             <code>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.knowledgeReference : draft.knowledgeSource.knowledge.primary.reference}</code>
             <p>{draft.knowledgeSource.schemaVersion === 1 ? draft.knowledgeSource.principle : draft.knowledgeSource.knowledge.primary.principle}</p>
-            {draft.knowledgeSource.schemaVersion === 2 && (
+            {draft.knowledgeSource.schemaVersion !== 1 && (
               <>
                 <small>{draft.knowledgeSource.phase === 'trial' ? '7 天试跑' : '28 天正式赛季'} · 结果指标：{draft.knowledgeSource.outcomeIndicator}</small>
                 {draft.knowledgeSource.knowledge.supporting.map((item) => (
@@ -1715,18 +1815,24 @@ function CoachExistingBehaviorEditor({ behavior, activity, onChange }: { behavio
 }
 
 function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBehavior; onChange: (behavior: NewCoachBehavior) => void }) {
-  const [goalDraft, setGoalDraft] = useState<TierGoalDraft>(() => tierGoalDraftFromGoal(behavior.goal))
+  const [goalMode, setGoalMode] = useState<'tiered' | 'rating'>(behavior.goal.kind === 'rating' ? 'rating' : 'tiered')
+  const [goalDraft, setGoalDraft] = useState<TierGoalDraft>(() => behavior.goal.kind === 'tiered' ? tierGoalDraftFromGoal(behavior.goal) : defaultTierGoalDraft())
+  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(() => ratingGoalDraftFromGoal(behavior.goal.kind === 'rating' ? behavior.goal : undefined))
   const [localError, setLocalError] = useState('')
   const change = (next: Partial<NewCoachBehavior>) => onChange({ ...behavior, ...next, confirmed: false })
   function confirm() {
     try {
-      const goal = TieredGoalSchema.parse(buildTierGoal(goalDraft))
+      const goal = goalMode === 'rating'
+        ? buildRatingGoal(ratingDraft)
+        : TieredGoalSchema.parse(buildTierGoal(goalDraft))
       if (!behavior.title.trim() || !behavior.cue.trim() || !behavior.protocol.trim()) throw new Error('请填写名称、触发条件和执行协议')
       setLocalError('')
       onChange({
         ...behavior,
         goal,
-        schedule: behavior.schedule.kind === 'weekly' && 'progressMode' in goal && goal.progressMode === 'incremental'
+        schedule: goal.kind === 'rating'
+          ? { kind: 'daily' }
+          : behavior.schedule.kind === 'weekly' && 'progressMode' in goal && goal.progressMode === 'incremental'
           ? { kind: 'weekly', times: typeof goal.thresholds[1] === 'number' ? goal.thresholds[1] : goal.thresholds[1].count }
           : behavior.schedule,
         confirmed: true,
@@ -1741,11 +1847,20 @@ function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBeha
       <label className="full-field">行为名称<input maxLength={60} value={behavior.title} onChange={(event) => change({ title: event.target.value })} /></label>
       <div className="field-grid"><label>成长领域<select value={behavior.domain} onChange={(event) => change({ domain: event.target.value as GrowthDomain })}>{growthDomains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}</select></label><label>难度<select value={behavior.difficulty} onChange={(event) => change({ difficulty: event.target.value as Difficulty })}>{difficulties.map((difficulty) => <option key={difficulty}>{difficulty}</option>)}</select></label></div>
       <p className="domain-definition"><strong>{growthDomainDetails[behavior.domain].description}</strong><span>例如：{growthDomainDetails[behavior.domain].examples}</span></p>
-      <div className="field-grid"><label>频率<select value={behavior.schedule.kind} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(goalDraft, true) ? 999 : 7} value={draftUsesIncremental(goalDraft, true) ? draftStandardCount(goalDraft) : behavior.schedule.times} disabled={draftUsesIncremental(goalDraft, true)} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
+      <div className="field-grid"><label>频率<select value={goalMode === 'rating' ? 'daily' : behavior.schedule.kind} disabled={goalMode === 'rating'} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && goalMode !== 'rating' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(goalDraft, true) ? 999 : 7} value={draftUsesIncremental(goalDraft, true) ? draftStandardCount(goalDraft) : behavior.schedule.times} disabled={draftUsesIncremental(goalDraft, true)} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
       {behavior.schedule.kind === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={behavior.scheduledTime ?? ''} onChange={(event) => change({ scheduledTime: event.target.value || undefined })} /></label>}
       <label className="full-field">触发条件<input maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="什么时候、什么之后开始" /></label>
       <label className="full-field">执行协议<textarea maxLength={280} value={behavior.protocol} onChange={(event) => change({ protocol: event.target.value })} placeholder="具体做什么，走神或中断后怎样返回" /></label>
-      <div className="coach-goal-box"><strong>分层最低标准</strong><TierGoalFields value={goalDraft} weekly={behavior.schedule.kind === 'weekly'} onChange={(next) => { setGoalDraft(next); change({}) }} /></div>
+      <div className="coach-goal-box">
+        <strong>完成标准</strong>
+        <div className="segmented-control" aria-label="完成标准类型">
+          <button type="button" className={goalMode === 'tiered' ? 'selected' : ''} onClick={() => { setGoalMode('tiered'); change({}) }}>分层目标</button>
+          <button type="button" className={goalMode === 'rating' ? 'selected' : ''} onClick={() => { setGoalMode('rating'); change({ schedule: { kind: 'daily' } }) }}>评分体验</button>
+        </div>
+        {goalMode === 'tiered'
+          ? <TierGoalFields value={goalDraft} weekly={behavior.schedule.kind === 'weekly'} onChange={(next) => { setGoalDraft(next); change({}) }} />
+          : <RatingGoalFields value={ratingDraft} onChange={(next) => { setRatingDraft(next); change({}) }} />}
+      </div>
       {localError && <p className="coach-inline-error" role="alert">{localError}</p>}
       <button className="secondary-action" type="button" onClick={confirm}><Check aria-hidden="true" />确认这个行为</button>
     </article>
@@ -2595,11 +2710,11 @@ function ActionLogModal({ months, today, onClose }: { months: JourneyMonth[]; to
 
 function JourneyEntryDetails({ entry }: { entry: JourneyEntry }) {
   if (entry.kind !== 'action') return <article className="journey-milestone"><Gift aria-hidden="true" /><div><strong>{entry.title}</strong><span>永久里程碑</span></div></article>
-  const hasDetails = Boolean(entry.note || entry.durationMinutes || entry.durationSeconds || entry.count || (entry.tier && entry.tierGoalSnapshot))
+  const hasDetails = Boolean(entry.note || entry.ratingValue || entry.durationMinutes || entry.durationSeconds || entry.count || (entry.tier && entry.tierGoalSnapshot))
   const classification = entry.domain ? domainLabel(entry.domain) : entry.attribute ? `${entry.attribute} · 旧体系` : '未分类'
   const main = <div className="journey-entry-main"><div><strong>{entry.title}</strong><span>{entry.progressLabel ?? classification}{entry.tier ? ` · ${tierLabels[entry.tier]}层` : ''}</span></div><b>{entry.xp > 0 || entry.coins > 0 ? `+${entry.xp} XP · +${entry.coins}` : '进度已记录'}</b></div>
   if (!hasDetails) return <article className="journey-entry">{main}</article>
-  return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.note && <p>成果：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.durationSeconds && <p>当日累计时长：{formatDurationSeconds(entry.durationSeconds)}</p>}{entry.count && <p>当日完成次数：{entry.count}</p>}{entry.tier && entry.tierGoalSnapshot && <p>已达标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
+  return <details className="journey-entry"><summary>{main}</summary><div className="journey-entry-details">{entry.ratingValue && <p>{entry.ratingGoalSnapshot?.prompt ?? '最终评分'}：{entry.ratingValue}/5</p>}{entry.note && <p>{entry.ratingGoalSnapshot?.notePrompt ?? '成果'}：{entry.note}</p>}{entry.durationMinutes && <p>实际时长：{entry.durationMinutes} 分钟</p>}{entry.durationSeconds && <p>当日累计时长：{formatDurationSeconds(entry.durationSeconds)}</p>}{entry.count && <p>当日完成次数：{entry.count}</p>}{entry.tier && entry.tierGoalSnapshot && <p>已达标准：{formatTierGoalValue(entry.tierGoalSnapshot, entry.tier)}</p>}</div></details>
 }
 
 function ReviewPage({
@@ -2609,8 +2724,11 @@ function ReviewPage({
   today,
   season,
   applicationTrial,
+  applicationTrialRestart,
   onOpenSeason,
   onCompleteTrial,
+  onPrepareTrialRestart,
+  onActivateTrialRestart,
   onSave,
 }: {
   activities: Activity[]
@@ -2619,6 +2737,7 @@ function ReviewPage({
   today: string
   season?: Snapshot['seasons'][number]
   applicationTrial?: ApplicationTrial
+  applicationTrialRestart?: ApplicationTrialRestart
   onOpenSeason: () => void
   onCompleteTrial: (
     trial: ApplicationTrial,
@@ -2626,6 +2745,8 @@ function ReviewPage({
     decision: ApplicationDecision,
     decisionReason: string,
   ) => Promise<void>
+  onPrepareTrialRestart: (trial: ApplicationTrial, activityId: string, goal: RatingGoal) => Promise<void>
+  onActivateTrialRestart: () => Promise<void>
   onSave: (review: WeeklyReview) => Promise<void>
 }) {
   const weekStart = startOfWeek(new Date(`${today}T12:00:00`))
@@ -2725,7 +2846,17 @@ function ReviewPage({
   return (
     <div className="review-page">
       <header className="page-header"><div><p className="eyebrow">冒险日志 · {formatShortDate(weekStart)} — {formatShortDate(weekEnd)}</p><h1>每周复盘</h1><p className="page-lead">判断行动是否真的有帮助，而不是只看获得了多少 XP。</p></div></header>
-      {applicationTrial && <ApplicationTrialReviewPanel trial={applicationTrial} today={today} onComplete={onCompleteTrial} />}
+      {applicationTrial && (
+        <ApplicationTrialReviewPanel
+          trial={applicationTrial}
+          completions={completions}
+          pendingRestart={applicationTrialRestart}
+          today={today}
+          onComplete={onCompleteTrial}
+          onPrepareRestart={onPrepareTrialRestart}
+          onActivateRestart={onActivateTrialRestart}
+        />
+      )}
       <CoachSuggestionSummary season={season} onOpen={onOpenSeason} />
       {activities.length === 0 ? (
         <div className="empty-panel"><Star aria-hidden="true" /><p>启用关键行为后，这里会生成本周复盘。</p></div>
@@ -2799,10 +2930,16 @@ function RatingControl({ label, value, onChange }: { label: string; value: numbe
 
 function ApplicationTrialReviewPanel({
   trial,
+  completions,
+  pendingRestart,
   today,
   onComplete,
+  onPrepareRestart,
+  onActivateRestart,
 }: {
   trial: ApplicationTrial
+  completions: Completion[]
+  pendingRestart?: ApplicationTrialRestart
   today: string
   onComplete: (
     trial: ApplicationTrial,
@@ -2810,11 +2947,40 @@ function ApplicationTrialReviewPanel({
     decision: ApplicationDecision,
     decisionReason: string,
   ) => Promise<void>
+  onPrepareRestart: (trial: ApplicationTrial, activityId: string, goal: RatingGoal) => Promise<void>
+  onActivateRestart: () => Promise<void>
 }) {
   const [observedOutcome, setObservedOutcome] = useState('')
   const [decision, setDecision] = useState<ApplicationDecision>('continue')
   const [decisionReason, setDecisionReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [restartOpen, setRestartOpen] = useState(false)
+  const [restartActivityId, setRestartActivityId] = useState(trial.focusActivities[0]?.activityId ?? '')
+  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>({
+    prompt: '今天醒来后的睡眠恢复感如何？',
+    low: '很差，几乎没有恢复',
+    middle: '一般',
+    high: '很好，醒来精力充足',
+    notePrompt: '主要影响因素',
+  })
+  const [restartSubmitting, setRestartSubmitting] = useState(false)
+  const ratingEvidence = trial.focusActivities.flatMap((activity) => {
+    if (activity.goal.kind !== 'rating') return []
+    const records = completions.filter((completion) =>
+      completion.activityId === activity.activityId
+      && completion.status === 'active'
+      && completion.ratingValue !== undefined
+      && completion.occurredOn >= trial.startsOn
+      && completion.occurredOn <= trial.endsOn)
+    const recordedDays = new Set(records.map((completion) => completion.occurredOn)).size
+    const values = records.map((completion) => completion.ratingValue!)
+    return [{
+      activity,
+      recordedDays,
+      average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined,
+      sufficient: recordedDays >= 5,
+    }]
+  })
 
   async function finishTrial() {
     if (!observedOutcome.trim() || !decisionReason.trim() || submitting) return
@@ -2836,6 +3002,55 @@ function ApplicationTrialReviewPanel({
       </div>
       <p><b>主原则：</b>{trial.knowledge.primary.title}</p>
       <p><b>现实指标：</b>{trial.outcomeIndicator}</p>
+      {ratingEvidence.map((evidence) => (
+        <div className="application-rating-evidence" key={evidence.activity.activityId}>
+          <span><strong>{evidence.activity.title}</strong><small>评分覆盖率 {evidence.recordedDays}/7</small></span>
+          <b>{evidence.average === undefined ? '暂无评分' : `平均 ${evidence.average.toFixed(1)}/5`}</b>
+          <small>{evidence.sufficient ? '证据较充分' : '数据不足，仍可参考但不能自动判断结果'}</small>
+        </div>
+      ))}
+      {trial.status === 'active' && pendingRestart?.sourceTrialId === trial.id && (
+        <div className="application-restart-status">
+          <strong>修正方案已准备</strong>
+          <p>旧 XP、金币和历史不会改变。新行为会使用新的 ID，从启动日重新计算 7 天证据。</p>
+          <button className="primary-action" type="button" disabled={restartSubmitting || today < pendingRestart.notBefore} onClick={() => {
+            setRestartSubmitting(true)
+            void onActivateRestart().finally(() => setRestartSubmitting(false))
+          }}><RotateCcw aria-hidden="true" />{today < pendingRestart.notBefore ? `${pendingRestart.notBefore} 04:00 后可启动` : restartSubmitting ? '正在启动…' : '一键开始新的 7 天试跑'}</button>
+        </div>
+      )}
+      {trial.status === 'active' && !pendingRestart && (
+        <details className="application-restart-editor" open={restartOpen} onToggle={(event) => setRestartOpen(event.currentTarget.open)}>
+          <summary>修正规划并重新开始</summary>
+          <p>先明确选择哪一项行为改为评分体验；另一项保持原目标。保存今天不改数据，明天 04:00 后再由你启动。</p>
+          <label className="full-field">改为评分的行为
+            <select value={restartActivityId} onChange={(event) => setRestartActivityId(event.target.value)}>
+              {trial.focusActivities.map((activity) => <option value={activity.activityId} key={activity.activityId}>{activity.title}</option>)}
+            </select>
+          </label>
+          <RatingGoalFields value={ratingDraft} onChange={setRatingDraft} />
+          <div className="application-restart-preview">
+            {trial.focusActivities.map((activity) => (
+              <div key={activity.activityId}>
+                <strong>{activity.title}</strong>
+                <span>{activity.activityId === restartActivityId ? `评分体验 · ${ratingDraft.prompt}` : activityGoalLabel({
+                  ...activity,
+                  id: activity.activityId,
+                  type: 'habit',
+                  isKey: true,
+                  enabled: true,
+                  revision: 1,
+                  createdAt: trial.createdAt,
+                })}</span>
+              </div>
+            ))}
+          </div>
+          <button className="secondary-action" type="button" disabled={restartSubmitting || !restartActivityId} onClick={() => {
+            setRestartSubmitting(true)
+            void onPrepareRestart(trial, restartActivityId, buildRatingGoal(ratingDraft)).finally(() => setRestartSubmitting(false))
+          }}><ShieldCheck aria-hidden="true" />{restartSubmitting ? '保存中…' : '保存待启动方案'}</button>
+        </details>
+      )}
       {trial.status === 'completed' ? (
         <div className="application-review-result">
           <strong>7 天结果：{trial.decision === 'continue' ? '继续' : trial.decision === 'adjust' ? '调整' : '停止'}</strong>
@@ -3007,7 +3222,7 @@ function DataCenterPage({
       <section className="data-center-status" aria-label="本机数据状态">
         <ShieldCheck aria-hidden="true" />
         <span><strong>本地存档正常</strong><small>{lastBackupAt ? `上次完整备份：${new Date(lastBackupAt).toLocaleString('zh-CN')}` : '尚未导出完整 JSON 备份'}</small></span>
-        <b>schema 11</b>
+        <b>schema 12</b>
       </section>
 
       <section className="data-center-section">
@@ -3035,7 +3250,7 @@ function DataCenterPage({
         />
         <label className="data-center-row data-center-file-row">
           <span className="feature-summary-icon"><Upload aria-hidden="true" /></span>
-          <span><strong>导入 Application 行动包</strong><small>兼容 v1 赛季包与 v2 试跑/正式赛季包；只生成规划草稿。</small></span>
+          <span><strong>导入 Application 行动包</strong><small>兼容 v1/v2；v3 可保留评分体验语义，且只生成规划草稿。</small></span>
           <ChevronRight aria-hidden="true" />
           <input
             type="file"
@@ -3389,8 +3604,9 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
   const [difficulty, setDifficulty] = useState<Difficulty>('简单')
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
   const [weeklyTimes, setWeeklyTimes] = useState(3)
-  const [goalMode, setGoalMode] = useState<'single' | 'tiered'>('single')
+  const [goalMode, setGoalMode] = useState<'single' | 'tiered' | 'rating'>('single')
   const [tierDraft, setTierDraft] = useState<TierGoalDraft>(defaultTierGoalDraft)
+  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(defaultRatingGoalDraft)
   const [plannedOn, setPlannedOn] = useState(today)
   const [isKey, setIsKey] = useState(false)
 
@@ -3398,17 +3614,20 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
     event.preventDefault()
     const goal: Activity['goal'] = type === 'habit' && goalMode === 'tiered'
       ? buildTierGoal(tierDraft)
-      : { kind: 'count', count: 1, unit: '次' }
+      : type === 'habit' && goalMode === 'rating'
+        ? buildRatingGoal(ratingDraft)
+        : { kind: 'count', count: 1, unit: '次' }
+    const habitFrequency = goalMode === 'rating' ? 'daily' : frequency
     onCreate({
       title,
-      scheduledTime: type === 'habit' && frequency === 'daily' && scheduledTime ? scheduledTime : undefined,
+      scheduledTime: type === 'habit' && habitFrequency === 'daily' && scheduledTime ? scheduledTime : undefined,
       cue: type === 'habit' && cue.trim() ? cue.trim() : undefined,
       protocol: type === 'habit' && protocol.trim() ? protocol.trim() : undefined,
       type,
       domain,
       difficulty,
       goal,
-      schedule: type === 'task' ? { kind: 'once' } : frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
+      schedule: type === 'task' ? { kind: 'once' } : habitFrequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
       plannedOn: type === 'task' ? plannedOn : undefined,
       isKey,
       enabled: true,
@@ -3427,19 +3646,21 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
         {type === 'habit' ? (
           <>
             <div className="field-grid">
-              <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周</option></select></label>
-              {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? 999 : 7} value={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, goalMode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
+              <label>频率<select value={goalMode === 'rating' ? 'daily' : frequency} disabled={goalMode === 'rating'} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周</option></select></label>
+              {frequency === 'weekly' && goalMode !== 'rating' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? 999 : 7} value={draftUsesIncremental(tierDraft, goalMode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, goalMode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
             </div>
             <div className="goal-type-block">
               <span>目标类型</span>
               <div className="segmented-control" aria-label="目标类型">
                 <button type="button" className={goalMode === 'single' ? 'selected' : ''} onClick={() => setGoalMode('single')}>单次完成</button>
                 <button type="button" className={goalMode === 'tiered' ? 'selected' : ''} onClick={() => setGoalMode('tiered')}>分层目标</button>
+                <button type="button" className={goalMode === 'rating' ? 'selected' : ''} onClick={() => { setGoalMode('rating'); setFrequency('daily') }}>评分体验</button>
               </div>
             </div>
             {goalMode === 'tiered' && (
               <TierGoalFields value={tierDraft} weekly={frequency === 'weekly'} onChange={setTierDraft} />
             )}
+            {goalMode === 'rating' && <RatingGoalFields value={ratingDraft} onChange={setRatingDraft} />}
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
@@ -3460,6 +3681,22 @@ function CreateActivityModal({ today, onClose, onCreate }: { today: string; onCl
         </details>
         <button className="primary-action" type="submit"><Plus aria-hidden="true" />创建</button>
       </form>
+    </div>
+  )
+}
+
+function RatingGoalFields({ value, onChange }: { value: RatingGoalDraft; onChange: (value: RatingGoalDraft) => void }) {
+  const set = (next: Partial<RatingGoalDraft>) => onChange({ ...value, ...next })
+  return (
+    <div className="rating-goal-fields">
+      <label className="full-field">评分问题<input required maxLength={60} value={value.prompt} onChange={(event) => set({ prompt: event.target.value })} /></label>
+      <div className="rating-anchor-grid">
+        <label>1 分锚点<input required maxLength={60} value={value.low} onChange={(event) => set({ low: event.target.value })} /></label>
+        <label>3 分锚点<input required maxLength={60} value={value.middle} onChange={(event) => set({ middle: event.target.value })} /></label>
+        <label>5 分锚点<input required maxLength={60} value={value.high} onChange={(event) => set({ high: event.target.value })} /></label>
+      </div>
+      <label className="full-field">备注提示（可选）<input maxLength={60} value={value.notePrompt} onChange={(event) => set({ notePrompt: event.target.value })} placeholder="例如：主要影响因素" /></label>
+      <p className="field-hint">1～5 分都算完成，奖励只由难度决定；分数只用于观察现实体验。</p>
     </div>
   )
 }
@@ -3692,7 +3929,8 @@ function TierPickerModal({
 
 function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onClose: () => void; onSave: (input: HabitUpdate) => void }) {
   const tiered = isTieredGoal(activity)
-  const legacy = activity.goal.kind !== 'tiered' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
+  const rating = isRatingGoal(activity)
+  const legacy = activity.goal.kind !== 'tiered' && activity.goal.kind !== 'rating' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const [title, setTitle] = useState(activity.title)
   const [scheduledTime, setScheduledTime] = useState(activity.scheduledTime ?? '')
   const [cue, setCue] = useState(activity.cue ?? '')
@@ -3702,8 +3940,9 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
   const [frequency, setFrequency] = useState<'daily' | 'weekly'>(activity.schedule.kind === 'weekly' ? 'weekly' : 'daily')
   const [weeklyTimes, setWeeklyTimes] = useState(activity.schedule.kind === 'weekly' ? activity.schedule.times : 3)
   const [isKey, setIsKey] = useState(activity.isKey)
-  const [mode, setMode] = useState<'legacy' | 'single' | 'tiered'>(tiered ? 'tiered' : legacy ? 'legacy' : 'single')
+  const [mode, setMode] = useState<'legacy' | 'single' | 'tiered' | 'rating'>(rating ? 'rating' : tiered ? 'tiered' : legacy ? 'legacy' : 'single')
   const [tierDraft, setTierDraft] = useState<TierGoalDraft>(() => tierGoalDraftFromLegacy(activity))
+  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(() => ratingGoalDraftFromGoal(rating ? activity.goal : undefined))
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -3711,15 +3950,18 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
       ? activity.goal
       : mode === 'single'
         ? { kind: 'count', count: 1, unit: '次' }
-        : buildTierGoal(tierDraft)
+        : mode === 'rating'
+          ? buildRatingGoal(ratingDraft)
+          : buildTierGoal(tierDraft)
+    const nextFrequency = mode === 'rating' ? 'daily' : frequency
     onSave({
       title: title.trim(),
-      scheduledTime: frequency === 'daily' && scheduledTime ? scheduledTime : undefined,
+      scheduledTime: nextFrequency === 'daily' && scheduledTime ? scheduledTime : undefined,
       cue: cue.trim() || undefined,
       protocol: protocol.trim() || undefined,
       domain,
       difficulty,
-      schedule: frequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
+      schedule: nextFrequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
       goal,
       isKey,
     })
@@ -3742,19 +3984,21 @@ function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onC
         </div>
         <p className="domain-definition"><strong>{growthDomainDetails[domain].description}</strong><span>例如：{growthDomainDetails[domain].examples}</span></p>
         <div className="field-grid">
-          <label>频率<select value={frequency} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>
-          {frequency === 'weekly' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, mode === 'tiered') ? 999 : 7} required value={draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, mode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
+          <label>频率<select value={mode === 'rating' ? 'daily' : frequency} disabled={mode === 'rating'} onChange={(event) => setFrequency(event.target.value as 'daily' | 'weekly')}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>
+          {frequency === 'weekly' && mode !== 'rating' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(tierDraft, mode === 'tiered') ? 999 : 7} required value={draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes} disabled={draftUsesIncremental(tierDraft, mode === 'tiered')} onChange={(event) => setWeeklyTimes(Number(event.target.value))} /></label>}
         </div>
         <span className="form-section-label">目标设置</span>
         <div className="segmented-control" aria-label="目标设置">
           {legacy && <button type="button" className={mode === 'legacy' ? 'selected' : ''} onClick={() => setMode('legacy')}>保留原目标</button>}
           <button type="button" className={mode === 'single' ? 'selected' : ''} onClick={() => setMode('single')}>单次完成</button>
           <button type="button" className={mode === 'tiered' ? 'selected' : ''} onClick={() => setMode('tiered')}>分层目标</button>
+          <button type="button" className={mode === 'rating' ? 'selected' : ''} onClick={() => { setMode('rating'); setFrequency('daily') }}>评分体验</button>
         </div>
-        {mode === 'legacy' && activity.goal.kind !== 'tiered' && <p className="legacy-goal">当前目标：{activity.goal.count}{activity.goal.unit}</p>}
+        {mode === 'legacy' && activity.goal.kind !== 'tiered' && activity.goal.kind !== 'rating' && <p className="legacy-goal">当前目标：{activity.goal.count}{activity.goal.unit}</p>}
         {mode === 'tiered' && (
           <TierGoalFields value={tierDraft} weekly={frequency === 'weekly'} onChange={setTierDraft} />
         )}
+        {mode === 'rating' && <RatingGoalFields value={ratingDraft} onChange={setRatingDraft} />}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />设为关键行为</label>
         <button className="primary-action" type="submit"><Check aria-hidden="true" />保存修改</button>
       </form>
@@ -3888,15 +4132,20 @@ function CompletionActionsModal({
   completion,
   onClose,
   onUpgrade,
+  onUpdateRating,
   onCancel,
 }: {
   activity: Activity
   completion: Completion
   onClose: () => void
   onUpgrade: (tier: TierLevel) => void
+  onUpdateRating: (ratingValue: number, note?: string) => Promise<void>
   onCancel: () => Promise<void>
 }) {
   const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [ratingValue, setRatingValue] = useState(completion.ratingValue ?? 3)
+  const [ratingNote, setRatingNote] = useState(completion.note ?? '')
+  const [savingRating, setSavingRating] = useState(false)
   const difficulty = completion.difficultySnapshot ?? activity.difficulty
   const goal = getCompletionTierGoal(completion, activity)
   const currentTier = completion.tier
@@ -3908,7 +4157,7 @@ function CompletionActionsModal({
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal compact-modal" aria-labelledby="completion-actions-title">
+      <section className="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="completion-actions-title">
         <div className="modal-header">
           <div><span className={`difficulty difficulty-${difficulty}`}>{difficulty}</span><h2 id="completion-actions-title">完成记录</h2></div>
           <button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button>
@@ -3917,6 +4166,23 @@ function CompletionActionsModal({
           <CheckCircle2 aria-hidden="true" />
           <div><strong>{completion.titleSnapshot ?? activity.title}</strong><span>{currentTier ? `${tierLabels[currentTier]}层 · ` : ''}+{currentReward.xp} XP / +{currentReward.coins} 金币</span></div>
         </div>
+        {completion.ratingValue !== undefined && completion.ratingGoalSnapshot && (
+          <div className="completion-rating-editor">
+            <span className="form-section-label">{completion.ratingGoalSnapshot.prompt}</span>
+            <div className="rating-score-grid" aria-label="修改今天的评分">
+              {[1, 2, 3, 4, 5].map((score) => (
+                <button className={ratingValue === score ? 'selected' : ''} type="button" key={score} aria-pressed={ratingValue === score} onClick={() => setRatingValue(score)}>{score}</button>
+              ))}
+            </div>
+            <label className="full-field">{completion.ratingGoalSnapshot.notePrompt ?? '影响因素（可选）'}
+              <textarea maxLength={140} value={ratingNote} onChange={(event) => setRatingNote(event.target.value)} />
+            </label>
+            <button className="secondary-action" type="button" disabled={savingRating || (ratingValue === completion.ratingValue && ratingNote.trim() === (completion.note ?? ''))} onClick={() => {
+              setSavingRating(true)
+              void onUpdateRating(ratingValue, ratingNote.trim() || undefined).finally(() => setSavingRating(false))
+            }}><Check aria-hidden="true" />{savingRating ? '保存中…' : '保存评分'}</button>
+          </div>
+        )}
         {canUpgrade && (
           <div className="completion-upgrades">
             <span className="form-section-label">升级到更高层</span>
@@ -3985,6 +4251,31 @@ function DeleteActivityModal({ activity, onClose, onConfirm }: { activity: Activ
 function CompletionModal({ activity, onClose, onComplete }: { activity: Activity; onClose: () => void; onComplete: (details: CompletionDetails) => void }) {
   const [note, setNote] = useState('')
   const [duration, setDuration] = useState('')
+  if (isRatingGoal(activity)) {
+    return (
+      <div className="modal-backdrop" role="presentation">
+        <section className="modal compact-modal rating-completion-modal" role="dialog" aria-modal="true" aria-labelledby="rating-completion-title">
+          <div className="modal-header">
+            <div><span className={`difficulty difficulty-${activity.difficulty}`}>评分体验</span><h2 id="rating-completion-title">{activity.goal.prompt}</h2></div>
+            <button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button>
+          </div>
+          <div className="rating-score-grid" aria-label="选择 1 至 5 分">
+            {[1, 2, 3, 4, 5].map((score) => (
+              <button key={score} type="button" onClick={() => onComplete({ ratingValue: score })}>
+                <strong>{score}</strong><span>分</span>
+              </button>
+            ))}
+          </div>
+          <div className="rating-anchor-copy">
+            <span><b>1 分</b>{activity.goal.anchors.low}</span>
+            <span><b>3 分</b>{activity.goal.anchors.middle}</span>
+            <span><b>5 分</b>{activity.goal.anchors.high}</span>
+          </div>
+          <p className="field-hint">任何分数都算完成并获得同一份奖励；分数只用于观察现实变化。</p>
+        </section>
+      </div>
+    )
+  }
   const required = activity.difficulty === 'Boss'
   const durationGoal = isDurationGoal(activity)
   const durationValue = Number(duration)
@@ -4028,6 +4319,7 @@ function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo
           {feedback.durationMinutes && <p className="feedback-duration">本次持续 {feedback.durationMinutes} 分钟</p>}
           {feedback.durationSeconds && <p className="feedback-duration">本次记录 {formatDurationSeconds(feedback.durationSeconds)}</p>}
           {feedback.tier && feedback.achievedLabel && <p className="feedback-duration">{tierLabels[feedback.tier]}层 · 至少 {feedback.achievedLabel}</p>}
+          {feedback.ratingValue && <p className="feedback-duration">{feedback.ratingPrompt ?? feedback.title} {feedback.ratingValue}/5</p>}
           <p>{identityMessage(feedback.domain)}</p>
           {feedback.rewardGoal && (
             <p className="feedback-goal">
@@ -4071,6 +4363,7 @@ function SettingToggle({ icon, label, checked, onChange }: { icon: React.ReactNo
 
 function scheduleLabel(activity: Activity) {
   const goal = activity.goal
+  if (goal.kind === 'rating') return `每天 · 评分 1–${goal.scale}`
   if (goal.kind === 'tiered') {
     const tiers = getTierLevels(goal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(goal, tier)}`).join(' · ')
     return activity.schedule.kind === 'weekly' ? `每周 ${activity.schedule.times} 次 · ${tiers}` : `每天 · ${tiers}`
@@ -4089,6 +4382,7 @@ function activityFrequencyLabel(activity: Activity) {
 
 function activityGoalLabel(activity: Activity) {
   const goal = activity.goal
+  if (goal.kind === 'rating') return `评分体验 · ${goal.prompt}`
   if (goal.kind === 'tiered') {
     return getTierLevels(goal).map((tier) => `${tierLabels[tier]} ${formatTierGoalValue(goal, tier)}`).join(' · ')
   }

@@ -30,7 +30,7 @@ export const PlanningContextBehaviorSchema = z.object({
   schedule: ScheduleSchema,
 }).strict()
 
-export const PlanningContextPackageSchema = z.object({
+export const PlanningContextPackageV1Schema = z.object({
   packageType: z.literal(PLANNING_CONTEXT_PACKAGE_TYPE),
   schemaVersion: z.literal(1),
   exportedAt: timestamp,
@@ -43,7 +43,16 @@ export const PlanningContextPackageSchema = z.object({
   keyBehaviors: z.array(PlanningContextBehaviorSchema).max(3),
 }).strict()
 
-export const ApplicationResultBehaviorSchema = z.object({
+export const PlanningContextPackageV2Schema = PlanningContextPackageV1Schema.extend({
+  schemaVersion: z.literal(2),
+})
+
+export const PlanningContextPackageSchema = z.discriminatedUnion('schemaVersion', [
+  PlanningContextPackageV1Schema,
+  PlanningContextPackageV2Schema,
+])
+
+export const ApplicationResultBehaviorV1Schema = z.object({
   activityId: z.string().min(1),
   title: z.string().trim().min(1).max(60),
   planned: z.number().int().nonnegative(),
@@ -52,7 +61,15 @@ export const ApplicationResultBehaviorSchema = z.object({
   totalDurationMinutes: z.number().int().nonnegative().optional(),
 }).strict()
 
-export const ApplicationResultPackageSchema = z.object({
+export const ApplicationResultBehaviorSchema = ApplicationResultBehaviorV1Schema.extend({
+  ratingSummary: z.object({
+    recordedDays: z.number().int().nonnegative(),
+    average: z.number().min(1).max(5).optional(),
+    evidenceSufficient: z.boolean(),
+  }).strict().optional(),
+})
+
+export const ApplicationResultPackageV1Schema = z.object({
   packageType: z.literal(APPLICATION_RESULT_PACKAGE_TYPE),
   schemaVersion: z.literal(1),
   resultPackageId: stableId,
@@ -73,9 +90,19 @@ export const ApplicationResultPackageSchema = z.object({
   }).strict(),
   decision: z.enum(applicationDecisions),
   decisionReason: z.string().trim().min(1).max(500),
-  behaviors: z.array(ApplicationResultBehaviorSchema).min(1).max(3),
+  behaviors: z.array(ApplicationResultBehaviorV1Schema).min(1).max(3),
   exportedAt: timestamp,
 }).strict()
+
+export const ApplicationResultPackageV2Schema = ApplicationResultPackageV1Schema.extend({
+  schemaVersion: z.literal(2),
+  behaviors: z.array(ApplicationResultBehaviorSchema).min(1).max(3),
+})
+
+export const ApplicationResultPackageSchema = z.discriminatedUnion('schemaVersion', [
+  ApplicationResultPackageV1Schema,
+  ApplicationResultPackageV2Schema,
+])
 
 export type PlanningContextPackage = z.infer<typeof PlanningContextPackageSchema>
 export type ApplicationResultPackage = z.infer<typeof ApplicationResultPackageSchema>
@@ -108,7 +135,7 @@ export function createPlanningContextPackage(
       : null
   return PlanningContextPackageSchema.parse({
     packageType: PLANNING_CONTEXT_PACKAGE_TYPE,
-    schemaVersion: 1,
+    schemaVersion: 2,
     exportedAt: now.toISOString(),
     activeCycle,
     keyBehaviors: activities
@@ -125,7 +152,7 @@ function plannedOccurrences(schedule: Activity['schedule'], days: number) {
 }
 
 export function aggregateApplicationBehaviors(
-  activities: Array<Pick<Activity, 'id' | 'title' | 'schedule'>>,
+  activities: Array<Pick<Activity, 'id' | 'title' | 'schedule' | 'goal'>>,
   completions: Completion[],
   startsOn: string,
   endsOn: string,
@@ -141,6 +168,10 @@ export function aggregateApplicationBehaviors(
       total
       + (completion.durationMinutes ?? 0) * 60
       + (completion.progress?.durationSeconds ?? 0), 0)
+    const ratingValues = matching.flatMap((completion) => completion.ratingValue === undefined ? [] : [completion.ratingValue])
+    const ratingRecordedDays = new Set(
+      matching.filter((completion) => completion.ratingValue !== undefined).map((completion) => completion.occurredOn),
+    ).size
     return ApplicationResultBehaviorSchema.parse({
       activityId: activity.id,
       title: activity.title,
@@ -148,6 +179,13 @@ export function aggregateApplicationBehaviors(
       completed: matching.length,
       activeDays: new Set(matching.map((completion) => completion.occurredOn)).size,
       totalDurationMinutes: durationSeconds > 0 ? Math.round(durationSeconds / 60) : undefined,
+      ratingSummary: activity.goal.kind === 'rating'
+        ? {
+            recordedDays: ratingRecordedDays,
+            average: ratingValues.length ? ratingValues.reduce((sum, value) => sum + value, 0) / ratingValues.length : undefined,
+            evidenceSufficient: ratingRecordedDays >= 5,
+          }
+        : undefined,
     })
   })
 }
@@ -157,7 +195,7 @@ export function createTrialResultPackage(trial: ApplicationTrial, now = new Date
   if (completedTrial.status !== 'completed') throw new Error('7 天试跑尚未完成人工复盘')
   return ApplicationResultPackageSchema.parse({
     packageType: APPLICATION_RESULT_PACKAGE_TYPE,
-    schemaVersion: 1,
+    schemaVersion: 2,
     resultPackageId: `result:${completedTrial.applicationId}:trial:${completedTrial.sourcePackageId}`,
     applicationId: completedTrial.applicationId,
     phase: 'trial',
@@ -187,7 +225,7 @@ export function createSeasonResultPackage(
   const effectiveEnd = getSeasonEffectiveEnd(completedSeason)
   return ApplicationResultPackageSchema.parse({
     packageType: APPLICATION_RESULT_PACKAGE_TYPE,
-    schemaVersion: 1,
+    schemaVersion: 2,
     resultPackageId: `result:${context.applicationId}:season:${context.packageId}`,
     applicationId: context.applicationId,
     phase: 'season',
@@ -211,6 +249,7 @@ export function createSeasonResultPackage(
         id: activity.activityId,
         title: activity.title,
         schedule: activity.schedule,
+        goal: activity.goal,
       })),
       completions,
       completedSeason.startsOn,

@@ -3,6 +3,8 @@ import {
   ActivitySchema,
   type Activity,
   ApplicationTrialSchema,
+  ApplicationTrialRestartSchema,
+  type ApplicationTrialRestart,
   type ApplicationDecision,
   type ApplicationTrial,
   CompletionSchema,
@@ -46,6 +48,7 @@ import {
   getIncrementalCycleGoal,
   getActivityScheduledTime,
   isDurationGoal,
+  isRatingGoal,
   isTieredGoal,
   isIncrementalGoal,
   startOfWeek,
@@ -347,14 +350,14 @@ export async function activateCoachPlanDraft(
     if (draft.status !== 'ready') throw new Error('请先完成四步规划和现实检查')
     const activeSeason = await database.seasons.where('status').equals('active').first()
     const source = draft.knowledgeSource
-    const isV2 = source?.schemaVersion === 2
+    const isApplicationPackage = source !== undefined && source.schemaVersion !== 1
     if (storedTrial?.status === 'active') {
       throw new Error('当前已有进行中的 7 天试跑，同一时间不能启动赛季')
     }
-    if (isV2 && activeSeason) {
+    if (isApplicationPackage && activeSeason) {
       throw new Error('当前已有进行中的 Application，同一时间只能进行一个试跑或赛季')
     }
-    if (!isV2 && activeSeason) throw new Error('当前赛季尚未结束，只能先保存为下个赛季')
+    if (!isApplicationPackage && activeSeason) throw new Error('当前赛季尚未结束，只能先保存为下个赛季')
 
     const existingPlans = draft.behaviors.filter((behavior) => behavior.source === 'existing')
     const existingActivities = await database.activities.bulkGet(existingPlans.map((behavior) => behavior.activityId))
@@ -395,7 +398,7 @@ export async function activateCoachPlanDraft(
     const selectedActivities = draft.behaviors.map((behavior) => behavior.source === 'existing'
       ? existingActivities[existingPlans.findIndex((plan) => plan.id === behavior.id)]!
       : createdActivities.find((activity) => activity.id === `coach-activity:${draft.id}:${behavior.id}`)!)
-    if (source?.schemaVersion === 2 && source.phase === 'trial') {
+    if (source && source.schemaVersion !== 1 && source.phase === 'trial') {
       const trial = ApplicationTrialSchema.parse({
         id: `trial:${source.applicationId}`,
         version: 1,
@@ -413,6 +416,7 @@ export async function activateCoachPlanDraft(
         focusActivities: selectedActivities.map((activity) => ({
           activityId: activity.id,
           title: activity.title,
+          scheduledTime: activity.scheduledTime,
           cue: activity.cue,
           protocol: activity.protocol,
           domain: activity.domain,
@@ -442,7 +446,7 @@ export async function activateCoachPlanDraft(
       dailyPlans: [],
       dailySignals: [],
       suggestions: [],
-      applicationContext: source?.schemaVersion === 2 ? source : undefined,
+      applicationContext: source && source.schemaVersion !== 1 ? source : undefined,
       status: 'active',
       createdAt,
     })
@@ -490,6 +494,114 @@ export async function getApplicationTrial(database = db) {
   return setting?.key === 'applicationTrial' ? ApplicationTrialSchema.parse(setting.value) : undefined
 }
 
+export async function getApplicationTrialRestart(database = db) {
+  const setting = await database.settings.get('applicationTrialRestart')
+  return setting?.key === 'applicationTrialRestart' ? ApplicationTrialRestartSchema.parse(setting.value) : undefined
+}
+
+export async function prepareApplicationTrialRestart(
+  sourceTrialId: string,
+  replacements: ApplicationTrialRestart['replacements'],
+  database = db,
+  now = new Date(),
+) {
+  const today = await currentGameDate(database, now)
+  return database.transaction('rw', database.settings, database.activities, async () => {
+    const trialSetting = await database.settings.get('applicationTrial')
+    if (trialSetting?.key !== 'applicationTrial') throw new Error('找不到进行中的 7 天试跑')
+    const trial = ApplicationTrialSchema.parse(trialSetting.value)
+    if (trial.id !== sourceTrialId || trial.status !== 'active') throw new Error('试跑状态已经变化，请重新检查修正方案')
+    const sourceIds = trial.focusActivities.map((activity) => activity.activityId)
+    if (replacements.length !== sourceIds.length || replacements.some((replacement) => !sourceIds.includes(replacement.sourceActivityId))) {
+      throw new Error('修正方案必须逐项对应当前试跑行为')
+    }
+    const sources = await database.activities.bulkGet(sourceIds)
+    if (sources.some((activity) => !activity || activity.archivedAt)) throw new Error('原试跑行为已发生变化，无法保存修正方案')
+    const pending = ApplicationTrialRestartSchema.parse({
+      version: 1,
+      sourceTrialId,
+      notBefore: addDays(today, 1),
+      preparedAt: now.toISOString(),
+      replacements,
+    })
+    await database.settings.put({ key: 'applicationTrialRestart', value: pending })
+    return pending
+  })
+}
+
+export async function activateApplicationTrialRestart(
+  database = db,
+  now = new Date(),
+) {
+  const today = await currentGameDate(database, now)
+  return database.transaction('rw', database.settings, database.activities, async () => {
+    const pendingSetting = await database.settings.get('applicationTrialRestart')
+    const trialSetting = await database.settings.get('applicationTrial')
+    const currentTrial = trialSetting?.key === 'applicationTrial' ? ApplicationTrialSchema.parse(trialSetting.value) : undefined
+    if (pendingSetting?.key !== 'applicationTrialRestart') {
+      if (currentTrial?.restartOfTrialId) return currentTrial
+      throw new Error('没有待启动的试跑修正方案')
+    }
+    const pending = ApplicationTrialRestartSchema.parse(pendingSetting.value)
+    if (today < pending.notBefore) throw new Error(`请在 ${pending.notBefore} 04:00 后启动新的 7 天试跑`)
+    if (!currentTrial || currentTrial.id !== pending.sourceTrialId || currentTrial.status !== 'active') {
+      throw new Error('原试跑状态已经变化，不能启动修正方案')
+    }
+
+    const sourceIds = currentTrial.focusActivities.map((activity) => activity.activityId)
+    const sources = await database.activities.bulkGet(sourceIds)
+    if (sources.some((activity) => !activity || activity.archivedAt)) throw new Error('原试跑行为已发生变化，不能启动修正方案')
+    const createdAt = now.toISOString()
+    const newActivities = pending.replacements.map((replacement, index) => ActivitySchema.parse({
+      id: `trial-restart:${today}:${index + 1}:${crypto.randomUUID()}`,
+      title: replacement.title,
+      scheduledTime: replacement.scheduledTime,
+      cue: replacement.cue,
+      protocol: replacement.protocol,
+      type: 'habit',
+      domain: replacement.domain,
+      difficulty: replacement.difficulty,
+      goal: replacement.goal,
+      schedule: replacement.schedule,
+      isKey: true,
+      enabled: true,
+      revision: 1,
+      createdAt,
+    }))
+    const archived = sources.map((activity) => ActivitySchema.parse({
+      ...activity!,
+      isKey: false,
+      enabled: false,
+      archivedAt: createdAt,
+    }))
+    const trial = ApplicationTrialSchema.parse({
+      ...currentTrial,
+      id: `trial:${currentTrial.applicationId}:restart:${today}`,
+      sourcePlanId: `${currentTrial.sourcePlanId}:restart:${today}`,
+      restartOfTrialId: currentTrial.id,
+      startsOn: today,
+      endsOn: addDays(today, 6),
+      focusActivities: newActivities.map((activity) => ({
+        activityId: activity.id,
+        title: activity.title,
+        scheduledTime: activity.scheduledTime,
+        cue: activity.cue,
+        protocol: activity.protocol,
+        domain: activity.domain,
+        difficulty: activity.difficulty,
+        goal: activity.goal,
+        schedule: activity.schedule,
+      })),
+      status: 'active',
+      createdAt,
+    })
+    await database.activities.bulkPut([...archived, ...newActivities])
+    await database.settings.put({ key: 'applicationTrial', value: trial })
+    await database.settings.delete('applicationTrialRestart')
+    return trial
+  })
+}
+
 export async function completeApplicationTrial(
   applicationId: string,
   observedOutcome: string,
@@ -512,6 +624,7 @@ export async function completeApplicationTrial(
         id: activity.activityId,
         title: activity.title,
         schedule: activity.schedule,
+        goal: activity.goal,
       })),
       await database.completions.toArray(),
       trial.startsOn,
@@ -1062,6 +1175,7 @@ export interface CompletionDetails {
   note?: string
   durationMinutes?: number
   tier?: TierLevel
+  ratingValue?: number
 }
 
 function validateCompletion(activity: Activity, details: CompletionDetails) {
@@ -1069,6 +1183,10 @@ function validateCompletion(activity: Activity, details: CompletionDetails) {
   const difficulty: Difficulty = activity.difficulty
   if (!isTieredGoal(activity) && difficulty === 'Boss' && !cleaned) throw new Error('Boss 行动必须填写实际成果')
   if (cleaned && cleaned.length > 140) throw new Error('实际成果最多 140 字')
+  if (isRatingGoal(activity) && (!Number.isInteger(details.ratingValue) || !details.ratingValue || details.ratingValue < 1 || details.ratingValue > 5)) {
+    throw new Error('请选择 1 至 5 分的体验')
+  }
+  if (!isRatingGoal(activity) && details.ratingValue !== undefined) throw new Error('这项行动不是评分体验')
   if (isTieredGoal(activity) && !details.tier) throw new Error('请选择本次完成的层次')
   if (isTieredGoal(activity) && details.tier && !getTierLevels(activity.goal).includes(details.tier)) throw new Error('所选层次不属于当前目标')
   if (isDurationGoal(activity)) {
@@ -1083,6 +1201,7 @@ function validateCompletion(activity: Activity, details: CompletionDetails) {
     note: cleaned || undefined,
     durationMinutes: isDurationGoal(activity) ? details.durationMinutes : undefined,
     tier: isTieredGoal(activity) ? details.tier : undefined,
+    ratingValue: isRatingGoal(activity) ? details.ratingValue : undefined,
   }
 }
 
@@ -1166,6 +1285,8 @@ export async function completeActivity(
       durationMinutes: details.durationMinutes,
       tier: details.tier,
       tierGoalSnapshot: isTieredGoal(activity) ? activity.goal : undefined,
+      ratingValue: details.ratingValue,
+      ratingGoalSnapshot: isRatingGoal(activity) ? activity.goal : undefined,
       activityRevision: activity.revision ?? 1,
       titleSnapshot: activity.title,
       domainSnapshot: activity.domain,
@@ -1189,6 +1310,40 @@ export async function completeActivity(
     await database.completions.add(completion)
     await database.ledgerEvents.add(event)
     return { awarded: true as const, upgraded: false as const, completion, event, activity }
+  })
+}
+
+export async function updateTodayRating(
+  activityId: string,
+  ratingValue: number,
+  note: string | undefined = undefined,
+  occurredOn: string | undefined = undefined,
+  database = db,
+  now = new Date(),
+) {
+  const currentDate = await currentGameDate(database, now)
+  const eventDate = occurredOn ?? currentDate
+  return database.transaction('rw', database.activities, database.completions, async () => {
+    const activity = await database.activities.get(activityId)
+    if (!activity || !isRatingGoal(activity)) throw new Error('这项行动不是评分体验')
+    if (!Number.isInteger(ratingValue) || ratingValue < 1 || ratingValue > 5) throw new Error('请选择 1 至 5 分的体验')
+    const cleaned = note?.trim()
+    if (cleaned && cleaned.length > 140) throw new Error('影响因素最多 140 字')
+    if (eventDate !== currentDate) throw new Error('只能修改当前游戏日的评分')
+    const completion = await database.completions
+      .where('activityId')
+      .equals(activityId)
+      .and((item) => item.status === 'active' && item.occurredOn === eventDate && item.ratingValue !== undefined)
+      .first()
+    if (!completion) throw new Error('找不到今天的评分记录')
+    const updated = CompletionSchema.parse({
+      ...completion,
+      ratingValue,
+      note: cleaned || undefined,
+      ratingUpdatedAt: now.toISOString(),
+    })
+    await database.completions.put(updated)
+    return updated
   })
 }
 

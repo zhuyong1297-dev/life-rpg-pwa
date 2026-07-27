@@ -1,10 +1,10 @@
-# 地球 Online V5.3.0 技术规格
+# 地球 Online V5.4.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.3.0` 在既有 App 控制器上增加数据中心和可提前结项赛季。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份继续使用 JSON schema 11。
+`V5.4.0` 在既有 App 控制器上增加评分型每日习惯与可显式重启的 7 天试跑。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份升级为 JSON schema 12 并兼容 schema 1～11。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 
@@ -25,13 +25,15 @@
 
 - `Activity.type` 为 `habit | task`。
 - 新 `Activity.domain` 使用 `health | learning | creation | career | life | mindset`；旧 `Activity.attribute` 仅在迁移前兼容读取，`difficulty` 保持四档难度。
-- `Activity.schedule` 支持每天和每周 N 次；`goal.kind` 支持旧次数、旧时长和 `tiered` 分层目标；任务可有计划日期。
+- `Activity.schedule` 支持每天和每周 N 次；`goal.kind` 支持旧次数、旧时长、`tiered` 分层目标和仅限每日习惯的 `rating` 评分目标；任务可有计划日期。
+- `rating` 保存固定 `scale: 5`、问题、1/3/5 分锚点和可选备注提示；问题与锚点限制 1～60 字。
 - `Activity.cue` 与 `Activity.protocol` 可选保存触发条件和执行协议；它们随活动及赛季快照保存，但不参与计分。
 - 分层目标支持二元或三元阈值、纯次数、旧分钟、规范化秒级时间和组合目标；组合阈值保存次数与 `durationSeconds`。
 - 每周纯次数和组合目标可保存 `progressMode: incremental`；组合目标同时保存默认时长和最多四个去重后的快捷时长选项，内部统一使用整数秒。
 - `Activity.revision` 在每次完整编辑时递增；`archivedAt` 表示可恢复归档，归档活动必须同时关闭启用和关键状态。
 - `tiered` 目标保存 `duration | count` 度量、共享单位和三个严格递增阈值。
-- `Completion.status` 为 `active | undone`，新分层完成使用 `tierGoalSnapshot` 保存完整目标；V2.1/V2.2 的旧度量、单位和阈值快照继续兼容读取。
+- `Completion.status` 为 `active | undone`，新分层完成使用 `tierGoalSnapshot` 保存完整目标，评分完成使用 `ratingValue`、`ratingGoalSnapshot` 和可选 `ratingUpdatedAt`；V2.1/V2.2 的旧度量、单位和阈值快照继续兼容读取。
+- `updateTodayRating` 仅更新当前游戏日最终评分、备注和修订时间，不访问 `ledgerEvents`；首次评分完成仍通过 `completeActivity` 原子写入 completion 与固定奖励流水。
 - 逐次 completion 保存周期开始日、次数增量、实际时长、周期序号、请求 ID 和完整目标/领域/难度/版本快照；导入的旧层次进度带有 `imported` 标记。
 - 周复盘为分层目标保存二元或三元层次分布，并可保存最低次数、最低时间秒数和次数单位；新条目同时保存可选标题与领域快照，旧条目保留属性快照。
 - `LedgerEvent.kind` 为 `reward | correction | redemption | redemption_refund | milestone`，新事件保存 XP、金币和可选领域，旧事件保留可选属性。
@@ -47,8 +49,9 @@
 - `Season.calibration` 保存一次性蓝图 ID、校准时间和旧赛季定义；`dailySignals` 保存每个游戏日唯一的起床达标、晨间精力、掌控感和真实记录时间。
 - `CoachSuggestion` 保存周起始日、规则类型、依据、预期作用和用户响应；响应不会直接写入 `activities`。
 - `settings.coachPlanDraft` 保存唯一目标规划草稿，区分复用现有活动和新建行为方案；草稿可处于 `editing` 或通过完整校验的 `ready` 状态。
-- schema 1 知识行动包来源继续保存旧标题、稳定引用和短原则；schema 2 保存 `applicationId`、阶段、一个主原则、最多两个辅助知识、结果指标和导入时间，不保存 Obsidian 全文。
+- schema 1 知识行动包来源继续保存旧标题、稳定引用和短原则；schema 2 保存 `applicationId`、阶段、一个主原则、最多两个辅助知识、结果指标和导入时间；schema 3 进一步保留评分目标，不保存 Obsidian 全文。
 - `settings.applicationTrial` 保存 7 天周期、知识上下文、现实目标、核心行为快照、原关键行为 ID 和用户阶段结论；不复制每日流水。
+- `settings.applicationTrialRestart` 保存待启动修正方案与最早启动游戏日。激活事务归档原定义、创建新 ID、替换试跑快照并删除待启动方案；旧 completion 与 ledger 不改写。
 - 知识应用赛季在既有 `Season` 上附加可选 `applicationContext`；结束时额外保存现实指标、用户决定和理由。普通旧赛季继续兼容。
 - `Season.concludedOn`、`conclusionType` 和 `earlyConclusionReason` 记录实际结项；`endsOn` 始终保留原计划第 28 天。旧赛季缺少新字段时继续按计划结束日解释。
 - `settings.meta.knowledgeActionImports` 最多保存 200 条已激活追溯记录，通过 `packageId → draftId → seasonId` 解释知识方案来源；活动模型和追加式流水不增加来源字段。
@@ -166,7 +169,8 @@
 
 ## 6. 导入导出
 
-- 全量 Backup JSON 使用 `BackupSchema` 和 `restoreBackup`：schema 11 包含 `appVersion`、`exportedAt`、八张表、愿望图片、奖励券、逐次进度、目标规划草稿和 `settings.applicationTrial`，并兼容读取 schema 1～10。
+- 全量 Backup JSON 使用 `BackupSchema` 和 `restoreBackup`：schema 12 包含 `appVersion`、`exportedAt`、八张表、评分快照、愿望图片、奖励券、逐次进度、目标规划草稿、`settings.applicationTrial` 与待启动重启方案，并兼容读取 schema 1～11。
+- Obsidian 行动包 v3、规划上下文 v2 和结果包 v2 保留评分目标；结果聚合只统计已评分日期，输出平均分、覆盖天数和 `5/7` 证据充分标记。
 - `previewBackupRestore` 只解析 `BackupSchema` 并比较当前与备份的 XP、金币、活动、完成、赛季和奖励券数量，不写数据库；用户确认后仍复用原有 `restoreBackup` 原子整体恢复。
 - 导入时校验主目标和候选队列必须指向启用愿望；旧备份恢复后奖励券为空，旧商品进入待整理。
 - Zod 先在事务外校验结构和业务约束。
@@ -218,7 +222,7 @@
 
 - Vitest：奖励、等级路线、游戏日边界、有效行动日志、两/三层目标、三档 Web Audio 与振动、关键行为上限、余额、撤销和幂等。
 - fake-indexeddb：事务原子性、规划草稿保存与启用幂等、v1/v2 行动包校验、7 天试跑期限、提前结项边界、有效结束日聚合、恢复预览无写入和旧备份恢复。
-- Playwright：Hash 刷新与返回、数据中心恢复预览、四步规划、v2 试跑预览、试跑人工复盘、赛季结项确认、五栏导航、320px/Android/桌面响应式和离线启动。
+- Playwright：Hash 刷新与返回、数据中心恢复预览、四步规划、v3 评分试跑预览、试跑修正重启与人工复盘、赛季结项确认、五栏导航、320px/Android/桌面响应式和离线启动。
 - 发布前扫描源码、`dist` 和 Git 历史中的个人数据与凭据模式。
 
 ## 10. 失败策略

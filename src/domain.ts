@@ -186,7 +186,21 @@ export const TieredGoalSchema = z.union([
 
 export type TieredGoal = z.infer<typeof TieredGoalSchema>
 
-export const ActivityGoalSchema = z.union([LegacyGoalSchema, TieredGoalSchema])
+export const RatingGoalSchema = z.object({
+  kind: z.literal('rating'),
+  scale: z.literal(5),
+  prompt: z.string().trim().min(1).max(60),
+  anchors: z.object({
+    low: z.string().trim().min(1).max(60),
+    middle: z.string().trim().min(1).max(60),
+    high: z.string().trim().min(1).max(60),
+  }).strict(),
+  notePrompt: z.string().trim().min(1).max(60).optional(),
+}).strict()
+
+export type RatingGoal = z.infer<typeof RatingGoalSchema>
+
+export const ActivityGoalSchema = z.union([LegacyGoalSchema, TieredGoalSchema, RatingGoalSchema])
 
 export const coachBehaviorRoles = ['start', 'progress', 'maintain'] as const
 export const coachBehaviorRoleLabels: Record<(typeof coachBehaviorRoles)[number], string> = {
@@ -203,7 +217,7 @@ const CoachPlanExistingBehaviorSchema = z.object({
   confirmed: z.boolean(),
 })
 
-export const CoachPlanNewBehaviorSchema = z.object({
+export const CoachPlanNewBehaviorBaseSchema = z.object({
   id: z.string().min(1),
   role: z.enum(coachBehaviorRoles),
   source: z.literal('new'),
@@ -213,12 +227,18 @@ export const CoachPlanNewBehaviorSchema = z.object({
   protocol: z.string().trim().max(280),
   domain: z.enum(growthDomains),
   difficulty: z.enum(difficulties),
-  goal: TieredGoalSchema,
+  goal: z.union([TieredGoalSchema, RatingGoalSchema]),
   schedule: z.union([
     z.object({ kind: z.literal('daily') }),
     z.object({ kind: z.literal('weekly'), times: z.number().int().min(1).max(999) }),
   ]),
   confirmed: z.boolean(),
+})
+
+export const CoachPlanNewBehaviorSchema = CoachPlanNewBehaviorBaseSchema.superRefine((behavior, context) => {
+  if (behavior.goal.kind === 'rating' && behavior.schedule.kind !== 'daily') {
+    context.addIssue({ code: 'custom', path: ['schedule'], message: '评分体验只能设置为每日习惯' })
+  }
 })
 
 export const CoachPlanBehaviorSchema = z.discriminatedUnion('source', [
@@ -270,9 +290,29 @@ export const CoachPlanKnowledgeSourceV2Schema = z.object({
   }
 })
 
+export const CoachPlanKnowledgeSourceV3Schema = z.object({
+  packageType: z.literal('earth-online.obsidian-knowledge-action'),
+  schemaVersion: z.literal(3),
+  packageId: z.string().trim().min(1).max(120),
+  applicationId: z.string().trim().min(1).max(120),
+  phase: z.enum(['trial', 'season']),
+  derivedFromResultPackageId: z.string().trim().min(1).max(120).optional(),
+  knowledge: ApplicationKnowledgeSchema,
+  outcomeIndicator: z.string().trim().min(1).max(180),
+  importedAt: timestamp,
+}).strict().superRefine((source, context) => {
+  if (source.phase === 'trial' && source.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '7 天试跑不能派生自阶段结果包' })
+  }
+  if (source.phase === 'season' && !source.derivedFromResultPackageId) {
+    context.addIssue({ code: 'custom', path: ['derivedFromResultPackageId'], message: '28 天正式赛季必须引用试跑结果包' })
+  }
+})
+
 export const CoachPlanKnowledgeSourceSchema = z.union([
   CoachPlanKnowledgeSourceV1Schema,
   CoachPlanKnowledgeSourceV2Schema,
+  CoachPlanKnowledgeSourceV3Schema,
 ])
 
 export const CoachPlanDraftSchema = z
@@ -336,6 +376,7 @@ export const applicationDecisions = ['continue', 'adjust', 'stop'] as const
 export const ApplicationTrialActivitySchema = z.object({
   activityId: z.string().min(1),
   title: z.string().trim().min(1).max(60),
+  scheduledTime: scheduledTime.optional(),
   cue: z.string().trim().min(1).max(80).optional(),
   protocol: z.string().trim().min(1).max(280).optional(),
   domain: z.enum(growthDomains),
@@ -351,6 +392,11 @@ export const ApplicationTrialBehaviorResultSchema = z.object({
   completed: z.number().int().nonnegative(),
   activeDays: z.number().int().nonnegative(),
   totalDurationMinutes: z.number().int().nonnegative().optional(),
+  ratingSummary: z.object({
+    recordedDays: z.number().int().nonnegative(),
+    average: z.number().min(1).max(5).optional(),
+    evidenceSufficient: z.boolean(),
+  }).optional(),
 })
 
 export const ApplicationTrialSchema = z.object({
@@ -359,6 +405,7 @@ export const ApplicationTrialSchema = z.object({
   applicationId: z.string().trim().min(1).max(120),
   sourcePackageId: z.string().trim().min(1).max(120),
   sourcePlanId: z.string().min(1),
+  restartOfTrialId: z.string().min(1).optional(),
   title: z.string().trim().min(1).max(40),
   successCriterion: z.string().trim().min(1).max(180),
   baseline: z.string().trim().min(1).max(280),
@@ -447,10 +494,16 @@ export const ActivitySchema = z
     if (activity.type === 'task' && activity.goal.kind === 'tiered') {
       context.addIssue({ code: 'custom', path: ['goal'], message: '分层目标只能用于习惯' })
     }
+    if (activity.type === 'task' && activity.goal.kind === 'rating') {
+      context.addIssue({ code: 'custom', path: ['goal'], message: '评分体验只能用于习惯' })
+    }
+    if (activity.goal.kind === 'rating' && (activity.type !== 'habit' || activity.schedule.kind !== 'daily')) {
+      context.addIssue({ code: 'custom', path: ['goal'], message: '评分体验只能用于每日习惯' })
+    }
     if (activity.archivedAt && (activity.enabled || activity.isKey)) {
       context.addIssue({ code: 'custom', path: ['archivedAt'], message: '已归档活动不能启用或设为关键行为' })
     }
-    if (activity.goal.kind !== 'tiered' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') && (!Number.isInteger(activity.goal.count) || activity.goal.count > 1440)) {
+    if (activity.goal.kind !== 'tiered' && activity.goal.kind !== 'rating' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟') && (!Number.isInteger(activity.goal.count) || activity.goal.count > 1440)) {
       context.addIssue({ code: 'custom', path: ['goal', 'count'], message: '时长目标必须是 1 至 1440 分钟的整数' })
     }
     const incremental = activity.goal.kind === 'tiered' && 'progressMode' in activity.goal && activity.goal.progressMode === 'incremental'
@@ -507,6 +560,9 @@ export const CompletionSchema = z
     tierThresholds: ScalarThresholdsSchema.optional(),
     achievedValue: z.number().int().positive().optional(),
     tierGoalSnapshot: TieredGoalSchema.optional(),
+    ratingValue: z.number().int().min(1).max(5).optional(),
+    ratingGoalSnapshot: RatingGoalSchema.optional(),
+    ratingUpdatedAt: timestamp.optional(),
     activityRevision: z.number().int().positive().optional(),
     titleSnapshot: z.string().trim().min(1).max(60).optional(),
     attributeSnapshot: z.enum(attributes).optional(),
@@ -539,6 +595,16 @@ export const CompletionSchema = z
       if (goal?.metric === 'combined' && completion.progress.durationSeconds === undefined) {
         context.addIssue({ code: 'custom', path: ['progress', 'durationSeconds'], message: '组合进度必须保存本次时长' })
       }
+    }
+    const ratingValues = [completion.ratingValue, completion.ratingGoalSnapshot]
+    if (ratingValues.some((value) => value !== undefined) && ratingValues.some((value) => value === undefined)) {
+      context.addIssue({ code: 'custom', path: ['ratingValue'], message: '评分完成必须同时保存分数和评分目标快照' })
+    }
+    if (completion.ratingUpdatedAt && completion.ratingValue === undefined) {
+      context.addIssue({ code: 'custom', path: ['ratingUpdatedAt'], message: '评分修订时间只能用于评分完成' })
+    }
+    if (completion.ratingValue !== undefined && (completion.tier !== undefined || completion.progress !== undefined)) {
+      context.addIssue({ code: 'custom', path: ['ratingValue'], message: '评分完成不能同时保存分层或累计进度' })
     }
     if (completion.tier && completion.tierMetric && completion.tierUnit && completion.tierThresholds && completion.achievedValue) {
       const goal = TieredGoalSchema.safeParse({ kind: 'tiered', metric: completion.tierMetric, unit: completion.tierUnit, thresholds: completion.tierThresholds })
@@ -805,11 +871,41 @@ export const MetaSchema = z.object({
   }).strict()).max(200).optional(),
 })
 
+export const ApplicationTrialRestartSchema = z.object({
+  version: z.literal(1),
+  sourceTrialId: z.string().min(1),
+  notBefore: dateString,
+  preparedAt: timestamp,
+  replacements: z.array(z.object({
+    sourceActivityId: z.string().min(1),
+    title: z.string().trim().min(1).max(60),
+    scheduledTime: scheduledTime.optional(),
+    cue: z.string().trim().min(1).max(80).optional(),
+    protocol: z.string().trim().min(1).max(280).optional(),
+    domain: z.enum(growthDomains),
+    difficulty: z.enum(difficulties),
+    goal: ActivityGoalSchema,
+    schedule: ScheduleSchema,
+  }).superRefine((replacement, context) => {
+    if (replacement.goal.kind === 'rating' && replacement.schedule.kind !== 'daily') {
+      context.addIssue({ code: 'custom', path: ['schedule'], message: '评分体验只能设置为每日习惯' })
+    }
+  })).min(1).max(3),
+}).strict().superRefine((restart, context) => {
+  const sourceIds = restart.replacements.map((replacement) => replacement.sourceActivityId)
+  if (new Set(sourceIds).size !== sourceIds.length) {
+    context.addIssue({ code: 'custom', path: ['replacements'], message: '每项原试跑行为只能对应一个替换行为' })
+  }
+})
+
+export type ApplicationTrialRestart = z.infer<typeof ApplicationTrialRestartSchema>
+
 export const SettingSchema = z.discriminatedUnion('key', [
   z.object({ key: z.literal('preferences'), value: PreferencesSchema }),
   z.object({ key: z.literal('meta'), value: MetaSchema }),
   z.object({ key: z.literal('coachPlanDraft'), value: CoachPlanDraftSchema }),
   z.object({ key: z.literal('applicationTrial'), value: ApplicationTrialSchema }),
+  z.object({ key: z.literal('applicationTrialRestart'), value: ApplicationTrialRestartSchema }),
   z.object({ key: z.literal('rewardSystem'), value: RewardSystemSchema }),
 ])
 
@@ -944,6 +1040,8 @@ export interface JourneyEntry {
   count?: number
   progressLabel?: string
   tierGoalSnapshot?: TieredGoal
+  ratingValue?: number
+  ratingGoalSnapshot?: RatingGoal
   level?: number
 }
 
@@ -994,6 +1092,8 @@ export function getJourneyMonths(completions: Completion[], events: LedgerEvent[
         note: completion.note,
         durationMinutes: completion.durationMinutes,
         tierGoalSnapshot: completion.tierGoalSnapshot,
+        ratingValue: completion.ratingValue,
+        ratingGoalSnapshot: completion.ratingGoalSnapshot,
       }]
     })
 
@@ -1190,11 +1290,15 @@ export function identityMessage(domain: GrowthDomain) {
 }
 
 export function isDurationGoal(activity: Activity): activity is Activity & { goal: LegacyGoal } {
-  return activity.goal.kind !== 'tiered' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟')
+  return activity.goal.kind !== 'tiered' && activity.goal.kind !== 'rating' && (activity.goal.kind === 'duration' || activity.goal.unit === '分钟')
 }
 
 export function isTieredGoal(activity: Activity): activity is Activity & { goal: TieredGoal } {
   return activity.goal.kind === 'tiered'
+}
+
+export function isRatingGoal(activity: Activity): activity is Activity & { goal: RatingGoal; schedule: { kind: 'daily' } } {
+  return activity.goal.kind === 'rating' && activity.schedule.kind === 'daily'
 }
 
 export type IncrementalTieredGoal =

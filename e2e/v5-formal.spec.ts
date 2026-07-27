@@ -137,6 +137,60 @@ test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async
   await expect(page.locator('.v5-growth-metrics > div').nth(1)).toContainText('2')
 })
 
+test('每日评分习惯选择分数即完成，改分不会重复发奖', async ({ page }) => {
+  await page.getByRole('button', { name: '创建行动' }).last().click()
+  await page.getByLabel('名称').fill('每日恢复体验')
+  await page.getByRole('button', { name: '评分体验' }).click()
+  await page.getByLabel('评分问题').fill('今天的恢复感如何？')
+  await page.getByLabel('1 分锚点').fill('很差')
+  await page.getByLabel('3 分锚点').fill('一般')
+  await page.getByLabel('5 分锚点').fill('很好')
+  await page.getByLabel('备注提示（可选）').fill('主要影响因素')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+
+  await page.getByRole('button', { name: '记录体验 每日恢复体验' }).click()
+  const ratingDialog = page.getByRole('dialog', { name: '今天的恢复感如何？' })
+  await expect(ratingDialog).toBeVisible()
+  await ratingDialog.locator('.rating-score-grid button').nth(3).click()
+
+  const feedback = page.locator('.v5-feedback')
+  await expect(feedback).toContainText('今天的恢复感如何？ 4/5')
+  await feedback.getByRole('button', { name: '补充影响因素' }).click()
+
+  const completionDialog = page.getByRole('dialog', { name: '完成记录' })
+  await completionDialog.locator('.completion-rating-editor .rating-score-grid button').nth(1).click()
+  await completionDialog.getByLabel('主要影响因素').fill('下午咖啡较晚')
+  await completionDialog.getByRole('button', { name: '保存评分' }).click()
+  await expect(page.getByText('今天的评分已更新，XP 和金币没有变化')).toBeVisible()
+
+  const persisted = await page.evaluate(async () => {
+    const request = indexedDB.open('earth-online-v2')
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const readAll = <T,>(storeName: string) => new Promise<T[]>((resolve, reject) => {
+      const transaction = database.transaction(storeName, 'readonly')
+      const result = transaction.objectStore(storeName).getAll()
+      result.onsuccess = () => resolve(result.result as T[])
+      result.onerror = () => reject(result.error)
+    })
+    const activities = await readAll<{ id: string; title: string }>('activities')
+    const activity = activities.find((item) => item.title === '每日恢复体验')
+    const completions = await readAll<{ id: string; activityId: string; ratingValue?: number; note?: string }>('completions')
+    const completion = completions.find((item) => item.activityId === activity?.id)
+    const events = await readAll<{ sourceId: string }>('ledgerEvents')
+    database.close()
+    return {
+      ratingValue: completion?.ratingValue,
+      note: completion?.note,
+      rewardEvents: events.filter((event) => event.sourceId === completion?.id).length,
+    }
+  })
+  expect(persisted).toEqual({ ratingValue: 2, note: '下午咖啡较晚', rewardEvents: 1 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
+})
+
 test('分层行动达到基础层后仍留在今天并可直接继续提升', async ({ page }) => {
   await page.getByRole('button', { name: '创建行动' }).last().click()
   await page.getByLabel('名称').fill('分层晚间行动')
