@@ -205,7 +205,7 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>{preview ? 'V5.4.0 预览版' : 'V5.3.0'}</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5.4.0 预览版' : 'V5.4.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
