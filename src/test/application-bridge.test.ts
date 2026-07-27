@@ -315,7 +315,7 @@ describe('Obsidian Application 双向桥接', () => {
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
     const backup = await createBackup(database)
-    expect(backup).toMatchObject({ schemaVersion: 12, appVersion: '5.4.0' })
+    expect(backup).toMatchObject({ schemaVersion: 12, appVersion: '5.4.1' })
     expect(backup.settings.find((setting) => setting.key === 'applicationTrial')).toBeDefined()
 
     const restored = new LifeRpgDatabase(`application-bridge-restore-${crypto.randomUUID()}`)

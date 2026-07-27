@@ -6,7 +6,6 @@ import {
   ApplicationTrialRestartSchema,
   type ApplicationTrialRestart,
   type ApplicationDecision,
-  type ApplicationTrial,
   CompletionSchema,
   CoachPlanDraftSchema,
   type CoachPlanDraft,
@@ -52,7 +51,6 @@ import {
   isTieredGoal,
   isIncrementalGoal,
   startOfWeek,
-  type IncrementalTieredGoal,
   LevelSystemSchema,
 } from './domain'
 import {
@@ -183,7 +181,7 @@ export async function getTodayActionPriority(occurredOn?: string, database = db)
   const storedPriority = storedMeta?.key === 'meta' ? storedMeta.value.todayActionPriority : undefined
   if (!storedPriority || storedPriority.gameDate !== gameDate) return []
   const activities = await database.activities.bulkGet(storedPriority.activityIds)
-  return storedPriority.activityIds.filter((id, index) => {
+  return storedPriority.activityIds.filter((_, index) => {
     const activity = activities[index]
     return Boolean(
       activity

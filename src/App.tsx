@@ -35,7 +35,6 @@ import {
   TrendingUp,
   Upload,
   UserRound,
-  UsersRound,
   Vibrate,
   Volume2,
   X,
@@ -121,7 +120,6 @@ import {
   isDurationGoal,
   isRatingGoal,
   isTieredGoal,
-  isIncrementalGoal,
   effectiveGameDate,
   localDate,
   nextGameDayBoundary,
@@ -538,7 +536,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.4.0 预览版' : 'V5.4.0'
+const displayVersion = isPreview ? 'V5.4.1 预览版' : 'V5.4.1'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
