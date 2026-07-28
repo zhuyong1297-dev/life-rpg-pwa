@@ -1,10 +1,17 @@
-# 地球 Online V5.4.0 技术规格
+# 地球 Online V5.5.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.4.0` 在既有 App 控制器上增加评分型每日习惯与可显式重启的 7 天试跑。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份升级为 JSON schema 12 并兼容 schema 1～11。
+`V5.5.0` 在既有 App 控制器上增加行动奖励预览与今日净奖励摘要。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+
+奖励预览是纯派生视图，不写入数据库：
+
+- `getV5ActionRewardPreview` 根据活动目标、当前有效 completion 和分层快照返回本次奖励、可得范围、升级差额或已获奖励。
+- `getV5WeeklyRewardPreview` 复用当前周有效进度与 `calculateIncrementalProgress`，未跨层时返回下一层所需次数或时间，跨层后返回净奖励。
+- `getV5DailyRewardSummary` 从有效 `JourneyMonth` 行动条目汇总当前游戏日净 XP、金币和达标行动数；撤销与 correction 已在旅程派生层排除。
+- 当前愿望进度只读取主目标价格和账本金币余额；完成行动不会自动锁定或兑换愿望。
 
 每日习惯可保存可选 `scheduledTime: HH:mm`；旧活动仍可从 `cue` 中兼容识别时间。时间排序以 `04:00` 为零点，并按已到点、无固定时间、稍后派生。`Meta.todayActionPriority` 只保存当前游戏日最多 5 个无时间普通每日习惯 ID，不增加数据表或备份 schema。
 

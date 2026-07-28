@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { gameDayMinute, getV5DomainGrowthDetail, getV5FeedbackDisplay, getV5NextTier, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage, type V5FeedbackView } from '../prototype/V5Experience'
+import { gameDayMinute, getV5ActionRewardPreview, getV5DailyRewardSummary, getV5DomainGrowthDetail, getV5FeedbackDisplay, getV5NextTier, getV5WeeklyRewardPreview, orderDailyActions, orderFocusCandidates, parseCueMinute, V5GrowthPage, V5TodayPage, type V5FeedbackView } from '../prototype/V5Experience'
 import { getLevel, type Activity, type Completion, type JourneyEntry, type JourneyMonth } from '../domain'
 
 const baseActivity: Activity = {
@@ -135,6 +135,107 @@ describe('V5 分层行动状态', () => {
   })
 })
 
+describe('V5 行动奖励预告', () => {
+  const tieredGoal: Extract<Activity['goal'], { kind: 'tiered'; metric: 'count' }> = {
+    kind: 'tiered',
+    metric: 'count',
+    unit: '次',
+    thresholds: [1, 2, 3],
+  }
+  const tieredActivity: Activity = {
+    ...baseActivity,
+    goal: tieredGoal,
+  }
+
+  it('固定行动与未选择层次的行动显示真实奖励或奖励范围', () => {
+    expect(getV5ActionRewardPreview(baseActivity)).toEqual({
+      label: '本次 +10 XP · +5 金币',
+      coinDelta: 5,
+      state: 'available',
+    })
+    expect(getV5ActionRewardPreview(tieredActivity)).toEqual({
+      label: '可得 +6～10 XP · +5 金币',
+      coinDelta: 5,
+      state: 'available',
+    })
+  })
+
+  it('已达基础层显示剩余 XP 范围，最高层显示本日实际所得', () => {
+    const completion: Completion = {
+      id: 'reward-tiered',
+      activityId: tieredActivity.id,
+      occurredOn: '2026-07-27',
+      status: 'active',
+      tier: 1,
+      tierGoalSnapshot: tieredGoal,
+      difficultySnapshot: '普通',
+      createdAt: '2026-07-27T08:00:00.000Z',
+    }
+    expect(getV5ActionRewardPreview(tieredActivity, completion)).toEqual({
+      label: '升级可再得 +2～4 XP · 金币已领取',
+      coinDelta: 0,
+      state: 'upgrade',
+    })
+    expect(getV5ActionRewardPreview(tieredActivity, { ...completion, tier: 3 })).toEqual({
+      label: '今日已获 +10 XP · +5 金币',
+      coinDelta: 0,
+      state: 'earned',
+    })
+  })
+
+  it('每周逐次累计显示下一奖励条件和本周封顶奖励', () => {
+    const goal: Extract<Activity['goal'], { kind: 'tiered'; metric: 'count' }> = {
+      kind: 'tiered',
+      metric: 'count',
+      unit: '次',
+      thresholds: [1, 3, 5],
+      progressMode: 'incremental',
+    }
+    const weekly: Activity = {
+      ...baseActivity,
+      id: 'weekly-progress',
+      goal,
+      schedule: { kind: 'weekly', times: 3 },
+    }
+    const progressCompletion: Completion = {
+      id: 'weekly-progress-1',
+      activityId: weekly.id,
+      occurredOn: '2026-07-27',
+      status: 'active',
+      tierGoalSnapshot: goal,
+      difficultySnapshot: '普通',
+      progress: {
+        mode: 'weekly_incremental',
+        cycleStart: '2026-07-27',
+        countDelta: 1,
+        sequence: 1,
+        requestId: 'weekly-progress-request-1',
+      },
+      createdAt: '2026-07-27T08:00:00.000Z',
+    }
+
+    expect(getV5WeeklyRewardPreview(weekly, [], '2026-07-27')).toEqual({
+      label: '本次可解锁 +6 XP · +5 金币',
+      coinDelta: 5,
+      state: 'unlock',
+    })
+    expect(getV5WeeklyRewardPreview(weekly, [progressCompletion], '2026-07-27')).toEqual({
+      label: '再记录 2次可解锁 +2 XP · 金币已领取',
+      coinDelta: 0,
+      state: 'unlock',
+    })
+    expect(getV5WeeklyRewardPreview(weekly, [{
+      ...progressCompletion,
+      id: 'weekly-progress-max',
+      progress: { ...progressCompletion.progress!, countDelta: 5 },
+    }], '2026-07-27')).toEqual({
+      label: '本周已获 +10 XP · +5 金币',
+      coinDelta: 0,
+      state: 'earned',
+    })
+  })
+})
+
 function journeyEntry(id: string, occurredOn: string, title: string, xp: number, domain: JourneyEntry['domain'] = 'health'): JourneyEntry {
   return {
     id,
@@ -164,6 +265,68 @@ function journeyMonth(month: string, entries: JourneyEntry[]): JourneyMonth {
     })),
   }
 }
+
+describe('V5 今日收获', () => {
+  it('只汇总当日仍有效且实际发奖的行动', () => {
+    const summary = getV5DailyRewardSummary([
+      journeyMonth('2026-07', [
+        journeyEntry('first', '2026-07-27', '晨间行动', 5),
+        { ...journeyEntry('upgrade', '2026-07-27', '分层升级', 4), coins: 0 },
+        journeyEntry('other-day', '2026-07-26', '昨日行动', 10),
+        {
+          id: 'milestone',
+          kind: 'level',
+          occurredOn: '2026-07-27',
+          createdAt: '2026-07-27T09:00:00.000Z',
+          title: '达到 Lv.2',
+          xp: 0,
+          coins: 0,
+          level: 2,
+        },
+      ]),
+    ], '2026-07-27')
+
+    expect(summary).toEqual({ xp: 9, coins: 2, actionCount: 2 })
+  })
+
+  it('顶部展示今日净奖励，重点行动连接主愿望推进', () => {
+    const markup = renderToStaticMarkup(createElement(V5TodayPage, {
+      today: '2026-07-27',
+      stats: {
+        totalXp: 0,
+        coins: 0,
+        domainXp: { health: 0, learning: 0, creation: 0, career: 0, life: 0, mindset: 0 },
+      },
+      level: getLevel(0),
+      keyActivities: [baseActivity],
+      dailyHabits: [],
+      weeklyHabits: [],
+      tasks: [],
+      completions: [],
+      todayPriorityIds: [],
+      dailyRewardSummary: { xp: 5, coins: 2, actionCount: 1 },
+      activeRewardGoal: { title: '一次真实愿望', cost: 30 },
+      feedback: null,
+      activeCompletion: () => undefined,
+      coachPlanLabel: '规划一个 28 天目标',
+      onComplete: () => undefined,
+      onCompleteTier: () => undefined,
+      onCompleted: () => undefined,
+      onWeeklyDetails: () => undefined,
+      onCreate: () => undefined,
+      onUndo: () => undefined,
+      onOpenSeason: () => undefined,
+      onRecordDailySignal: () => undefined,
+      onEditRating: () => undefined,
+      onOpenCoach: () => undefined,
+      onSetTodayPriority: async () => undefined,
+    }))
+
+    expect(markup).toContain('今日 +5 XP · +2 金币')
+    expect(markup).toContain('已达标 1 项')
+    expect(markup).toContain('完成后「一次真实愿望」5/30 金币')
+  })
+})
 
 describe('V5 成长领域详情', () => {
   it('成长主卡承载总数值且页面不再渲染旧总成长信息行', () => {

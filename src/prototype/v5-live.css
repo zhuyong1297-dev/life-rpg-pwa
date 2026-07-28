@@ -361,6 +361,30 @@
   font-size: 11px;
 }
 
+.v5-action-reward {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: #9b6a00;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.v5-action-reward svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.v5-timeline-row .v5-action-reward,
+.v5-compact-action .v5-action-reward,
+.v5-drawer-row .v5-action-reward,
+.v5-weekly-row .v5-action-reward {
+  color: #9b6a00;
+}
+
 .v5-focus-action {
   position: relative;
   margin: 6px 0;
@@ -479,6 +503,18 @@
   cursor: pointer;
 }
 
+.v5-focus-actions button {
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.v5-focus-actions button small {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: .82;
+}
+
 .v5-focus-actions .primary,
 .v5-primary-button {
   background: var(--v5-green);
@@ -492,6 +528,27 @@
 
 .v5-wide {
   width: 100%;
+}
+
+.v5-focus-action > .v5-action-reward,
+.v5-wish-progress {
+  margin: 5px 0 7px;
+}
+
+.v5-wish-progress {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: #6f5a20;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.v5-wish-progress svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
 }
 
 .v5-completed-line {
@@ -592,7 +649,8 @@
   grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
   gap: 10px;
-  min-height: 68px;
+  min-height: 78px;
+  padding: 7px 0;
   border-bottom: 1px solid var(--v5-line);
 }
 

@@ -41,11 +41,14 @@ import {
   getLevel,
   getMilestoneVoucherCost,
   getNextVoucherLevel,
+  getTierCount,
   getTierLevels,
+  getTierReward,
   getTotalXpForLevel,
   growthDomains,
   isRatingGoal,
   isTieredGoal,
+  rewardTable,
   startOfWeek,
   tierLabels,
   type Activity,
@@ -80,6 +83,87 @@ export function getV5NextTier(activity: Activity, completion?: Completion): Tier
   const goal = getCompletionTierGoal(completion, activity)
   if (!goal) return undefined
   return getTierLevels(goal).find((tier) => tier > completion.tier!)
+}
+
+export interface V5ActionRewardPreview {
+  label: string
+  coinDelta: number
+  state: 'available' | 'upgrade' | 'earned' | 'unlock'
+}
+
+export interface V5DailyRewardSummary {
+  xp: number
+  coins: number
+  actionCount: number
+}
+
+function formatXpRange(minimum: number, maximum: number) {
+  return minimum === maximum ? `+${minimum} XP` : `+${minimum}～${maximum} XP`
+}
+
+function completionReward(activity: Activity, completion: Completion) {
+  const difficulty = completion.difficultySnapshot ?? activity.difficulty
+  const goal = completion.tier ? getCompletionTierGoal(completion, activity) : undefined
+  return completion.tier && goal
+    ? getTierReward(difficulty, completion.tier, getTierCount(goal))
+    : rewardTable[difficulty]
+}
+
+export function getV5ActionRewardPreview(activity: Activity, completion?: Completion): V5ActionRewardPreview {
+  if (!completion) {
+    if (isTieredGoal(activity)) {
+      const levels = getTierLevels(activity.goal)
+      const first = getTierReward(activity.difficulty, levels[0], getTierCount(activity.goal))
+      const last = getTierReward(activity.difficulty, levels.at(-1)!, getTierCount(activity.goal))
+      return {
+        label: `可得 ${formatXpRange(first.xp, last.xp)} · +${first.coins} 金币`,
+        coinDelta: first.coins,
+        state: 'available',
+      }
+    }
+    const reward = rewardTable[activity.difficulty]
+    return {
+      label: `本次 +${reward.xp} XP · +${reward.coins} 金币`,
+      coinDelta: reward.coins,
+      state: 'available',
+    }
+  }
+
+  const earned = completionReward(activity, completion)
+  const goal = completion.tier ? getCompletionTierGoal(completion, activity) : undefined
+  if (completion.tier && goal) {
+    const remaining = getTierLevels(goal).filter((tier) => tier > completion.tier!)
+    if (remaining.length > 0) {
+      const deltas = remaining.map((tier) => getTierReward(
+        completion.difficultySnapshot ?? activity.difficulty,
+        tier,
+        getTierCount(goal),
+      ).xp - earned.xp)
+      return {
+        label: `升级可再得 ${formatXpRange(Math.min(...deltas), Math.max(...deltas))} · 金币已领取`,
+        coinDelta: 0,
+        state: 'upgrade',
+      }
+    }
+  }
+
+  return {
+    label: `今日已获 +${earned.xp} XP · +${earned.coins} 金币`,
+    coinDelta: 0,
+    state: 'earned',
+  }
+}
+
+export function getV5DailyRewardSummary(journeyMonths: JourneyMonth[], today: string): V5DailyRewardSummary {
+  const entries = journeyMonths
+    .flatMap((month) => month.days.filter((day) => day.date === today).flatMap((day) => day.entries))
+    .filter((entry) => entry.kind === 'action' && (entry.xp > 0 || entry.coins > 0)) ?? []
+
+  return {
+    xp: entries.reduce((total, entry) => total + entry.xp, 0),
+    coins: entries.reduce((total, entry) => total + entry.coins, 0),
+    actionCount: entries.length,
+  }
 }
 
 function v5TierProgressLabel(activity: Activity, completion: Completion) {
@@ -203,7 +287,7 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>{preview ? 'V5.4.1 预览版' : 'V5.4.1'}</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5.5.0 预览版' : 'V5.5.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
@@ -241,6 +325,8 @@ export function V5TodayPage({
   tasks,
   completions,
   todayPriorityIds,
+  dailyRewardSummary,
+  activeRewardGoal,
   feedback,
   activeCompletion,
   seasonTitle,
@@ -266,6 +352,8 @@ export function V5TodayPage({
   tasks: Activity[]
   completions: Completion[]
   todayPriorityIds: string[]
+  dailyRewardSummary: V5DailyRewardSummary
+  activeRewardGoal?: { title: string; cost: number }
   feedback: V5FeedbackView | null
   activeCompletion: (activity: Activity) => Completion | undefined
   seasonTitle?: string
@@ -349,8 +437,7 @@ export function V5TodayPage({
         <V5StatusStrip
           level={level}
           coins={stats.coins}
-          completed={completedKeyCount}
-          total={keyActivities.length}
+          dailyRewardSummary={dailyRewardSummary}
         />
         <V5PlanEntry
           seasonTitle={seasonTitle}
@@ -384,6 +471,8 @@ export function V5TodayPage({
                     activity={activity}
                     completion={activeCompletion(activity)}
                     canSwitch={incompleteCandidates.length > 1 && !heldCompletedId}
+                    coins={stats.coins}
+                    activeRewardGoal={activeRewardGoal}
                     key={activity.id}
                     onComplete={() => onComplete(activity)}
                     onCompleteTier={(tier) => onCompleteTier(activity, tier)}
@@ -619,18 +708,16 @@ function V5SectionHeading({ title, description }: { title: string; description?:
 function V5StatusStrip({
   level,
   coins,
-  completed,
-  total,
+  dailyRewardSummary,
 }: {
   level: ReturnType<typeof getLevel>
   coins: number
-  completed: number
-  total: number
+  dailyRewardSummary: V5DailyRewardSummary
 }) {
   return (
     <section className="v5-status-strip" aria-label="今日状态">
       <div><strong>Lv.{level.level}</strong><span>{level.current} / {level.needed} XP</span></div>
-      <div><strong>稳定生活状态</strong><span>今日 {completed}/{total}</span></div>
+      <div><strong>今日 +{dailyRewardSummary.xp} XP · +{dailyRewardSummary.coins} 金币</strong><span>已达标 {dailyRewardSummary.actionCount} 项</span></div>
       <div><strong>{coins}</strong><span>金币</span></div>
     </section>
   )
@@ -712,6 +799,8 @@ function V5FocusAction({
   activity,
   completion,
   canSwitch,
+  coins,
+  activeRewardGoal,
   onComplete,
   onCompleteTier,
   onSwitch,
@@ -719,6 +808,8 @@ function V5FocusAction({
   activity: Activity
   completion?: Completion
   canSwitch: boolean
+  coins: number
+  activeRewardGoal?: { title: string; cost: number }
   onComplete: () => void
   onCompleteTier: (tier: TierLevel) => void
   onSwitch: () => void
@@ -728,6 +819,10 @@ function V5FocusAction({
   const tiers = goal ? getTierLevels(goal).slice(0, 2) : []
   const nextTier = getV5NextTier(activity, completion)
   const summary = activity.protocol?.split(/[。；]/)[0] || activity.cue || '完成当前行动的最低标准。'
+  const rewardPreview = getV5ActionRewardPreview(activity, completion)
+  const wishProgress = activeRewardGoal && rewardPreview.coinDelta > 0 && coins < activeRewardGoal.cost
+    ? Math.min(activeRewardGoal.cost, coins + rewardPreview.coinDelta)
+    : undefined
   return (
     <article className={`v5-focus-action${completion ? ' completed' : ''}`}>
       <div className="v5-focus-meta">
@@ -745,6 +840,10 @@ function V5FocusAction({
         <div><h3>{activity.title}</h3><p>{completion ? nextTier ? `已经达到${tierLabels[completion.tier!]}层，今天仍可继续升级。` : '今天的目标已经完成。' : summary}</p></div>
         {canSwitch && <button type="button" onClick={onSwitch}>换一个</button>}
       </div>
+      <div className="v5-action-reward"><Medal size={15} /><span>{rewardPreview.label}</span></div>
+      {wishProgress !== undefined && (
+        <div className="v5-wish-progress"><Gift size={15} /><span>完成后「{activeRewardGoal!.title}」{wishProgress}/{activeRewardGoal!.cost} 金币</span></div>
+      )}
       {completion ? (
         <div className={`v5-completed-line${nextTier ? ' upgradeable' : ''}`}>
           {nextTier ? <Sparkles size={18} /> : <Check size={18} />}
@@ -754,7 +853,8 @@ function V5FocusAction({
         <div className="v5-focus-actions">
           {tiers.map((tier) => (
             <button className={tier === 1 ? 'primary' : 'secondary'} type="button" key={tier} onClick={() => onCompleteTier(tier)}>
-              {tierLabels[tier]} {formatTierGoalValue(goal, tier)}
+              <span>{tierLabels[tier]} {formatTierGoalValue(goal, tier)}</span>
+              <small>+{getTierReward(activity.difficulty, tier, getTierCount(goal)).xp} XP · +{getTierReward(activity.difficulty, tier, getTierCount(goal)).coins}</small>
             </button>
           ))}
         </div>
@@ -786,13 +886,18 @@ function V5TimelineRow({
 }) {
   const cueMinute = activityScheduledMinute(activity)
   const nextTier = getV5NextTier(activity, completion)
+  const rewardPreview = getV5ActionRewardPreview(activity, completion)
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
       <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
         {completion ? nextTier ? <Sparkles size={18} /> : <Check size={19} /> : <Clock3 size={18} />}
       </button>
-      <div><strong>{activity.title}</strong><span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span></div>
+      <div>
+        <strong>{activity.title}</strong>
+        <span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span>
+        <span className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</span>
+      </div>
     </div>
   )
 }
@@ -907,11 +1012,13 @@ function V5CompactActionRow({
   onClick: () => void
 }) {
   const nextTier = getV5NextTier(activity, completion)
+  const rewardPreview = getV5ActionRewardPreview(activity, completion)
   return (
     <article className={`v5-compact-action${completion ? ' completed' : ''}${nextTier ? ' upgradeable' : ''}`}>
       <div>
         <strong>{activity.title}</strong>
         <span>{meta}</span>
+        <span className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</span>
         {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
       </div>
       <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
@@ -1018,6 +1125,7 @@ function V5DailyDrawer({
               <div>
                 <strong>{activity.title}</strong>
                 <span>{scheduled ?? '随时'} · {activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty}</span>
+                <span className="v5-action-reward"><Medal size={13} />{getV5ActionRewardPreview(activity, completion).label}</span>
                 {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
               </div>
               <div className="v5-drawer-row-actions">
@@ -1267,12 +1375,14 @@ function V5WeeklyRow({
   onDetails: () => void
 }) {
   const { complete, summary, next, progress } = weeklyViewState(activity, completions, today)
+  const rewardPreview = getV5WeeklyRewardPreview(activity, completions, today, activeCompletion)
   return (
     <article className={`v5-weekly-row${complete ? ' completed' : ''}`}>
       <div>
         <span>{activity.isKey ? '关键 · ' : ''}{activity.domain ? domainLabel(activity.domain) : '旧体系'}</span>
         <strong>{activity.title}</strong>
         <small>{summary} · {next}</small>
+        <small className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</small>
       </div>
       <div className="v5-weekly-actions">
         <button type="button" onClick={onDetails} title="查看本周详情" aria-label={`查看 ${activity.title} 本周详情`}><History size={17} /></button>
@@ -1303,6 +1413,85 @@ function weeklyViewState(activity: Activity, completions: Completion[], today: s
     ? incrementalNext(progress)
     : complete ? '本周最高层已经完成' : `还差 ${Math.max(0, target - activeDirect.length)} 次`
   return { complete, summary, next, progress }
+}
+
+function incrementalUnlockCondition(progress: ReturnType<typeof calculateIncrementalProgress>, tier: TierLevel) {
+  if (progress.goal.metric === 'count') {
+    const remaining = Math.max(0, progress.goal.thresholds[tier - 1] - progress.totalCount)
+    return remaining <= 1 ? '本次可' : `再记录 ${remaining}${progress.goal.unit}可`
+  }
+
+  const threshold = progress.goal.thresholds[tier - 1]
+  if (progress.goal.mode === 'per_occurrence') {
+    const remaining = Math.max(0, threshold.count - (progress.qualifiedCounts[tier] ?? 0))
+    const defaultQualifies = (progress.goal.defaultDurationSeconds ?? 0) >= threshold.durationSeconds
+    if (remaining <= 1 && defaultQualifies) return '使用常用时长可'
+    return `再 ${remaining} 次达到每次${formatDurationSeconds(threshold.durationSeconds)}可`
+  }
+
+  const countRemaining = Math.max(0, threshold.count - progress.totalCount)
+  const durationRemaining = Math.max(0, threshold.durationSeconds - progress.totalDurationSeconds)
+  const defaultQualifies = countRemaining <= 1
+    && (progress.goal.defaultDurationSeconds ?? 0) >= durationRemaining
+  if (defaultQualifies) return '使用常用时长可'
+  const parts = [
+    countRemaining > 0 ? `${countRemaining} 次` : '',
+    durationRemaining > 0 ? formatDurationSeconds(durationRemaining) : '',
+  ].filter(Boolean)
+  return `还差 ${parts.join(' · ')}可`
+}
+
+export function getV5WeeklyRewardPreview(
+  activity: Activity,
+  completions: Completion[],
+  today: string,
+  activeCompletion?: Completion,
+): V5ActionRewardPreview {
+  const { complete, progress } = weeklyViewState(activity, completions, today)
+  const cycle = weeklyCycle(activity, completions, today)
+
+  if (progress) {
+    const progressCompletions = cycle
+      .filter((completion) => completion.status === 'active' && completion.progress)
+      .sort((left, right) => (left.progress?.sequence ?? 0) - (right.progress?.sequence ?? 0))
+    const difficulty = progressCompletions[0]?.difficultySnapshot ?? activity.difficulty
+    const tierCount = getTierCount(progress.goal)
+    if (progress.maxReached && progress.highestTier) {
+      const earned = getTierReward(difficulty, progress.highestTier, tierCount)
+      return {
+        label: `本周已获 +${earned.xp} XP · +${earned.coins} 金币`,
+        coinDelta: 0,
+        state: 'earned',
+      }
+    }
+
+    const nextTier = progress.nextTier ?? getTierLevels(progress.goal).at(-1)!
+    const currentXp = progress.highestTier
+      ? getTierReward(difficulty, progress.highestTier, tierCount).xp
+      : 0
+    const nextReward = getTierReward(difficulty, nextTier, tierCount)
+    const coinDelta = progress.highestTier ? 0 : nextReward.coins
+    return {
+      label: `${incrementalUnlockCondition(progress, nextTier)}解锁 +${nextReward.xp - currentXp} XP${coinDelta ? ` · +${coinDelta} 金币` : ' · 金币已领取'}`,
+      coinDelta,
+      state: 'unlock',
+    }
+  }
+
+  const direct = cycle.filter((completion) => completion.status === 'active' && !completion.progress)
+  if (complete) {
+    const earned = direct.reduce((total, completion) => {
+      const reward = completionReward(activity, completion)
+      return { xp: total.xp + reward.xp, coins: total.coins + reward.coins }
+    }, { xp: 0, coins: 0 })
+    return {
+      label: `本周已获 +${earned.xp} XP · +${earned.coins} 金币`,
+      coinDelta: 0,
+      state: 'earned',
+    }
+  }
+
+  return getV5ActionRewardPreview(activity, activeCompletion)
 }
 
 function V5TravelerSummary({ level, totalXp }: { level: ReturnType<typeof getLevel>; totalXp: number }) {

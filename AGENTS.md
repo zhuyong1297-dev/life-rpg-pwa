@@ -46,9 +46,23 @@ pnpm publish:api -- HEAD ui-redesign main
 - 先读相关代码和调用路径，复用现有模型与事务；保持改动最小，不做无关重构。
 - 领域逻辑变更补单元测试；事务变更覆盖幂等、回滚和撤销重做；界面变更覆盖窄屏、Android、桌面和无溢出。
 - `pnpm test:e2e` 使用正式 base；若刚执行预览构建，先重新 `pnpm build`。
-- 发布前通过测试、正式/预览构建、隐私扫描和离线验收；预览确认后才同步 `main` 并创建 Release。
-- GitHub 发布默认使用 `pnpm publish:api -- <提交> <分支...>`，通过已登录的 GitHub CLI 调用 Git Data API、执行非强制快进并校验远端 tree SHA；普通 `git push` 只在 API 不可用或用户明确要求时使用。
-- API 发布前必须提交全部目标改动并保持工作区干净；标签、Release 和 Actions 查询继续使用 `gh`，不得在脚本或项目中保存凭据。
+- 用户提出“更新版本”“发布版本”或“提交正式版”且未明确限定“仅预览”时，默认完成版本更新、正式部署、标签、Release 和文档同步的完整闭环；普通功能开发仍先进入预览。
+
+### 正式发布状态机
+
+1. 检查工作区、当前分支、版本来源、远程分支、标签和 Release，按变更语义确定 SemVer。
+2. 同步界面版本、备份兼容版本、测试断言和当前文档；通过严格 TypeScript 检查、Vitest、正式/预览构建、正式 Playwright、隐私扫描和离线验收。
+3. 提交全部目标改动并保持工作区干净，默认运行 `pnpm publish:api -- <提交> ui-redesign main`，以 Git Data API 非强制快进并校验远端 tree SHA。
+4. 发布命令失败时，先用提交 SHA、tree SHA 和远程引用判断已经完成的检查点；只补做缺失步骤。远程尚未更新时可用直接 `gh api` 快进缺失分支。
+5. 只有 GitHub API 不可用且已确认远程可以非强制快进时才使用普通 `git push`；永不自动强推。
+6. Actions 未触发时执行 `workflow_dispatch`；部署失败时停止，不创建正式标签或 Release。
+7. Pages 成功后核验正式 HTML、实际加载的 JS 资源、版本号和 schema，再创建标签及不可变 Release。
+8. 同步 Obsidian 版本目录、Version、Dashboard、System-Spec、AGENTS 和 MEMORY，随后刷新 `codebase-memory` 索引。
+
+- 安全、幂等、可校验的备用步骤可以自动执行；远程分叉、标签或 Release 冲突、tree SHA 不一致、测试失败、线上版本不匹配时必须停止并报告。
+- 高频发布的新成功路径覆盖旧默认，不记录动态失败次数或单次故障流水；只有明确根因才永久调整路径顺序。
+- 已安装 PWA 更新问题优先核验 Service Worker、HTML 与资源版本；不得通过卸载应用或清除站点数据处理缓存。
+- 标签、Release 和 Actions 查询继续使用 `gh`，凭据只由本机 GitHub CLI 管理。
 
 ## 文档与记忆
 

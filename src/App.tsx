@@ -179,6 +179,7 @@ import {
   V5GrowthPage,
   V5Navigation,
   V5TodayPage,
+  getV5DailyRewardSummary,
   type V5Page,
 } from './prototype/V5Experience'
 
@@ -536,7 +537,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.4.1 预览版' : 'V5.4.1'
+const displayVersion = isPreview ? 'V5.5.0 预览版' : 'V5.5.0'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -1063,6 +1064,8 @@ function App() {
               tasks={tasks}
               completions={snapshot.completions}
               todayPriorityIds={todayActionPriorityIds}
+              dailyRewardSummary={getV5DailyRewardSummary(journeyMonths, today)}
+              activeRewardGoal={targetReward ? { title: targetReward.title, cost: targetReward.cost } : undefined}
               feedback={feedback}
               activeCompletion={activeCompletion}
               seasonTitle={activeSeason?.title ?? (applicationTrial?.status === 'active' ? `7 天试跑 · ${applicationTrial.title}` : undefined)}

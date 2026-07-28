@@ -119,10 +119,13 @@ test('正式入口使用 V5 导航且不显示预览提示', async ({ page }) =>
 
 test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async ({ page }) => {
   await createSimpleActivity(page, 'V5 闭环验证')
+  const actionRow = page.locator('.v5-compact-action').filter({ hasText: 'V5 闭环验证' })
+  await expect(actionRow.locator('.v5-action-reward')).toContainText('本次 +5 XP · +2 金币')
   await page.getByRole('button', { name: '完成 V5 闭环验证' }).click()
   const feedback = page.locator('.v5-feedback')
   await expect(feedback).toContainText('+5 XP')
   await expect(feedback).toContainText('+2 金币')
+  await expect(page.locator('.v5-status-strip')).toContainText('今日 +5 XP · +2 金币')
   await expect(feedback).toContainText('本次行动已记录', { timeout: 2_500 })
   await expect(feedback).not.toContainText('+5 XP')
   await feedback.getByRole('button', { name: '撤销' }).click()
@@ -200,9 +203,11 @@ test('分层行动达到基础层后仍留在今天并可直接继续提升', as
   await page.getByLabel('突破层（分钟）').fill('30')
   await page.getByRole('button', { name: '创建', exact: true }).click()
 
+  await expect(page.locator('.v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('可得 +3～5 XP · +2 金币')
   await page.getByRole('button', { name: '完成 分层晚间行动' }).click()
   await page.getByRole('button', { name: '选择 基础层' }).click()
   await expect(page.getByText('基础已达标 · 可升级标准', { exact: true })).toBeVisible()
+  await expect(page.locator('.v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('升级可再得 +1～2 XP · 金币已领取')
   await page.getByRole('button', { name: '继续提升 分层晚间行动' }).click()
   await page.getByRole('button', { name: '升级到 标准层' }).click()
   await expect(page.getByText('标准已达标 · 可升级突破', { exact: true })).toBeVisible()
