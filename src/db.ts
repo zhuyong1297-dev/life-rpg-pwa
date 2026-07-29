@@ -532,7 +532,7 @@ export async function activateApplicationTrialRestart(
   now = new Date(),
 ) {
   const today = await currentGameDate(database, now)
-  return database.transaction('rw', database.settings, database.activities, async () => {
+  return database.transaction('rw', database.settings, database.activities, database.completions, async () => {
     const pendingSetting = await database.settings.get('applicationTrialRestart')
     const trialSetting = await database.settings.get('applicationTrial')
     const currentTrial = trialSetting?.key === 'applicationTrial' ? ApplicationTrialSchema.parse(trialSetting.value) : undefined
@@ -548,6 +548,14 @@ export async function activateApplicationTrialRestart(
 
     const sourceIds = currentTrial.focusActivities.map((activity) => activity.activityId)
     const sources = await database.activities.bulkGet(sourceIds)
+    const completedToday = await database.completions
+      .where('activityId')
+      .anyOf(sourceIds)
+      .and((completion) => completion.status === 'active' && completion.occurredOn === today)
+      .count()
+    if (completedToday > 0) {
+      throw new Error(`今天已记录旧试跑行为，请在 ${addDays(today, 1)} 04:00 后启用评分模式，避免重复奖励`)
+    }
     if (sources.some((activity) => !activity || activity.archivedAt)) throw new Error('原试跑行为已发生变化，不能启动修正方案')
     const createdAt = now.toISOString()
     const newActivities = pending.replacements.map((replacement, index) => ActivitySchema.parse({

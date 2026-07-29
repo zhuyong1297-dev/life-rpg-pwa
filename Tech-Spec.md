@@ -1,10 +1,18 @@
-# 地球 Online V5.5.0 技术规格
+# 地球 Online V5.5.1 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.5.0` 在既有 App 控制器上增加行动奖励预览与今日净奖励摘要。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+`V5.5.1` 在既有 App 控制器上增加试跑评分修正状态的今天页投影，并澄清评分目标与赛季状态的交互语义。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+
+## 评分修正投影
+
+- App 从 `settings.applicationTrial` 与 `settings.applicationTrialRestart` 纯派生 `V5RatingTrialActivation`，不增加持久化字段。
+- 今天页的启用操作继续调用 `activateApplicationTrialRestart`；事务归档旧活动、创建新 ID、替换试跑快照并删除待启动设置，失败时整体回滚。
+- `rating` 活动继续通过 `requestCompletion → CompletionModal → completeActivity` 写入评分完成；任何分数使用同一固定难度奖励。
+- `daily-signal` 仍只写赛季状态，不写评分完成或奖励，界面必须明确区分两种数据。
+- 重启事务同时读取当前游戏日的旧试跑 completion；存在有效完成时原子拒绝重启，今天页将可用时间顺延到下一个游戏日。
 
 奖励预览是纯派生视图，不写入数据库：
 

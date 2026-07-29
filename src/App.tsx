@@ -537,7 +537,7 @@ const useV5Experience = !(
   navigator.webdriver
   && new URLSearchParams(window.location.search).has('legacy-test')
 )
-const displayVersion = isPreview ? 'V5.5.0 预览版' : 'V5.5.0'
+const displayVersion = isPreview ? 'V5.5.1 预览版' : 'V5.5.1'
 
 function App() {
   const initialRoute = useMemo(routeFromHash, [])
@@ -678,6 +678,34 @@ function App() {
   const todayActionPriorityIds = metaSetting?.key === 'meta' && metaSetting.value.todayActionPriority?.gameDate === today
     ? metaSetting.value.todayActionPriority.activityIds
     : []
+  const pendingRatingReplacement = applicationTrial?.status === 'active'
+    && applicationTrialRestart?.sourceTrialId === applicationTrial.id
+    ? applicationTrialRestart.replacements.find((replacement) => replacement.goal.kind === 'rating')
+    : undefined
+  const restartSourceIds = applicationTrial?.status === 'active'
+    ? new Set(applicationTrial.focusActivities.map((activity) => activity.activityId))
+    : undefined
+  const restartSourceCompletedToday = Boolean(
+    applicationTrialRestart
+    && restartSourceIds
+    && snapshot.completions.some((completion) => (
+      completion.status === 'active'
+      && completion.occurredOn === today
+      && restartSourceIds.has(completion.activityId)
+    )),
+  )
+  const ratingActivationNotBefore = restartSourceCompletedToday
+    ? [applicationTrialRestart?.notBefore ?? today, addDays(today, 1)].sort().at(-1) ?? addDays(today, 1)
+    : applicationTrialRestart?.notBefore
+  const ratingTrialActivation = pendingRatingReplacement && applicationTrialRestart
+    ? {
+        activityTitle: pendingRatingReplacement.title,
+        prompt: pendingRatingReplacement.goal.kind === 'rating' ? pendingRatingReplacement.goal.prompt : '',
+        notBefore: ratingActivationNotBefore ?? applicationTrialRestart.notBefore,
+        ready: !restartSourceCompletedToday && today >= applicationTrialRestart.notBefore,
+        delayedByTodayCompletion: restartSourceCompletedToday,
+      }
+    : undefined
   const currentCycleStart = startOfWeek(new Date(`${today}T12:00:00`))
   const currentIncrementalGoal = (activity: Activity) => getIncrementalCycleGoal(activity, snapshot.completions, currentCycleStart)
   const growthDomainCandidates = useMemo(() => {
@@ -1066,9 +1094,11 @@ function App() {
               todayPriorityIds={todayActionPriorityIds}
               dailyRewardSummary={getV5DailyRewardSummary(journeyMonths, today)}
               activeRewardGoal={targetReward ? { title: targetReward.title, cost: targetReward.cost } : undefined}
+              ratingTrialActivation={ratingTrialActivation}
               feedback={feedback}
               activeCompletion={activeCompletion}
               seasonTitle={activeSeason?.title ?? (applicationTrial?.status === 'active' ? `7 天试跑 · ${applicationTrial.title}` : undefined)}
+              seasonKind={activeSeason ? 'season' : applicationTrial?.status === 'active' ? 'trial' : undefined}
               coachPlanLabel={coachDraft ? '继续规划' : '规划一个 28 天目标'}
               onComplete={requestCompletion}
               onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
@@ -1080,6 +1110,8 @@ function App() {
                 if (activeSeason) {
                   setSeasonHubInitialView('overview')
                   setSeasonHubOpen(true)
+                } else if (applicationTrial?.status === 'active') {
+                  navigateTo('review')
                 } else {
                   navigateTo('settings')
                 }
@@ -1101,6 +1133,17 @@ function App() {
                   setCompletionActivity(activity)
                 }
               }}
+              onActivateRatingTrial={async () => {
+                try {
+                  await activateApplicationTrialRestart()
+                  await refresh()
+                  setNotice('晨起评分模式已启用；现在点击该行为即可选择 1–5 分')
+                } catch (error) {
+                  setErrorNotice(errorMessage(error))
+                  throw error
+                }
+              }}
+              onOpenTrialReview={() => navigateTo('review')}
               onOpenCoach={() => navigateTo('coach/plan')}
               onSetTodayPriority={async (activity, prioritized) => {
                 try {
@@ -3012,12 +3055,12 @@ function ApplicationTrialReviewPanel({
       ))}
       {trial.status === 'active' && pendingRestart?.sourceTrialId === trial.id && (
         <div className="application-restart-status">
-          <strong>修正方案已准备</strong>
-          <p>旧 XP、金币和历史不会改变。新行为会使用新的 ID，从启动日重新计算 7 天证据。</p>
+          <strong>评分模式尚未启用</strong>
+          <p>保存方案不会改变今天的旧行为；还需要明确启动一次。启动后晨起行为会直接选择 1–5 分，旧 XP、金币和历史保持不变。</p>
           <button className="primary-action" type="button" disabled={restartSubmitting || today < pendingRestart.notBefore} onClick={() => {
             setRestartSubmitting(true)
             void onActivateRestart().finally(() => setRestartSubmitting(false))
-          }}><RotateCcw aria-hidden="true" />{today < pendingRestart.notBefore ? `${pendingRestart.notBefore} 04:00 后可启动` : restartSubmitting ? '正在启动…' : '一键开始新的 7 天试跑'}</button>
+          }}><RotateCcw aria-hidden="true" />{today < pendingRestart.notBefore ? `${pendingRestart.notBefore} 04:00 后可启动` : restartSubmitting ? '正在启动…' : '启用评分模式并重启试跑'}</button>
         </div>
       )}
       {trial.status === 'active' && !pendingRestart && (
