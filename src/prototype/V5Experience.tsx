@@ -97,14 +97,6 @@ export interface V5DailyRewardSummary {
   actionCount: number
 }
 
-export interface V5RatingTrialActivation {
-  activityTitle: string
-  prompt: string
-  notBefore: string
-  ready: boolean
-  delayedByTodayCompletion?: boolean
-}
-
 function formatXpRange(minimum: number, maximum: number) {
   return minimum === maximum ? `+${minimum} XP` : `+${minimum}～${maximum} XP`
 }
@@ -187,16 +179,14 @@ export function getV5FeedbackDisplay(feedback: V5FeedbackView, condensed: boolea
   return {
     showFollowUp,
     title: showFollowUp
-      ? feedback.followUp?.kind === 'rating-note' ? '体验已记录' : '赛季状态尚未记录'
+      ? feedback.followUp?.kind === 'rating-note' ? '体验已记录' : '今日闭环还差一步'
       : condensed
         ? '本次行动已记录'
         : feedback.leveledUp
           ? `升级到 Lv.${feedback.level.level}`
           : feedback.title,
     detail: showFollowUp
-      ? feedback.followUp?.kind === 'rating-note'
-        ? '可以补充影响因素，也可以稍后修改评分'
-        : '这是赛季复盘，不是习惯评分 · 约 15 秒'
+      ? feedback.followUp?.kind === 'rating-note' ? '可以补充影响因素，也可以稍后修改评分' : '约 15 秒记录今日状态'
       : condensed
         ? '可在 10 秒内撤销'
         : feedback.ratingValue
@@ -297,7 +287,7 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>{preview ? 'V5.5.1 预览版' : 'V5.5.1'}</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5.5.0 预览版' : 'V5.5.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
@@ -337,11 +327,9 @@ export function V5TodayPage({
   todayPriorityIds,
   dailyRewardSummary,
   activeRewardGoal,
-  ratingTrialActivation,
   feedback,
   activeCompletion,
   seasonTitle,
-  seasonKind,
   coachPlanLabel,
   onComplete,
   onCompleteTier,
@@ -352,8 +340,6 @@ export function V5TodayPage({
   onOpenSeason,
   onRecordDailySignal,
   onEditRating,
-  onActivateRatingTrial,
-  onOpenTrialReview,
   onOpenCoach,
   onSetTodayPriority,
 }: {
@@ -368,11 +354,9 @@ export function V5TodayPage({
   todayPriorityIds: string[]
   dailyRewardSummary: V5DailyRewardSummary
   activeRewardGoal?: { title: string; cost: number }
-  ratingTrialActivation?: V5RatingTrialActivation
   feedback: V5FeedbackView | null
   activeCompletion: (activity: Activity) => Completion | undefined
   seasonTitle?: string
-  seasonKind?: 'season' | 'trial'
   coachPlanLabel: string
   onComplete: (activity: Activity) => void
   onCompleteTier: (activity: Activity, tier: TierLevel) => void
@@ -383,8 +367,6 @@ export function V5TodayPage({
   onOpenSeason: () => void
   onRecordDailySignal: (seasonId: string) => void
   onEditRating: (activityId: string) => void
-  onActivateRatingTrial: () => Promise<void>
-  onOpenTrialReview: () => void
   onOpenCoach: () => void
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
 }) {
@@ -459,18 +441,10 @@ export function V5TodayPage({
         />
         <V5PlanEntry
           seasonTitle={seasonTitle}
-          seasonKind={seasonKind}
           coachPlanLabel={coachPlanLabel}
           onOpenSeason={onOpenSeason}
           onOpenCoach={onOpenCoach}
         />
-        {ratingTrialActivation && (
-          <V5RatingTrialActivationCard
-            activation={ratingTrialActivation}
-            onActivate={onActivateRatingTrial}
-            onOpenReview={onOpenTrialReview}
-          />
-        )}
 
         <section className="v5-section">
           <V5SectionHeading title="时间锚点 + 灵活行动" description="时间是参考，不是必须。到时间、触发场景或随时行动。" />
@@ -751,13 +725,11 @@ function V5StatusStrip({
 
 function V5PlanEntry({
   seasonTitle,
-  seasonKind,
   coachPlanLabel,
   onOpenSeason,
   onOpenCoach,
 }: {
   seasonTitle?: string
-  seasonKind?: 'season' | 'trial'
   coachPlanLabel: string
   onOpenSeason: () => void
   onOpenCoach: () => void
@@ -767,63 +739,16 @@ function V5PlanEntry({
     <button
       className="v5-plan-entry"
       type="button"
-      aria-label={managingSeason ? seasonKind === 'trial' ? '管理当前 7 天试跑' : '管理当前成长赛季' : coachPlanLabel}
+      aria-label={managingSeason ? '管理当前成长赛季' : coachPlanLabel}
       onClick={managingSeason ? onOpenSeason : onOpenCoach}
     >
       <ClipboardCheck size={20} />
       <span>
-        <small>{managingSeason ? seasonKind === 'trial' ? '当前试跑' : '本赛季' : '28 天目标'}</small>
+        <small>{managingSeason ? '本赛季' : '28 天目标'}</small>
         <strong>{seasonTitle ?? coachPlanLabel}</strong>
       </span>
       <ChevronRight size={18} />
     </button>
-  )
-}
-
-function V5RatingTrialActivationCard({
-  activation,
-  onActivate,
-  onOpenReview,
-}: {
-  activation: V5RatingTrialActivation
-  onActivate: () => Promise<void>
-  onOpenReview: () => void
-}) {
-  const [submitting, setSubmitting] = useState(false)
-
-  const activate = async () => {
-    if (!activation.ready || submitting) return
-    setSubmitting(true)
-    try {
-      await onActivate()
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <section className="v5-rating-trial-activation" aria-label="晨起评分状态">
-      <div>
-        <span>晨起评分</span>
-        <strong>{activation.ready ? '评分模式尚未启用' : activation.delayedByTodayCompletion ? '今天已记录旧试跑行为' : '评分方案已保存'}</strong>
-        <p>
-          「{activation.activityTitle}」启用后会直接选择 1–5 分，并用新行为重启 7 天试跑。
-          {activation.delayedByTodayCompletion ? ' 为避免重复奖励，需要等到下一个游戏日。' : ' '}
-          夜间的赛季状态记录与这项习惯评分无关。
-        </p>
-        <small>{activation.prompt}</small>
-      </div>
-      {activation.ready ? (
-        <button type="button" disabled={submitting} onClick={() => void activate().catch(() => undefined)}>
-          <Sparkles size={17} />
-          {submitting ? '正在启用…' : '启用评分并重启试跑'}
-        </button>
-      ) : (
-        <button type="button" className="secondary" onClick={onOpenReview}>
-          {activation.notBefore} 04:00 后可启用
-        </button>
-      )}
-    </section>
   )
 }
 
@@ -863,7 +788,7 @@ function V5Feedback({
         )}
       </div>
       <div className="v5-feedback-actions">
-        {display.showFollowUp && <button className="primary" type="button" onClick={onFollowUp}>{feedback.followUp?.kind === 'rating-note' ? '补充影响因素' : '记录赛季状态'}</button>}
+        {display.showFollowUp && <button className="primary" type="button" onClick={onFollowUp}>{feedback.followUp?.kind === 'rating-note' ? '补充影响因素' : '记录状态'}</button>}
         <button type="button" onClick={onUndo}><RotateCcw size={16} />撤销</button>
       </div>
     </div>
@@ -908,7 +833,7 @@ function V5FocusAction({
               <BookOpen size={14} />
             </button>
           )}
-          <span>{activity.domain ? domainLabel(activity.domain) : '旧体系'}{isRatingGoal(activity) ? ' · 评分 1–5' : ''}</span>
+          <span>{activity.domain ? domainLabel(activity.domain) : '旧体系'}</span>
         </div>
       </div>
       <div className="v5-focus-title">
@@ -934,7 +859,7 @@ function V5FocusAction({
           ))}
         </div>
       ) : (
-        <button className="v5-primary-button v5-wide" type="button" aria-label={`${isRatingGoal(activity) ? '记录 1–5 分' : '完成'} ${activity.title}`} onClick={onComplete}>{isRatingGoal(activity) ? '选择 1–5 分' : '记录完成'}</button>
+        <button className="v5-primary-button v5-wide" type="button" aria-label={`${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`} onClick={onComplete}>{isRatingGoal(activity) ? '记录体验' : '记录完成'}</button>
       )}
       {protocolOpen && (
         <div className="v5-protocol-backdrop" role="presentation" onClick={() => setProtocolOpen(false)}>
@@ -965,12 +890,12 @@ function V5TimelineRow({
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
-      <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录 1–5 分' : '完成'} ${activity.title}`}>
+      <button className={completion ? nextTier ? 'upgradeable' : 'done' : ''} type="button" onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
         {completion ? nextTier ? <Sparkles size={18} /> : <Check size={19} /> : <Clock3 size={18} />}
       </button>
       <div>
         <strong>{activity.title}</strong>
-        <span>{completion ? v5TierProgressLabel(activity, completion) : isRatingGoal(activity) ? `评分体验 · ${activity.goal.prompt}` : activity.cue ?? '等待执行'}</span>
+        <span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span>
         <span className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</span>
       </div>
     </div>
@@ -1036,7 +961,7 @@ function V5DailySection({
           activity={activity}
           completion={activeCompletion(activity)}
           key={activity.id}
-          meta={`${getActivityScheduledTime(activity) ?? '随时'} · ${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty}${isRatingGoal(activity) ? ' · 评分 1–5' : ''}`}
+          meta={`${getActivityScheduledTime(activity) ?? '随时'} · ${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty}`}
           onClick={() => activeCompletion(activity) ? onCompleted(activity) : onComplete(activity)}
         />
       ))}
@@ -1096,7 +1021,7 @@ function V5CompactActionRow({
         <span className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</span>
         {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
       </div>
-      <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录 1–5 分' : '完成'} ${activity.title}`}>
+      <button type="button" className={completion ? nextTier ? 'upgradeable' : 'done' : ''} onClick={onClick} aria-label={completion ? nextTier ? `继续提升 ${activity.title}` : `查看 ${activity.title} 完成记录` : `${isRatingGoal(activity) ? '记录体验' : '完成'} ${activity.title}`}>
         {completion ? nextTier ? <Sparkles size={18} /> : <Check size={18} /> : <ChevronRight size={19} />}
       </button>
     </article>

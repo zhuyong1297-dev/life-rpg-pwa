@@ -315,7 +315,7 @@ describe('Obsidian Application 双向桥接', () => {
     await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
     await activateCoachPlanDraft(draft.id, '2026-07-25', database)
     const backup = await createBackup(database)
-    expect(backup).toMatchObject({ schemaVersion: 12, appVersion: '5.5.1' })
+    expect(backup).toMatchObject({ schemaVersion: 12, appVersion: '5.5.0' })
     expect(backup.settings.find((setting) => setting.key === 'applicationTrial')).toBeDefined()
 
     const restored = new LifeRpgDatabase(`application-bridge-restore-${crypto.randomUUID()}`)
@@ -478,45 +478,5 @@ describe('Obsidian Application 双向桥接', () => {
       plannedEndsOn: '2026-08-28',
       conclusionType: 'early',
     })
-  })
-
-  it('当天已经记录旧试跑行为时拒绝启用新评分行为，避免重复奖励', async () => {
-    const draft = await importKnowledgeActionPackage(ratingTrialPackage, database)
-    await database.settings.put({ key: 'coachPlanDraft', value: readyDraft(draft) })
-    await activateCoachPlanDraft(draft.id, '2026-07-27', database)
-    const original = (await getApplicationTrial(database))!
-    const ratingActivity = original.focusActivities.find((activity) => activity.goal.kind === 'rating')!
-
-    await prepareApplicationTrialRestart(
-      original.id,
-      original.focusActivities.map((activity) => ({
-        sourceActivityId: activity.activityId,
-        title: activity.title,
-        scheduledTime: activity.scheduledTime,
-        cue: activity.cue,
-        protocol: activity.protocol,
-        domain: activity.domain,
-        difficulty: activity.difficulty,
-        goal: activity.goal,
-        schedule: activity.schedule,
-      })),
-      database,
-      new Date(2026, 6, 27, 12, 0),
-    )
-    await completeActivity(
-      ratingActivity.activityId,
-      '2026-07-28',
-      { ratingValue: 3 },
-      database,
-    )
-
-    const activityIdsBefore = (await database.activities.toArray()).map((activity) => activity.id).sort()
-    await expect(
-      activateApplicationTrialRestart(database, new Date(2026, 6, 28, 12, 0)),
-    ).rejects.toThrow('避免重复奖励')
-
-    expect((await database.activities.toArray()).map((activity) => activity.id).sort()).toEqual(activityIdsBefore)
-    expect((await getApplicationTrial(database))?.id).toBe(original.id)
-    expect(await database.settings.get('applicationTrialRestart')).toBeDefined()
   })
 })

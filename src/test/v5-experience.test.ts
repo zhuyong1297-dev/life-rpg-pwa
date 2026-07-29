@@ -318,8 +318,6 @@ describe('V5 今日收获', () => {
       onOpenSeason: () => undefined,
       onRecordDailySignal: () => undefined,
       onEditRating: () => undefined,
-      onActivateRatingTrial: async () => undefined,
-      onOpenTrialReview: () => undefined,
       onOpenCoach: () => undefined,
       onSetTodayPriority: async () => undefined,
     }))
@@ -327,69 +325,6 @@ describe('V5 今日收获', () => {
     expect(markup).toContain('今日 +5 XP · +2 金币')
     expect(markup).toContain('已达标 1 项')
     expect(markup).toContain('完成后「一次真实愿望」5/30 金币')
-  })
-
-  it('待启动的晨起评分在今天页明确展示，评分行动直接说明 1–5 分', () => {
-    const ratingActivity: Activity = {
-      ...baseActivity,
-      id: 'morning-rating',
-      title: '晨起恢复感',
-      scheduledTime: '07:30',
-      domain: 'health',
-      goal: {
-        kind: 'rating',
-        scale: 5,
-        prompt: '今天醒来后的恢复感如何？',
-        anchors: { low: '很差', middle: '一般', high: '很好' },
-      },
-    }
-    const markup = renderToStaticMarkup(createElement(V5TodayPage, {
-      today: '2026-07-29',
-      stats: {
-        totalXp: 0,
-        coins: 0,
-        domainXp: { health: 0, learning: 0, creation: 0, career: 0, life: 0, mindset: 0 },
-      },
-      level: getLevel(0),
-      keyActivities: [ratingActivity],
-      dailyHabits: [],
-      weeklyHabits: [],
-      tasks: [],
-      completions: [],
-      todayPriorityIds: [],
-      dailyRewardSummary: { xp: 0, coins: 0, actionCount: 0 },
-      ratingTrialActivation: {
-        activityTitle: '晨起恢复感',
-        prompt: '今天醒来后的恢复感如何？',
-        notBefore: '2026-07-29',
-        ready: true,
-      },
-      feedback: null,
-      activeCompletion: () => undefined,
-      seasonTitle: '7 天试跑 · 睡眠实验',
-      seasonKind: 'trial',
-      coachPlanLabel: '规划一个 28 天目标',
-      onComplete: () => undefined,
-      onCompleteTier: () => undefined,
-      onCompleted: () => undefined,
-      onWeeklyDetails: () => undefined,
-      onCreate: () => undefined,
-      onUndo: () => undefined,
-      onOpenSeason: () => undefined,
-      onRecordDailySignal: () => undefined,
-      onEditRating: () => undefined,
-      onActivateRatingTrial: async () => undefined,
-      onOpenTrialReview: () => undefined,
-      onOpenCoach: () => undefined,
-      onSetTodayPriority: async () => undefined,
-    }))
-
-    expect(markup).toContain('评分模式尚未启用')
-    expect(markup).toContain('夜间的赛季状态记录与这项习惯评分无关')
-    expect(markup).toContain('启用评分并重启试跑')
-    expect(markup).toContain('健康 · 评分 1–5')
-    expect(markup).toContain('选择 1–5 分')
-    expect(markup).toContain('管理当前 7 天试跑')
   })
 })
 
@@ -474,14 +409,14 @@ describe('V5 两阶段完成反馈', () => {
     })
   })
 
-  it('夜间收尾存在后续动作时明确显示为赛季状态而不是习惯评分', () => {
+  it('夜间收尾存在后续动作时收缩为今日状态入口', () => {
     expect(getV5FeedbackDisplay({
       ...feedback,
       followUp: { kind: 'daily-signal', seasonId: 'season-1' },
     }, true)).toEqual({
       showFollowUp: true,
-      title: '赛季状态尚未记录',
-      detail: '这是赛季复盘，不是习惯评分 · 约 15 秒',
+      title: '今日闭环还差一步',
+      detail: '约 15 秒记录今日状态',
     })
   })
 })
