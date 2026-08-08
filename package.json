@@ -1,7 +1,7 @@
 {
   "name": "life-rpg-pwa",
   "private": true,
-  "version": "5.5.0",
+  "version": "5.5.1",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -9,10 +9,11 @@
     "build": "tsc -b && vite build",
     "build:preview": "tsc -b && vite build --mode preview",
     "preview": "vite preview --host 0.0.0.0",
+    "context:check": "node scripts/context-check.mjs",
     "publish:api": "node scripts/publish-git-data.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm build && playwright test",
     "privacy:scan": "node scripts/privacy-scan.mjs"
   },
   "dependencies": {

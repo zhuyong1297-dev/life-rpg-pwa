@@ -1,0 +1,134 @@
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.page-header h1, .migration-header h1, .coach-plan-header h1 { min-width: 0; overflow-wrap: anywhere; font-family: var(--font-display); font-style: normal; }
+.nav-item, .nav-create, .primary-action, .secondary-action, .text-action, .icon-button, .complete-button, .undo-button, .coach-back, .coach-restart, .season-direct-link, .segmented-control button, .rating-control button, .signal-binary button, .signal-scale button, .activity-manager-tabs button { white-space: nowrap; }
+
+.app-shell { min-height: 100vh; }
+.main-content { width: min(100%, 1180px); margin: 0 auto; padding: 22px 16px 112px; }
+.loading-screen { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--forest); }
+.loading-screen svg { width: 38px; height: 38px; }
+.preview-banner { min-height: var(--control-min); margin-bottom: var(--space-4); padding: 9px var(--space-3); display: flex; align-items: center; justify-content: center; gap: var(--space-2); color: var(--color-info); background: var(--blue-soft); border: 1px solid var(--color-info-rule); border-radius: var(--radius-sm); font-size: 13px; text-align: center; }
+.preview-banner svg { width: 18px; height: 18px; }
+
+.navigation { position: fixed; z-index: var(--z-nav); inset: auto 0 0; height: calc(68px + env(safe-area-inset-bottom)); padding: 7px 8px env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: color-mix(in srgb, var(--surface) 98%, transparent); border-top: 1px solid var(--line); }
+.brand-mark { display: none; }
+.nav-item { min-width: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px; cursor: pointer; }
+.nav-item.active { color: var(--forest); background: var(--forest-soft); font-weight: 700; }
+.nav-item svg { width: 21px; height: 21px; }
+.nav-icon-wrap { position: relative; display: grid; place-items: center; }
+.nav-attention { position: absolute; top: -3px; right: -6px; width: 8px; height: 8px; border: 2px solid var(--color-on-accent); border-radius: 50%; background: var(--coral); }
+.nav-create { width: 48px; height: 48px; align-self: center; justify-self: center; display: grid; place-items: center; border: 0; border-radius: 50%; color: var(--color-on-accent); background: var(--forest); box-shadow: var(--shadow-accent); cursor: pointer; }
+.nav-create svg { width: 24px; height: 24px; }
+
+.notice { position: sticky; z-index: var(--z-notice); top: 10px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: 14px; padding: 10px var(--space-3); background: var(--color-info-soft); border: 1px solid var(--color-info-rule); border-radius: var(--radius-sm); color: var(--color-info); box-shadow: var(--shadow-raised); font-size: 13px; }
+.notice-success { border-color: var(--color-accent-rule); background: var(--color-accent-soft); color: var(--color-accent-strong); }
+.notice-warning { border-color: var(--color-warning-rule); background: var(--color-warning-paper); color: var(--color-warning-ink); }
+.notice-error { border-color: var(--color-danger-rule); background: var(--color-danger-paper); color: var(--color-danger-ink); }
+.notice span { min-width: 0; overflow-wrap: anywhere; }
+.icon-button { width: 44px; height: 44px; padding: 0; flex: 0 0 44px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; }
+.icon-button.selected { color: var(--gold); background: var(--gold-soft); }
+.icon-button.paused { color: var(--muted); }
+
+.page-header { min-height: 74px; display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
+.page-header h1 { margin: 4px 0 0; font-size: clamp(2rem, 7vw, 2.75rem); line-height: 1.08; letter-spacing: -0.02em; }
+.page-header p { margin: 0; }
+.game-day-note { margin-top: 10px !important; display: flex; align-items: center; gap: 6px; color: var(--blue); font-size: 12px; font-weight: 700; }
+.game-day-note svg { width: 15px; height: 15px; }
+.eyebrow { color: var(--forest); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.page-lead { max-width: 520px; margin-top: 8px !important; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.header-icon { width: 34px; height: 34px; color: var(--forest); }
+
+.traveler-portrait { display: block; aspect-ratio: 1; background-repeat: no-repeat; background-size: 200% 200%; background-color: var(--color-accent-soft); image-rendering: pixelated; }
+.traveler-stage-1 { background-position: 0 0; }
+.traveler-stage-2 { background-position: 100% 0; }
+.traveler-stage-3 { background-position: 0 100%; }
+.traveler-stage-4 { background-position: 100% 100%; }
+
+.progress-wrap { display: grid; gap: 6px; margin-bottom: 20px; }
+.progress-wrap > span { color: var(--muted); font-size: 12px; text-align: right; }
+.progress-wrap > span:empty { display: none; }
+.progress-track { width: 100%; height: 9px; overflow: hidden; background: var(--color-track); border-radius: 5px; }
+.progress-track span { display: block; height: 100%; min-width: 0; background: var(--forest); border-radius: inherit; transition: width var(--duration-medium) var(--ease-out); }
+.progress-wrap.compact { gap: 4px; margin: 0; }
+.progress-wrap.compact .progress-track { height: 7px; }
+
+.today-layout { display: block; }
+.today-sidebar { display: none; }
+.mobile-status { margin-bottom: 0; }
+.status-strip { min-height: 84px; padding: 10px 12px; display: grid; grid-template-columns: 52px minmax(0, 1fr) 62px; align-items: center; gap: 10px; border: 1px solid var(--color-rule); border-radius: var(--radius-md); background: var(--surface); }
+.status-strip-portrait { width: 52px; height: 52px; padding: 2px; display: block; border: 1px solid var(--color-reward-rule); border-radius: var(--radius-sm); background: var(--color-reward-soft); }
+.status-strip-portrait .traveler-portrait { width: 100%; height: 100%; border-radius: var(--radius-xs); }
+.status-strip-copy { min-width: 0; display: grid; gap: 2px; }
+.status-strip-copy > span { color: var(--color-muted); font-size: 10px; font-weight: 700; }
+.status-strip-copy > strong { min-width: 0; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.status-strip-copy .progress-wrap { margin-top: 5px; }
+.status-strip-stats { width: 62px; margin: 0; display: grid; gap: 4px; }
+.status-strip-stats > div { min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 5px; }
+.status-strip-stats dt { color: var(--color-muted); font-size: 9px; }
+.status-strip-stats dd { margin: 0; color: var(--color-accent); font-family: var(--font-mono); font-size: 12px; font-weight: 800; }
+.status-panel { padding: 14px; background: var(--color-night); border: 1px solid var(--color-night-raised); border-radius: 8px; color: var(--color-on-accent); box-shadow: var(--shadow-raised); }
+.status-identity { display: flex; align-items: center; gap: 12px; }
+.portrait-frame { width: 70px; height: 70px; padding: 3px; flex: 0 0 auto; display: block; background: var(--gold-soft); border: 1px solid var(--color-reward-rule); border-radius: 7px; }
+.portrait-frame .traveler-portrait { width: 100%; height: 100%; border-radius: 4px; }
+.status-identity > div { min-width: 0; display: grid; gap: 2px; }
+.status-identity span { color: var(--color-night-muted); font-size: 11px; }
+.status-identity strong { font-size: 23px; }
+.status-identity small { color: var(--color-night-reward); font-size: 12px; }
+.status-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.status-stat-grid > div { min-width: 0; min-height: 54px; padding: 8px 9px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 5px; background: var(--color-night-raised); border-radius: 6px; }
+.status-stat-grid svg { width: 17px; height: 17px; color: var(--color-night-reward); }
+.status-stat-grid span { color: var(--color-night-muted); font-size: 11px; }
+.status-stat-grid strong { color: var(--color-on-accent); font-size: 16px; }
+.status-progress { margin-top: 14px; }
+.status-progress > div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; color: var(--color-night-muted); font-size: 11px; }
+.status-progress b { color: var(--color-on-accent); }
+.status-panel .progress-track { background: var(--color-night-rule); }
+.status-panel .progress-track span { background: var(--color-reward-bright); }
+.key-progress .progress-track span { background: var(--color-accent-mid); }
+.next-reward-summary { margin-top: 14px; padding-top: 12px; display: flex; gap: 9px; align-items: flex-start; border-top: 1px solid var(--color-night-rule); }
+.next-reward-summary > svg { width: 17px; height: 17px; color: var(--color-night-reward); }
+.next-reward-summary > button { min-width: 0; min-height: 44px; padding: 0; display: grid; align-content: center; gap: 3px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.next-reward-summary span { color: var(--color-on-accent); font-size: 11px; font-weight: 800; line-height: 1.45; }
+.next-reward-summary small { color: var(--color-night-muted); font-size: 10px; line-height: 1.45; }
+.status-strip-reward { grid-column: 1 / -1; min-height: 44px; margin: 0 -2px -2px; padding: 6px 8px; display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; gap: 7px; border: 0; border-top: 1px solid var(--line); color: var(--gold); background: transparent; font-size: 11px; font-weight: 800; text-align: left; }
+.status-strip-reward svg { width: 16px; height: 16px; }
+.sidebar-create { width: 100%; margin-top: 12px; }
+.sidebar-note { margin: 12px 0 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.sidebar-note svg { width: 15px; height: 15px; }
+
+.content-section { margin-top: var(--space-8); }
+.mobile-status + .content-section { margin-top: 20px; }
+.section-heading { min-height: 38px; display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-2); border-bottom: 1px solid var(--color-rule); }
+.section-heading > div { min-width: 0; }
+.section-heading > div > span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.section-heading h2 { margin: 0 0 8px; display: flex; align-items: center; gap: 7px; font-size: 20px; line-height: 1.2; }
+.section-heading h2 svg { width: 18px; height: 18px; color: var(--gold); }
+.section-heading > span { padding-bottom: 8px; color: var(--muted); font-family: var(--font-mono); font-size: 12px; }
+.section-heading .text-action { align-self: center; }
+.text-action { min-height: 44px; padding: 8px 3px; border: 0; background: transparent; color: var(--forest); font-size: 13px; font-weight: 800; cursor: pointer; }
+.secondary-action { min-height: 44px; padding: 9px 12px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--forest); font-weight: 800; cursor: pointer; }
+.secondary-action svg { width: 17px; height: 17px; }
+
+.season-summary { width: 100%; min-height: 72px; margin: 0 0 var(--space-4); padding: 10px 12px; display: grid; grid-template-columns: 40px minmax(0, 1fr) 20px; align-items: center; gap: 11px; border: 1px solid var(--color-accent-rule); border-radius: 8px; background: var(--color-surface-highlight); color: var(--ink); text-align: left; cursor: pointer; }
+.season-summary-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 6px; color: var(--forest); background: var(--forest-soft); }
+.season-summary-icon svg { width: 21px; height: 21px; }
+.season-summary > span:nth-child(2), .season-summary-copy { min-width: 0; display: grid; gap: 2px; }
+.season-summary small { color: var(--forest); font-size: 10px; font-weight: 800; }
+.season-summary strong { overflow-wrap: anywhere; font-size: 14px; }
+.season-summary b { min-width: 0; overflow-wrap: anywhere; color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.35; }
+.season-summary > svg { width: 18px; color: var(--muted); }
+.season-summary-empty { border-style: dashed; }
+.season-plan-entry { margin-bottom: 12px; }
+.season-plan-entry .season-summary { margin-bottom: 0; }
+.season-direct-link { min-height: 44px; margin: 3px 0 0 51px; padding: 5px 0; border: 0; background: transparent; color: var(--forest); font-size: 11px; font-weight: 800; cursor: pointer; }
+.next-season-plan { width: 100%; min-height: 44px; margin-top: 2px; padding: 5px 0; display: grid; grid-template-columns: 20px minmax(0, 1fr) 18px; align-items: center; gap: 7px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.next-season-plan > svg:first-child { color: var(--blue); }
+.next-season-plan > span { min-width: 0; display: grid; gap: 1px; }
+.next-season-plan small { display: none; color: var(--blue); font-size: 9px; font-weight: 800; }
+.next-season-plan strong { overflow-wrap: anywhere; font-size: 12px; }
+.next-season-plan > svg:last-child { color: var(--muted); }
+.page-header.today-header { min-height: 0; margin-bottom: 12px; }
+.today-header .page-lead { display: none; }
+.today-header .game-day-note { margin-top: 6px !important; }
+
+.secondary-route .main-content { width: min(100%, 980px); padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+.secondary-route .notice { position: relative; top: auto; }

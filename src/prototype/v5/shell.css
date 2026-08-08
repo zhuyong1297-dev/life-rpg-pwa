@@ -1,0 +1,207 @@
+.v5-preview-shell {
+  --v5-canvas: #f4f7f5;
+  --v5-surface: #fff;
+  --v5-ink: #15231e;
+  --v5-muted: #66736d;
+  --v5-line: #d7e0db;
+  --v5-green: #146b50;
+  --v5-green-hover: #0f5a43;
+  --v5-green-pressed: #0c4d3a;
+  --v5-green-dark: #153229;
+  --v5-green-soft: #dff1e8;
+  --v5-interactive-hover: #e8f3ed;
+  --v5-interactive-border: #a9cbbb;
+  --v5-focus: #5b9b82;
+  --v5-gold: #b67a0a;
+  --v5-duration: 140ms;
+  --v5-ease: cubic-bezier(.2, .8, .2, 1);
+  min-height: 100vh;
+  color: var(--v5-ink);
+  background: var(--v5-canvas);
+}
+.v5-preview-shell .main-content {
+  width: min(100%, 1240px);
+  padding: 16px 16px calc(86px + env(safe-area-inset-bottom));
+}
+
+.v5-preview-shell .preview-banner {
+  min-height: 36px;
+  margin: 0 auto 14px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.v5-page {
+  width: 100%;
+  margin: 0 auto;
+}
+
+.v5-page button {
+  font: inherit;
+}
+
+.v5-preview-shell button,
+.v5-preview-shell a,
+.v5-preview-shell summary,
+.v5-preview-shell input,
+.v5-preview-shell select,
+.v5-preview-shell textarea {
+  transition:
+    color var(--v5-duration) var(--v5-ease),
+    background-color var(--v5-duration) var(--v5-ease),
+    border-color var(--v5-duration) var(--v5-ease),
+    box-shadow var(--v5-duration) var(--v5-ease),
+    transform var(--v5-duration) var(--v5-ease);
+}
+
+.v5-preview-shell :is(button, a, summary, input, select, textarea):focus-visible {
+  outline: 3px solid var(--v5-focus);
+  outline-offset: 2px;
+}
+
+.v5-preview-shell button:not(:disabled):active,
+.v5-preview-shell a:active {
+  transform: translateY(1px);
+}
+
+.v5-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.v5-page-header > div {
+  min-width: 0;
+}
+
+.v5-page-header span {
+  color: var(--v5-green);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.v5-page-header h1 {
+  margin: 2px 0 0;
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.v5-page-header p {
+  margin: 4px 0 0;
+  color: var(--v5-muted);
+  font-size: 12px;
+}
+
+.v5-page-header > button {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  border: 1px solid var(--v5-green);
+  border-radius: 8px;
+  background: var(--v5-green);
+  color: #fff;
+  cursor: pointer;
+}
+
+.v5-status-strip {
+  display: grid;
+  grid-template-columns: 72px 1fr 64px;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 10px;
+  border-top: 1px solid var(--v5-line);
+  border-bottom: 1px solid var(--v5-line);
+  background: var(--v5-surface);
+}
+
+.v5-status-strip > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.v5-status-strip > div:last-child {
+  align-items: flex-end;
+}
+
+.v5-status-strip strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.v5-status-strip span {
+  color: var(--v5-muted);
+  font-size: 10px;
+}
+
+.v5-status-strip > div:last-child strong {
+  color: var(--v5-gold);
+  font-size: 20px;
+}
+
+.v5-plan-entry {
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--v5-line);
+  border-radius: 8px;
+  background: var(--v5-surface);
+  color: var(--v5-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.v5-plan-entry > svg:first-child {
+  color: var(--v5-green);
+}
+
+.v5-plan-entry > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.v5-plan-entry small {
+  color: var(--v5-muted);
+}
+
+.v5-plan-entry strong {
+  overflow-wrap: anywhere;
+}
+
+.v5-plan-entry > svg:last-child {
+  color: var(--v5-muted);
+  transition: transform var(--v5-duration) var(--v5-ease);
+}
+
+.v5-section {
+  margin-top: 22px;
+}
+
+.v5-section-heading {
+  margin-bottom: 10px;
+}
+
+.v5-section-heading h2,
+.v5-section-count h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.v5-section-heading p {
+  margin: 4px 0 0;
+  color: var(--v5-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}

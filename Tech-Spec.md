@@ -1,10 +1,10 @@
-# 地球 Online V5.5.0 技术规格
+# 地球 Online V5.5.1 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.5.0` 在既有 App 控制器上增加行动奖励预览与今日净奖励摘要。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+`V5.5.1` 将 App 壳、V5 界面、领域模型、持久层和样式拆成职责模块，原入口保留为兼容 facade。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
 
 奖励预览是纯派生视图，不写入数据库：
 

@@ -1,29 +1,69 @@
 # 地球 Online
 
-地球 Online 是一个手机优先、本地离线的个人成长教练。它用经验、金币和六个现实成长领域提供即时反馈，再通过 28 天赛季、每周复盘和透明建议判断现实行动是否真的有效。
+> README v0.1 · 正式版 V5.5.0 · 预览候选 V5.5.1
 
-当前线上正式版与手机预览版均运行 V5.5.0。行动入口直接展示本次可得、升级差额或下一次解锁条件，并在顶部汇总今天的有效行动奖励；奖励仍完全由既有完成和追加式流水派生。
+地球 Online 是一个手机优先、本地离线的个人成长教练。它把现实行动转化为即时反馈，再通过每周复盘和 28 天成长赛季，帮助使用者判断哪些行为真的改善了生活。
 
-首页把普通习惯拆为“每日行动”和“本周进度”。每周目标使用紧凑里程碑轨道；组合目标先选择活动预设时长再记录，打开选择窗口本身不会写入数据。
+- 在线使用：[正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
+- 尝鲜功能：[手机预览版](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
+- 稳定版本：[V5.5.0 Release](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.5.0)
+- 问题与建议：[GitHub Issues](https://github.com/zhuyong1297-dev/life-rpg-pwa/issues)
 
-V5.5.0 继续使用 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。恢复完整备份会先展示差异且不会立即写库；Obsidian 交换包与全量备份使用不同的 `packageType` 和入口，不能互相恢复。
+## 它能做什么
 
-在线地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
+- 管理每日行动、每周累计目标和一次性任务。
+- 完成行动后立即获得 XP、金币和成长领域反馈。
+- 用两层或三层目标降低开始门槛，同时保留进阶空间。
+- 通过每周复盘、28 天赛季和评分记录检查现实效果。
+- 使用愿望商店把金币对应到真正想要的现实奖励。
+- 在本地离线运行，并通过 JSON 完整备份和恢复数据。
 
-正式版本：[地球 Online V5.5.0](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.5.0)
+## 怎么使用
 
-手机预览地址：[https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
+1. 用手机打开[正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)。
+2. 在浏览器菜单中选择“添加到主屏幕”或“安装应用”。
+3. 先创建一至三项真正重要、今天能够执行的行动。
+4. 完成后立即记录；每周在“复盘”中判断行动是否有现实帮助。
+5. 定期前往“我的 → 数据中心”导出完整 JSON 备份。
 
-## 本地运行
+数据只保存在当前浏览器的 IndexedDB 中。不同设备不会自动同步；卸载应用或清除站点数据前必须先导出备份。
+
+## 当前进度
+
+| 项目 | 状态 |
+| --- | --- |
+| 每日、每周和一次性行动闭环 | 可用 |
+| XP、金币、六个成长领域与愿望奖励 | 可用 |
+| 每周复盘、28 天赛季与本地建议 | 可用 |
+| 离线安装、JSON 备份与恢复 | 可用 |
+| Obsidian 规划上下文与知识行动包 | 实验性功能 |
+| 账号、云同步和社交功能 | 不在当前范围 |
+
+当前正式版运行 V5.5.0，预览版运行 V5.5.1 候选。数据契约仍为 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。
+
+## 90 天路线图
+
+这份路线图记录项目从“个人可用”走向“他人能够独立使用”的过程。进度以真实使用、Issue 和可验证交付为准，不以新增功能数量为准。
+
+| 阶段 | 目标 | 验收信号 |
+| --- | --- | --- |
+| 第 0～3 天 | 建立开源使用前提 | MIT 许可证、README v0.1 和本路线图进入仓库 |
+| 第 4～30 天 | 让第一次使用足够顺畅 | 至少一位新使用者能独立安装、创建行动、完成记录和导出备份；把阻塞记录为 Issue |
+| 第 31～60 天 | 修复真实使用中的高频阻力 | 优先解决可靠性、移动端操作、离线与恢复问题；每项改动有复现步骤和验证结果 |
+| 第 61～90 天 | 形成可审查的维护证据 | 发布阶段总结，整理已完成 Issue、实际使用反馈、已知限制和下一阶段计划 |
+
+路线图会根据证据调整。删除或改变目标时保留 Git 历史，并在 Issue 或 Release 中说明原因。
+
+## 本地开发
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-需要在本机检查预览环境时运行 `pnpm dev:preview`。预览环境使用独立数据库，不会读取或修改正式版数据。
+预览环境运行 `pnpm dev:preview`。预览版使用独立数据库，不会读取或修改正式版数据。
 
-生产验证：
+提交变更前运行：
 
 ```bash
 pnpm test
@@ -35,16 +75,14 @@ pnpm privacy:scan
 ## 数据与隐私
 
 - IndexedDB 八张表是唯一事实来源，不需要账号或后端。
-- 全量备份使用 JSON schema 12 并兼容恢复 schema 1 至 11；评分快照、愿望图片、奖励券、逐次进度与规划草稿进入全量备份。
-- Obsidian 行动包 schema 1 继续兼容旧 28 天方案；schema 2 支持一个主原则、最多两个辅助知识、7 天试跑与 28 天正式赛季；schema 3 进一步支持评分体验目标。
-- `earth-online.obsidian-planning-context` 只导出当前阶段和最多三项关键行为定义。
-- `earth-online.obsidian-application-result` 只导出阶段周期、聚合完成数据、现实指标、人工决定和理由；不包含每日流水、XP、金币、愿望或账本。
-- 两种 JSON 使用不同入口和事务；知识行动包绝不调用全量恢复。
-- 公开仓库只包含通用代码与人物素材，不包含个人活动、账本或迁移文件。
-- `.private/` 只用于本机迁移验收，已被 Git 忽略。
+- 完整备份和 Obsidian 知识行动包是两种不同的 JSON，使用不同入口和事务，不能互相恢复。
+- 公开仓库只包含通用代码与人物素材，不包含个人活动、账本、备份或凭据。
+- 虚构交换示例位于 [`examples/`](examples/)。
 
-虚构示例：[旧 schema 1 行动包](examples/obsidian-knowledge-action-package.example.json) · [7 天行动包](examples/obsidian-application-trial.action.example.json) · [28 天行动包](examples/obsidian-application-season.action.example.json) · [规划上下文](examples/planning-context.example.json) · [阶段结果](examples/application-result.example.json)
+## 分支与部署
 
-## 部署
+`main` 是正式版来源，`ui-redesign` 是手机预览来源。GitHub Actions 分别部署到 `/life-rpg-pwa/` 和 `/life-rpg-pwa/preview/`；两个入口使用不同的 IndexedDB、manifest 和 Service Worker 范围。
 
-`main` 是正式版来源，`ui-redesign` 是手机预览来源。任一分支推送后，GitHub Actions 会把正式版部署到 `/life-rpg-pwa/`，把预览版部署到 `/life-rpg-pwa/preview/`。两个入口使用不同的 IndexedDB、manifest 和 Service Worker 范围。
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。你可以使用、修改和分发代码，但须保留原版权和许可声明。

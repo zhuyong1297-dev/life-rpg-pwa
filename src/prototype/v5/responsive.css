@@ -1,0 +1,283 @@
+@media (hover: hover) and (pointer: fine) {
+  .v5-preview-shell :is(
+    .v5-page-header > button,
+    .v5-primary-button,
+    .v5-focus-actions .primary,
+    .primary-action
+  ):not(:disabled):hover {
+    border-color: var(--v5-green-hover);
+    background: var(--v5-green-hover);
+  }
+
+  .v5-preview-shell :is(
+    .v5-focus-actions .secondary,
+    .v5-timeline-row > button,
+    .v5-compact-action > button,
+    .v5-weekly-actions button,
+    .v5-drawer-row-actions button,
+    .v5-list-dialog > header button,
+    .secondary-action,
+    .icon-button
+  ):not(:disabled):hover {
+    border-color: var(--v5-interactive-border);
+    background: var(--v5-interactive-hover);
+    color: var(--v5-green);
+  }
+
+  .v5-preview-shell :is(
+    .v5-feature-row,
+    .v5-plan-entry,
+    .v5-domain-card,
+    .v5-completed-summary,
+    .feature-summary,
+    .activity-management-summary,
+    .season-summary,
+    .next-season-plan
+  ):not(:disabled):hover {
+    border-color: var(--v5-interactive-border);
+    background: var(--v5-interactive-hover);
+  }
+
+  .v5-feature-row:hover > svg:last-child,
+  .v5-plan-entry:hover > svg:last-child,
+  .v5-completed-summary:hover > svg:last-child,
+  .v5-domain-card:hover > div:first-child > svg:last-child,
+  .v5-preview-shell :is(.feature-summary, .activity-management-summary, .season-summary):hover > svg:last-child {
+    transform: translateX(2px);
+  }
+
+  .v5-preview-shell :is(
+    .v5-text-button,
+    .v5-feedback button,
+    .text-action,
+    .weekly-detail-link,
+    .weekly-detail-button,
+    .weekly-view-all
+  ):not(:disabled):hover {
+    color: var(--v5-green-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .v5-preview-shell :is(
+    .v5-mobile-navigation button,
+    .v5-desktop-rail nav button,
+    .nav-item
+  ):not(.active):not(:disabled):hover {
+    background: var(--v5-interactive-hover);
+    color: var(--v5-green);
+  }
+
+  .v5-preview-shell .segmented-control button:not(.selected):not(:disabled):hover,
+  .v5-drawer-tabs button:not(.active):not(:disabled):hover {
+    background: var(--v5-interactive-hover);
+    color: var(--v5-green);
+  }
+}
+
+@media (max-width: 350px) {
+  .v5-preview-shell .main-content {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .v5-status-strip {
+    grid-template-columns: 62px minmax(0, 1fr) 52px;
+    gap: 5px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .v5-status-strip strong {
+    font-size: 11px;
+  }
+
+  .v5-focus-action {
+    padding: 10px;
+  }
+
+  .v5-focus-actions {
+    gap: 6px;
+  }
+
+  .v5-focus-actions button {
+    padding-right: 4px;
+    padding-left: 4px;
+    font-size: 11px;
+  }
+
+  .v5-feedback {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .v5-feedback-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  .v5-weekly-row {
+    grid-template-columns: 1fr;
+  }
+
+  .v5-weekly-actions {
+    justify-content: flex-end;
+  }
+}
+
+@media (min-width: 760px) {
+  .v5-preview-shell {
+    padding-left: 224px;
+  }
+
+  .v5-preview-shell.secondary-route {
+    padding-left: 224px;
+  }
+
+  .v5-preview-shell .main-content,
+  .v5-preview-shell.secondary-route .main-content {
+    padding: 30px 28px 64px;
+  }
+
+  .v5-mobile-navigation {
+    display: none;
+  }
+
+  .v5-desktop-rail {
+    position: fixed;
+    z-index: 30;
+    inset: 0 auto 0 0;
+    display: flex;
+    width: 224px;
+    flex-direction: column;
+    gap: 18px;
+    padding: 22px 14px;
+    border-right: 1px solid var(--v5-line);
+    background: var(--v5-surface);
+  }
+
+  .v5-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+    padding: 0 8px;
+    color: var(--v5-green);
+  }
+
+  .v5-brand > div {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .v5-brand strong {
+    color: var(--v5-ink);
+    font-size: 14px;
+  }
+
+  .v5-brand span {
+    color: var(--v5-muted);
+    font-size: 10px;
+  }
+
+  .v5-desktop-rail nav {
+    display: grid;
+    gap: 4px;
+  }
+
+  .v5-desktop-rail nav button {
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--v5-muted);
+    cursor: pointer;
+  }
+
+  .v5-desktop-rail nav button.active {
+    background: var(--v5-green-soft);
+    color: var(--v5-green);
+    font-weight: 700;
+  }
+
+  .v5-data-note {
+    display: flex;
+    margin-top: auto;
+    flex-direction: column;
+    padding: 12px;
+    border: 1px solid var(--v5-line);
+    border-radius: 7px;
+  }
+
+  .v5-data-note strong {
+    font-size: 11px;
+  }
+
+  .v5-data-note span {
+    color: var(--v5-muted);
+    font-size: 10px;
+  }
+
+  .v5-today-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(250px, 300px);
+    justify-content: center;
+    gap: 32px;
+  }
+
+  .v5-growth-layout {
+    width: min(100%, 1052px);
+    margin: 0 auto;
+  }
+
+  .v5-growth-overview {
+    grid-template-columns: minmax(0, 720px) minmax(250px, 300px);
+    align-items: start;
+    gap: 32px;
+  }
+
+  .v5-today-aside {
+    position: sticky;
+    top: 30px;
+    display: grid;
+    align-self: start;
+    gap: 12px;
+  }
+
+  .v5-today-aside .v5-traveler-summary {
+    padding: 16px;
+    border-radius: 8px;
+    background: var(--v5-green-dark);
+  }
+
+  .v5-protocol-backdrop {
+    place-items: center;
+  }
+
+  .v5-list-backdrop {
+    place-items: center;
+    padding: 24px;
+  }
+
+  .v5-list-dialog {
+    width: min(100%, 680px);
+    max-height: min(80vh, 760px);
+    padding: 18px;
+    border-radius: 8px;
+    box-shadow: 0 20px 54px rgb(21 35 30 / 22%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v5-preview-shell *,
+  .v5-preview-shell *::before,
+  .v5-preview-shell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    transform: none !important;
+  }
+}

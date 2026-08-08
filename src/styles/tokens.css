@@ -1,0 +1,117 @@
+/* Hallmark · genre: modern-minimal · macrostructure: field-journal app · design-system: DESIGN.md · designed-as-app */
+:root {
+  --font-display: "Noto Serif SC", "Songti SC", SimSun, serif;
+  --font-body: Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --control-min: 44px;
+  --control-primary: 48px;
+  --duration-short: 140ms;
+  --duration-medium: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --z-nav: 30;
+  --z-notice: 20;
+  --z-sticky: 12;
+  --z-overlay: 50;
+  --z-feedback: 60;
+  --z-modal: 70;
+  --z-nested-modal: 80;
+  --color-paper: #f2f5f3;
+  --color-surface: #ffffff;
+  --color-paper-2: #edf2ef;
+  --color-ink: #18211d;
+  --color-muted: #647169;
+  --color-rule: #d7dfda;
+  --color-rule-strong: #b7c3bc;
+  --color-accent: #176149;
+  --color-accent-strong: #104735;
+  --color-accent-soft: #dceee6;
+  --color-accent-rule: #adcabd;
+  --color-accent-mid: #66a98e;
+  --color-on-accent: #ffffff;
+  --color-reward: #9b620f;
+  --color-reward-bright: #d99b34;
+  --color-reward-soft: #fff0d5;
+  --color-reward-rule: #d4ad66;
+  --color-reward-ink: #80510c;
+  --color-reward-deep: #6a4106;
+  --color-reward-emphasis: #9b6a08;
+  --color-reward-highlight: #fffaf0;
+  --color-info: #356f9f;
+  --color-info-soft: #e4eff8;
+  --color-info-rule: #b8cfe2;
+  --color-danger: #b94f47;
+  --color-danger-ink: #8a2e28;
+  --color-danger-soft: #fae8e5;
+  --color-danger-rule: #e2aaa5;
+  --color-violet: #6d5b92;
+  --color-violet-soft: #eee9f6;
+  --color-domain-relationship: #a05f27;
+  --color-domain-life: #9a641e;
+  --color-domain-mindset: #4d7d42;
+  --color-track: #dfe6e2;
+  --color-control: #e7ece9;
+  --color-control-off: #dce4e0;
+  --color-surface-highlight: #f8fbf9;
+  --color-night: #1c3029;
+  --color-night-raised: #29433a;
+  --color-night-rule: #3b574d;
+  --color-night-muted: #b8cbc4;
+  --color-night-reward: #dfbd7f;
+  --color-focus: rgba(53, 111, 159, 0.42);
+  --color-warning-ink: #67450d;
+  --color-warning-paper: #fff8e8;
+  --color-warning-rule: #e6c575;
+  --color-danger-paper: #fff4f2;
+  --color-scrim: rgba(17, 27, 23, 0.58);
+  --color-sticky-paper: rgba(242, 245, 243, 0.96);
+  --shadow-raised: 0 8px 24px rgba(30, 46, 39, 0.09);
+  --shadow-floating: 0 12px 30px rgba(30, 46, 39, 0.11);
+  --shadow-control: 0 1px 4px rgba(29, 40, 36, 0.12);
+  --shadow-accent: 0 5px 14px rgba(16, 71, 53, 0.25);
+  --shadow-celebration: 0 18px 44px rgba(10, 28, 22, 0.34);
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --canvas: var(--color-paper);
+  --surface: var(--color-surface);
+  --surface-soft: var(--color-paper-2);
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --line: var(--color-rule);
+  --forest: var(--color-accent);
+  --forest-strong: var(--color-accent-strong);
+  --forest-soft: var(--color-accent-soft);
+  --gold: var(--color-reward);
+  --gold-soft: var(--color-reward-soft);
+  --blue: var(--color-info);
+  --blue-soft: var(--color-info-soft);
+  --coral: var(--color-danger);
+  --coral-soft: var(--color-danger-soft);
+  --violet: var(--color-violet);
+  --violet-soft: var(--color-violet-soft);
+  --shadow: var(--shadow-floating);
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; overflow-x: clip; background: var(--canvas); }
+body { margin: 0; min-width: 320px; min-height: 100vh; overflow-x: clip; background: var(--canvas); font-variant-numeric: tabular-nums; }
+button, input, select, textarea { font: inherit; letter-spacing: 0; }
+button { min-height: var(--control-min); color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+button[aria-busy="true"] { cursor: progress; }
+button[aria-busy="true"] svg { animation: control-loading 900ms linear infinite; }
+svg { width: 20px; height: 20px; flex: 0 0 auto; }

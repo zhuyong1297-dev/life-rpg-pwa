@@ -44,6 +44,10 @@ jobs:
       - name: Test stable
         working-directory: stable
         run: pnpm test
+      - name: Check stable context budget
+        if: github.ref == 'refs/heads/main'
+        working-directory: stable
+        run: pnpm context:check
       - name: Build stable
         working-directory: stable
         run: pnpm build
@@ -56,6 +60,9 @@ jobs:
       - name: Test preview
         working-directory: preview
         run: pnpm test
+      - name: Check preview context budget
+        working-directory: preview
+        run: pnpm context:check
       - name: Build preview
         working-directory: preview
         run: pnpm build:preview
