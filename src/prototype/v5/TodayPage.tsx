@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Target } from 'lucide-react'
 import {
   calculateIncrementalProgress,
@@ -55,6 +55,8 @@ export function V5TodayPage({
   onEditRating,
   onOpenCoach,
   onSetTodayPriority,
+  quickStart,
+  newcomerProgress,
 }: {
   today: string
   stats: V5Stats
@@ -82,6 +84,8 @@ export function V5TodayPage({
   onEditRating: (activityId: string) => void
   onOpenCoach: () => void
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
+  quickStart?: ReactNode
+  newcomerProgress?: ReactNode
 }) {
   const [minute, setMinute] = useState(() => currentMinute())
   const [preferredId, setPreferredId] = useState<string>()
@@ -139,6 +143,20 @@ export function V5TodayPage({
     setPreferredId(incompleteCandidates[(currentIndex + 1) % incompleteCandidates.length].id)
   }
 
+  if (quickStart) {
+    return (
+      <div className="v5-page v5-today-layout v5-onboarding-layout">
+        <section className="v5-today-primary">
+          <V5PageHeader eyebrow="地球 Online · 本地成长教练" title="今天" />
+          {quickStart}
+        </section>
+        <aside className="v5-today-aside">
+          <V5TravelerSummary level={level} totalXp={stats.totalXp} />
+        </aside>
+      </div>
+    )
+  }
+
   return (
     <div className="v5-page v5-today-layout">
       <section className="v5-today-primary">
@@ -152,6 +170,7 @@ export function V5TodayPage({
           coins={stats.coins}
           dailyRewardSummary={dailyRewardSummary}
         />
+        {newcomerProgress}
         <V5PlanEntry
           seasonTitle={seasonTitle}
           coachPlanLabel={coachPlanLabel}

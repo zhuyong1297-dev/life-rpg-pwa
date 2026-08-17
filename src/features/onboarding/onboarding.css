@@ -1,0 +1,405 @@
+.v5-quick-start {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--v5-line, #d7e0db);
+  border-radius: 8px;
+  background: var(--v5-surface, #fff);
+}
+
+.v5-quick-start header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--v5-green, #146b50);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.v5-quick-start h2 {
+  margin: 5px 0 4px;
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.v5-quick-start header p,
+.v5-quick-start-summary span,
+.v5-onboarding-footnote,
+.v5-install-guide p,
+.v5-newcomer-progress p {
+  margin: 0;
+  color: var(--v5-muted, #66736d);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.v5-quick-start form {
+  display: grid;
+  gap: 14px;
+}
+
+.v5-onboarding-field {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.v5-onboarding-field input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--v5-line, #d7e0db);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--v5-ink, #15231e);
+  font: inherit;
+}
+
+.v5-domain-choice {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.v5-domain-choice legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.v5-domain-choice label {
+  position: relative;
+  display: grid;
+  min-height: 48px;
+  align-content: center;
+  padding: 7px 6px;
+  border: 1px solid var(--v5-line, #d7e0db);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.v5-domain-choice label.selected {
+  border-color: var(--v5-green, #146b50);
+  background: var(--v5-green-soft, #dff1e8);
+}
+
+.v5-domain-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.v5-domain-choice label:has(input:focus-visible) {
+  outline: 3px solid var(--v5-focus, #5b9b82);
+  outline-offset: 2px;
+}
+
+.v5-domain-choice strong {
+  text-align: center;
+  font-size: 13px;
+}
+
+.v5-domain-choice-description {
+  min-height: 18px;
+  margin: -8px 0 0;
+  color: var(--v5-muted, #66736d);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.v5-quick-start-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--v5-green, #146b50);
+  background: #f2f7f4;
+}
+
+.v5-quick-start-summary strong {
+  font-size: 13px;
+}
+
+.v5-onboarding-primary,
+.v5-onboarding-secondary,
+.v5-install-guide button,
+.v5-newcomer-progress button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--v5-green, #146b50);
+  border-radius: 7px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.v5-onboarding-primary,
+.v5-install-guide button,
+.v5-newcomer-progress button:not(.icon) {
+  background: var(--v5-green, #146b50);
+  color: #fff;
+}
+
+.v5-onboarding-primary:disabled {
+  border-color: #b9c3be;
+  background: #b9c3be;
+  cursor: not-allowed;
+}
+
+.v5-onboarding-secondary {
+  width: 100%;
+  background: #fff;
+  color: var(--v5-green, #146b50);
+}
+
+.v5-quick-start-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.v5-quick-start-links button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v5-green, #146b50);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.v5-onboarding-error {
+  margin: 0;
+  color: #a52a2a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.v5-onboarding-error span {
+  overflow-wrap: anywhere;
+}
+
+.v5-onboarding-dialog {
+  width: min(calc(100% - 24px), 480px);
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v5-ink, #15231e);
+}
+
+.v5-onboarding-dialog::backdrop {
+  background: rgb(10 24 19 / 58%);
+}
+
+.v5-onboarding-dialog > section {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100dvh - 24px);
+  padding: 18px 18px max(18px, env(safe-area-inset-bottom));
+  overflow: auto;
+  background: var(--v5-surface, #fff);
+}
+
+.v5-onboarding-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.v5-onboarding-dialog h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.v5-onboarding-dialog header button,
+.v5-newcomer-progress button.icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v5-ink, #15231e);
+  cursor: pointer;
+  place-items: center;
+}
+
+.v5-onboarding-lead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #c8d9d0;
+  border-radius: 7px;
+  background: #f1f7f4;
+}
+
+.v5-onboarding-lead svg {
+  color: var(--v5-green, #146b50);
+}
+
+.v5-onboarding-lead p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.v5-onboarding-steps {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 24px;
+  color: var(--v5-muted, #66736d);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.v5-data-guide-list {
+  display: grid;
+  gap: 2px;
+}
+
+.v5-data-guide-list > div {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--v5-line, #d7e0db);
+}
+
+.v5-data-guide-list svg {
+  color: var(--v5-green, #146b50);
+}
+
+.v5-data-guide-list span {
+  display: grid;
+  gap: 2px;
+}
+
+.v5-data-guide-list small {
+  color: var(--v5-muted, #66736d);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.v5-install-guide {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 14px;
+  border: 1px solid var(--v5-line, #d7e0db);
+  border-radius: 8px;
+  background: var(--v5-surface, #fff);
+}
+
+.v5-install-guide > svg {
+  color: var(--v5-green, #146b50);
+}
+
+.v5-install-guide > div {
+  min-width: 0;
+}
+
+.v5-install-guide strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.v5-install-guide button,
+.v5-install-guide small {
+  grid-column: 1 / -1;
+}
+
+.v5-install-guide.compact {
+  align-items: center;
+}
+
+.v5-newcomer-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #bdd8ca;
+  border-radius: 7px;
+  background: #eef7f2;
+}
+
+.v5-newcomer-progress-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.v5-newcomer-progress-copy > span {
+  color: var(--v5-green, #146b50);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.v5-newcomer-progress-copy strong {
+  font-size: 13px;
+}
+
+.v5-newcomer-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .v5-domain-choice label:hover,
+  .v5-onboarding-secondary:hover,
+  .v5-quick-start-links button:hover,
+  .v5-onboarding-dialog header button:hover,
+  .v5-newcomer-progress button.icon:hover {
+    border-color: var(--v5-interactive-border, #a9cbbb);
+    background: var(--v5-interactive-hover, #e8f3ed);
+    color: var(--v5-green, #146b50);
+  }
+
+  .v5-onboarding-primary:not(:disabled):hover,
+  .v5-install-guide button:not(:disabled):hover,
+  .v5-newcomer-progress button:not(.icon):hover {
+    border-color: var(--v5-green-hover, #0f5a43);
+    background: var(--v5-green-hover, #0f5a43);
+  }
+}
+
+@media (max-width: 350px) {
+  .v5-newcomer-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .v5-newcomer-progress-actions {
+    justify-content: space-between;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v5-quick-start *,
+  .v5-onboarding-dialog *,
+  .v5-install-guide *,
+  .v5-newcomer-progress * {
+    transition: none !important;
+  }
+}

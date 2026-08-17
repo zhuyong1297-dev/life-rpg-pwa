@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Activity as ActivityIcon, Award, Bell, BellOff, BookOpen, Brain, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Coins, Crosshair, Download, Dumbbell, FileJson, Gift, Home, History, Leaf, ListTodo, Pause, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, ShieldCheck, Star, Target, Trash2, TrendingUp, Upload, UserRound, Vibrate, Volume2, X, Zap, } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from '../backup'
-import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createActivity, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
+import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
 import { addDays, applicationDecisions, coachBehaviorRoleLabels, CoachPlanDraftSchema, createCoachPlanDraft, domainLabel, calculateStats, calculateIncrementalProgress, difficulties, growthDomainDetails, growthDomains, legacyDomainSuggestions, getCharacterStage, getCharacterStageName, getCompletionTierGoal, getLevel, getLevelReport, getJourneyMonths, getMilestoneVoucherCost, getNextVoucherLevel, getTotalXpForLevel, getTierAchievement, getTierCount, getTierLevels, getTierReward, getIncrementalCycleGoal, identityMessage, formatDurationSeconds, isDurationGoal, isRatingGoal, isTieredGoal, effectiveGameDate, localDate, nextGameDayBoundary, rewardTable, reviewDecisions, startOfWeek, formatTierGoalValue, getRewardPriceSuggestions, tierLabels, tierLevels, TieredGoalSchema, RatingGoalSchema, type Activity, type ApplicationDecision, type ApplicationTrial, type ApplicationTrialRestart, type CoachBehaviorRole, type CoachPlanBehavior, type CoachPlanDraft, type GrowthDomain, type Completion, type Difficulty, type FeedbackIntensity, type CombinedMode, type LedgerEvent, type LevelSystem, type Preferences, type Reward, type RewardClaim, type ReviewDecision, type TierLevel, type TierMetric, type TieredGoal, type RatingGoal, type TimeInputUnit, type WeeklyReview, type JourneyEntry, type JourneyMonth, } from '../domain'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from '../SeasonExperience'
@@ -10,9 +9,10 @@ import { KnowledgeActionImportModal } from '../KnowledgeActionImportModal'
 import { importKnowledgeActionPackage, previewKnowledgeActionPackage, type KnowledgeActionPackagePreview, } from '../knowledge-action-package'
 import { applicationResultFilename, createPlanningContextPackage, createSeasonResultPackage, createTrialResultPackage, planningContextFilename, } from '../application-bridge'
 import { V5GrowthPage, V5Navigation, V5TodayPage, getV5DailyRewardSummary, type V5Page, } from '../prototype/V5Experience'
-
+import { FeedbackPage } from '../prototype/v5/FeedbackPage'
 import { useAppController } from './useAppController'
-import { navigateTo } from './model'
+import { useOnboardingExperience } from './useOnboardingExperience'
+import { navigateBackTo, navigateTo } from './model'
 import { errorMessage } from './shared-ui'
 import { GrowthDomainMigration } from './GrowthDomainMigration'
 import { CoachPlanScreen } from './CoachPlan'
@@ -25,7 +25,7 @@ import { ArchiveActivityModal, CompletionActionsModal, CompletionModal, DeleteAc
 
 const isPreview = import.meta.env.MODE === 'preview'
 const useV5Experience = !(navigator.webdriver && new URLSearchParams(window.location.search).has('legacy-test'))
-const displayVersion = isPreview ? 'V5.5.1 预览版' : 'V5.5.1'
+const displayVersion = isPreview ? 'V5.6.0 预览版' : 'V5.6.0'
 
 export function AppShell() {
   const {
@@ -80,6 +80,7 @@ export function AppShell() {
     targetRewardId,
     gameDayBoundaryActivatedAt,
     growthDomainSystem,
+    onboarding, onboardingSummary, newcomerEligible,
     coachDraft,
     applicationTrial,
     applicationTrialRestart,
@@ -103,6 +104,18 @@ export function AppShell() {
     requestCompletion,
     undoLast,
   } = useAppController()
+  const onboardingExperience = useOnboardingExperience({
+    ready,
+    activityCount: snapshot.activities.length, newcomerEligible, completionFeedbackActive: Boolean(feedback),
+    onboarding,
+    summary: onboardingSummary,
+    refresh,
+    onError: setErrorNotice,
+    onNotice: (message) => setNotice(message, 'success'),
+    onOpenFullCreate: () => setCreateOpen(true),
+    onOpenFeedback: () => navigateTo('profile/feedback'),
+    appVersion: displayVersion,
+  })
 
   if (!ready) {
     return (
@@ -138,7 +151,7 @@ export function AppShell() {
       : page === 'settings'
         ? 'profile'
         : page
-  const useSecondaryLayout = secondaryPage === 'coach-plan' || secondaryPage === 'data'
+  const useSecondaryLayout = secondaryPage === 'coach-plan' || secondaryPage === 'data' || secondaryPage === 'feedback'
   const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', useV5Experience ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
 
   return (
@@ -216,10 +229,16 @@ export function AppShell() {
           <DataCenterPage
             snapshot={snapshot}
             applicationTrial={applicationTrial}
-            onBack={() => navigateTo('profile')}
+            onBack={() => navigateBackTo('profile')}
             onKnowledgePackageFile={(file) => void openKnowledgePackagePreview(file)}
             onRefresh={refresh}
             onNotice={setNotice}
+          />
+        ) : secondaryPage === 'feedback' ? (
+          <FeedbackPage
+            summary={onboardingExperience.feedbackSummary}
+            onBack={() => navigateBackTo('profile')}
+            onFeedbackAction={onboardingExperience.markFeedbackCompleted}
           />
         ) : secondaryPage === 'rewards' ? (
           <RewardExperience
@@ -293,6 +312,8 @@ export function AppShell() {
               activeCompletion={activeCompletion}
               seasonTitle={activeSeason?.title ?? (applicationTrial?.status === 'active' ? `7 天试跑 · ${applicationTrial.title}` : undefined)}
               coachPlanLabel={coachDraft ? '继续规划' : '规划一个 28 天目标'}
+              quickStart={createOpen ? undefined : onboardingExperience.quickStart}
+              newcomerProgress={onboardingExperience.newcomerProgress}
               onComplete={requestCompletion}
               onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
               onCompleted={setCompletionActivity}
@@ -467,6 +488,8 @@ export function AppShell() {
               await refresh()
             }}
             onOpenData={() => navigateTo('profile/data')}
+            onOpenInstallHelp={onboardingExperience.openDataGuide}
+            onOpenFeedback={() => navigateTo('profile/feedback')}
             onNotice={setNotice}
           />
         )}
@@ -482,11 +505,11 @@ export function AppShell() {
       )}
       {createOpen && (
         <CreateActivityModal
-          today={today}
+          today={today} initialIsKey={useV5Experience && newcomerEligible && !onboarding?.startedOn}
           onClose={() => setCreateOpen(false)}
           onCreate={async (activity) => {
             try {
-              await createActivity(activity)
+              await onboardingExperience.createConfiguredActivity(activity)
               await refresh()
               setCreateOpen(false)
             } catch (error) {
@@ -769,6 +792,7 @@ export function AppShell() {
           }}
         />
       )}
+      {onboardingExperience.overlays}
       {feedback && (!useV5Experience || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
     </div>
   )

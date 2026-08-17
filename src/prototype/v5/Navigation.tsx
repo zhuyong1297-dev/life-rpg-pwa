@@ -26,11 +26,11 @@ export function V5Navigation({
       <aside className="v5-desktop-rail">
         <div className="v5-brand">
           <Sparkles size={22} />
-          <div><strong>地球 Online</strong><span>{preview ? 'V5.5.1 预览版' : 'V5.5.1'}</span></div>
+          <div><strong>地球 Online</strong><span>{preview ? 'V5.6.0 预览版' : 'V5.6.0'}</span></div>
         </div>
         <nav aria-label="主要导航">
           {navItems.map(({ page, label, icon: Icon }) => (
-            <button className={page === active ? 'active' : ''} key={page} type="button" onClick={() => onNavigate(page)}>
+            <button className={page === active ? 'active' : ''} aria-current={page === active ? 'page' : undefined} key={page} type="button" onClick={() => onNavigate(page)}>
               <Icon size={20} />
               {label}
             </button>
@@ -44,7 +44,7 @@ export function V5Navigation({
       </aside>
       <nav className="v5-mobile-navigation" aria-label="主要导航">
         {navItems.map(({ page, label, icon: Icon }) => (
-          <button className={page === active ? 'active' : ''} key={page} type="button" onClick={() => onNavigate(page)}>
+          <button className={page === active ? 'active' : ''} aria-current={page === active ? 'page' : undefined} key={page} type="button" onClick={() => onNavigate(page)}>
             <Icon size={20} />
             <span>{label}</span>
           </button>

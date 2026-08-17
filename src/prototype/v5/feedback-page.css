@@ -1,0 +1,234 @@
+.v5-feedback-page {
+  max-width: 720px;
+}
+
+.v5-feedback-page-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--v5-line);
+}
+
+.v5-feedback-page-header > button {
+  min-width: 76px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--v5-line);
+  border-radius: 7px;
+  background: var(--v5-surface);
+  color: var(--v5-green);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.v5-feedback-page-header span {
+  color: var(--v5-green);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.v5-feedback-page-header h1 {
+  margin: 2px 0 3px;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.v5-feedback-page-header p,
+.v5-feedback-summary p,
+.v5-feedback-privacy {
+  margin: 0;
+  color: var(--v5-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.v5-feedback-form {
+  display: grid;
+  gap: 18px;
+  padding: 20px 0;
+}
+
+.v5-feedback-field {
+  display: grid;
+  gap: 7px;
+  color: var(--v5-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.v5-feedback-field > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.v5-feedback-field small {
+  color: var(--v5-muted);
+  font-weight: 400;
+}
+
+.v5-feedback-field :is(select, textarea),
+.v5-feedback-manual-copy {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 12px;
+  border: 1px solid var(--v5-line);
+  border-radius: 7px;
+  background: var(--v5-surface);
+  color: var(--v5-ink);
+  font: inherit;
+  resize: vertical;
+}
+
+.v5-feedback-rating {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.v5-feedback-rating legend {
+  margin-bottom: 7px;
+  color: var(--v5-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.v5-feedback-rating > div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
+  gap: 6px;
+}
+
+.v5-feedback-rating label {
+  position: relative;
+  cursor: pointer;
+}
+
+.v5-feedback-rating input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.v5-feedback-rating span {
+  display: grid;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid var(--v5-line);
+  border-radius: 7px;
+  background: var(--v5-surface);
+  color: var(--v5-muted);
+  font-weight: 700;
+}
+
+.v5-feedback-rating input:checked + span {
+  border-color: var(--v5-green);
+  background: var(--v5-green-soft);
+  color: var(--v5-green);
+}
+
+.v5-feedback-rating input:focus-visible + span {
+  outline: 3px solid var(--v5-focus);
+  outline-offset: 2px;
+}
+
+.v5-feedback-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--v5-interactive-border);
+  border-radius: 7px;
+  background: var(--v5-interactive-hover);
+}
+
+.v5-feedback-summary > svg {
+  color: var(--v5-green);
+}
+
+.v5-feedback-summary strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.v5-feedback-send,
+.v5-feedback-copy-actions button {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 7px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.v5-feedback-send {
+  border: 1px solid var(--v5-green);
+  background: var(--v5-green);
+  color: #fff;
+}
+
+.v5-feedback-copy-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.v5-feedback-copy-actions button {
+  border: 1px solid var(--v5-line);
+  background: var(--v5-surface);
+  color: var(--v5-green);
+}
+
+.v5-feedback-copy-status {
+  min-height: 18px;
+  margin: -10px 0 0;
+  color: var(--v5-green);
+  font-size: 12px;
+}
+
+.v5-feedback-manual-copy {
+  margin-top: -10px;
+  font-size: 12px;
+}
+
+@media (hover: hover) {
+  .v5-feedback-page-header > button:hover,
+  .v5-feedback-copy-actions button:hover,
+  .v5-feedback-rating label:hover span {
+    border-color: var(--v5-interactive-border);
+    background: var(--v5-interactive-hover);
+  }
+
+  .v5-feedback-send:hover {
+    background: var(--v5-green-hover);
+  }
+}
+
+@media (max-width: 360px) {
+  .v5-feedback-page-header > button {
+    width: 44px;
+    min-width: 44px;
+    padding-inline: 0;
+    font-size: 0;
+  }
+
+  .v5-feedback-copy-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v5-feedback-page * {
+    transition: none !important;
+  }
+}

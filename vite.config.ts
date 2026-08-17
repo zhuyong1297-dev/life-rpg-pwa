@@ -5,10 +5,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig(({ mode }) => {
   const isPreview = mode === 'preview'
   const base = isPreview ? '/life-rpg-pwa/preview/' : '/life-rpg-pwa/'
+  const siteUrl = `https://zhuyong1297-dev.github.io${base}`
 
   return {
     base,
     plugins: [
+      {
+        name: 'social-metadata',
+        transformIndexHtml: (html) => html
+          .replaceAll('__SOCIAL_URL__', siteUrl)
+          .replaceAll('__SOCIAL_IMAGE__', `${siteUrl}share-preview.png`),
+      },
       react(),
       VitePWA({
         registerType: 'autoUpdate',
@@ -23,7 +30,8 @@ export default defineConfig(({ mode }) => {
           scope: base,
           lang: 'zh-CN',
           icons: [
-            { src: 'app-icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any maskable' },
+            { src: 'app-icon.png', sizes: '1254x1254', type: 'image/png', purpose: 'any' },
+            { src: 'app-icon.png', sizes: '1254x1254', type: 'image/png', purpose: 'maskable' },
           ],
         },
         workbox: {

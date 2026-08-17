@@ -1,9 +1,13 @@
 import {
   ActivitySchema,
+  MetaSchema,
+  OnboardingStateSchema,
   type Activity,
   CompletionSchema,
   type Completion,
   type Difficulty,
+  type GrowthDomain,
+  isNewcomerDataFootprintEmpty,
   addDays,
   isIncrementalGoal,
   startOfWeek,
@@ -69,16 +73,104 @@ async function countOpenKeyActivities(database: LifeRpgDatabase, excludeId?: str
     .filter((item) => item.id !== excludeId && item.isKey && item.enabled && !item.archivedAt && (item.type === 'habit' || !completedTaskIds.has(item.id)))
     .count()
 }
+
+function parseNewActivity(input: NewActivity, now = new Date()) {
+  return ActivitySchema.parse({ ...input, id: crypto.randomUUID(), revision: 1, createdAt: now.toISOString() })
+}
+
+async function addActivityRecord(activity: Activity, database: LifeRpgDatabase) {
+  if (activity.enabled && activity.isKey) {
+    const keyCount = await countOpenKeyActivities(database)
+    if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
+  }
+  await database.activities.add(activity)
+}
+
 export async function createActivity(input: NewActivity, database = db) {
-  const activity = ActivitySchema.parse({ ...input, id: crypto.randomUUID(), revision: 1, createdAt: new Date().toISOString() })
+  const activity = parseNewActivity(input)
   await database.transaction('rw', database.activities, database.completions, database.settings, async () => {
-    if (activity.enabled && activity.isKey) {
-      const keyCount = await countOpenKeyActivities(database)
-      if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
-    }
-    await database.activities.add(activity)
+    await addActivityRecord(activity, database)
   })
   return activity
+}
+
+export interface FirstOnboardingActivityInput {
+  title: string
+  domain: GrowthDomain
+}
+
+export async function createFirstOnboardingConfiguredActivity(
+  input: NewActivity,
+  database = db,
+  now = new Date(),
+) {
+  return database.transaction('rw', [
+    database.activities,
+    database.completions,
+    database.ledgerEvents,
+    database.rewards,
+    database.rewardClaims,
+    database.weeklyReviews,
+    database.seasons,
+    database.settings,
+  ], async () => {
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta.value : {}
+    if (meta.onboarding?.startedOn && meta.onboarding.primaryActivityId) {
+      const existing = await database.activities.get(meta.onboarding.primaryActivityId)
+      if (!existing) throw new Error('新手体验的首项行动不存在')
+      return { activity: existing, onboarding: meta.onboarding, created: false }
+    }
+    const [activityCount, completionCount, ledgerEventCount, rewardCount, rewardClaimCount, weeklyReviewCount, seasonCount, settings] = await Promise.all([
+      database.activities.count(),
+      database.completions.count(),
+      database.ledgerEvents.count(),
+      database.rewards.count(),
+      database.rewardClaims.count(),
+      database.weeklyReviews.count(),
+      database.seasons.count(),
+      database.settings.toArray(),
+    ])
+    if (!isNewcomerDataFootprintEmpty({
+      activityCount, completionCount, ledgerEventCount, rewardCount, rewardClaimCount, weeklyReviewCount, seasonCount, settings,
+    })) throw new Error('快速创建仅适用于没有既有成长数据的新用户')
+
+    const activity = parseNewActivity(input, now)
+    await addActivityRecord(activity, database)
+
+    const activatedAt = now.toISOString()
+    const onboarding = OnboardingStateSchema.parse({
+      ...meta.onboarding,
+      startedOn: await currentGameDate(database, now),
+      primaryActivityId: activity.id,
+    })
+    await database.settings.put({
+      key: 'meta',
+      value: MetaSchema.parse({
+        ...meta,
+        growthDomainSystem: meta.growthDomainSystem ?? { version: 1, activatedAt },
+        onboarding,
+      }),
+    })
+    return { activity, onboarding, created: true }
+  })
+}
+
+export async function createFirstOnboardingActivity(
+  input: FirstOnboardingActivityInput,
+  database = db,
+  now = new Date(),
+) {
+  return createFirstOnboardingConfiguredActivity({
+    title: input.title,
+    type: 'habit',
+    domain: input.domain,
+    difficulty: '简单',
+    goal: { count: 1, unit: '次' },
+    schedule: { kind: 'daily' },
+    isKey: true,
+    enabled: true,
+  }, database, now)
 }
 
 export async function calibrateSeasonWithStableLife(
@@ -297,7 +389,7 @@ export async function permanentlyDeleteActivity(
   database = db,
 ) {
   const today = occurredOn ?? await currentGameDate(database)
-  return database.transaction('rw', database.activities, database.completions, database.weeklyReviews, async () => {
+  return database.transaction('rw', database.activities, database.completions, database.weeklyReviews, database.settings, async () => {
     const activity = await database.activities.get(activityId)
     if (!activity) return false
 
@@ -331,6 +423,18 @@ export async function permanentlyDeleteActivity(
           : item),
       }))
     if (updatedReviews.length > 0) await database.weeklyReviews.bulkPut(updatedReviews)
+
+    const storedMeta = await database.settings.get('meta')
+    if (storedMeta?.key === 'meta' && storedMeta.value.onboarding?.primaryActivityId === activityId) {
+      const { startedOn: _startedOn, primaryActivityId: _primaryActivityId, ...remainingOnboarding } = storedMeta.value.onboarding
+      await database.settings.put({
+        key: 'meta',
+        value: MetaSchema.parse({
+          ...storedMeta.value,
+          onboarding: Object.keys(remainingOnboarding).length ? remainingOnboarding : undefined,
+        }),
+      })
+    }
 
     await database.activities.delete(activityId)
     return true

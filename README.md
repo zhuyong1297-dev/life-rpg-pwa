@@ -1,12 +1,15 @@
 # 地球 Online
 
-> README v0.1 · 正式版 V5.5.0 · 预览候选 V5.5.1
+> README v0.1 · 正式版 V5.5.0 · 预览候选 V5.6.0
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它把现实行动转化为即时反馈，再通过每周复盘和 28 天成长赛季，帮助使用者判断哪些行为真的改善了生活。
 
-- 在线使用：[正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)
+![地球 Online 新用户快速创建界面](public/share-preview.png)
+
+- **立即使用：[地球 Online 正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)**
 - 尝鲜功能：[手机预览版](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
 - 稳定版本：[V5.5.0 Release](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.5.0)
+- 反馈邮箱：[zhuyong1297@gmail.com](mailto:zhuyong1297@gmail.com)
 - 问题与建议：[GitHub Issues](https://github.com/zhuyong1297-dev/life-rpg-pwa/issues)
 
 ## 它能做什么
@@ -20,13 +23,13 @@
 
 ## 怎么使用
 
-1. 用手机打开[正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)。
-2. 在浏览器菜单中选择“添加到主屏幕”或“安装应用”。
+1. 用手机的系统浏览器打开[正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)；从微信进入时，先通过右上角菜单转到系统浏览器。
+2. Android Chrome 使用“安装应用”或“添加到主屏幕”；iPhone/iPad Safari 使用“分享 → 添加到主屏幕”。
 3. 先创建一至三项真正重要、今天能够执行的行动。
 4. 完成后立即记录；每周在“复盘”中判断行动是否有现实帮助。
 5. 定期前往“我的 → 数据中心”导出完整 JSON 备份。
 
-数据只保存在当前浏览器的 IndexedDB 中。不同设备不会自动同步；卸载应用或清除站点数据前必须先导出备份。
+数据只保存在当前浏览器的 IndexedDB 中。微信、Chrome、Safari 和已安装应用可能使用彼此独立的本地存储，不会自动迁移或同步；卸载应用或清除站点数据前必须先导出备份。详细边界见[隐私说明](PRIVACY.md)。
 
 ## 当前进度
 
@@ -39,7 +42,7 @@
 | Obsidian 规划上下文与知识行动包 | 实验性功能 |
 | 账号、云同步和社交功能 | 不在当前范围 |
 
-当前正式版运行 V5.5.0，预览版运行 V5.5.1 候选。数据契约仍为 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。
+当前正式版运行 V5.5.0，预览版运行 V5.6.0 候选。数据契约仍为 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。
 
 ## 90 天路线图
 

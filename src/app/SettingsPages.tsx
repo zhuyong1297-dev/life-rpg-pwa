@@ -22,6 +22,7 @@ import {
   History,
   Leaf,
   ListTodo,
+  Mail,
   Pause,
   Pencil,
   Plus,
@@ -29,6 +30,7 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
+  Smartphone,
   Star,
   Target,
   Trash2,
@@ -192,6 +194,8 @@ export function SettingsPage({
   lastBackupAt,
   onPreferences,
   onOpenData,
+  onOpenInstallHelp,
+  onOpenFeedback,
   onNotice,
   onManage,
 }: {
@@ -201,6 +205,8 @@ export function SettingsPage({
   lastBackupAt?: string
   onPreferences: (value: Preferences) => Promise<void>
   onOpenData: () => void
+  onOpenInstallHelp: () => void
+  onOpenFeedback: () => void
   onNotice: (message: string) => void
   onManage: () => void
 }) {
@@ -317,6 +323,20 @@ export function SettingsPage({
             <small>进行中 {activityGroups.running.length} · 已暂停 {activityGroups.paused.length} · 已归档 {activityGroups.archived.length} · 已完成 {activityGroups.completed.length}</small>
           </span>
           <span className="activity-management-action">管理全部<ChevronRight aria-hidden="true" /></span>
+        </button>
+      </section>
+
+      <section className="content-section settings-section">
+        <div className="section-heading"><div><span>共同改进</span><h2>帮助与反馈</h2></div></div>
+        <button className="data-center-summary" type="button" onClick={onOpenInstallHelp}>
+          <span className="feature-summary-icon"><Smartphone aria-hidden="true" /></span>
+          <span><strong>安装与数据保存</strong><small>查看安装步骤、浏览器数据隔离和完整备份说明</small></span>
+          <span>查看说明<ChevronRight aria-hidden="true" /></span>
+        </button>
+        <button className="data-center-summary" type="button" onClick={onOpenFeedback}>
+          <span className="feature-summary-icon"><Mail aria-hidden="true" /></span>
+          <span><strong>告诉我哪里阻碍了行动</strong><small>由你确认后使用本机邮件应用发送，应用不会后台上传数据</small></span>
+          <span>填写反馈<ChevronRight aria-hidden="true" /></span>
         </button>
       </section>
 

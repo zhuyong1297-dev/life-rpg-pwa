@@ -23,6 +23,7 @@ export {
 } from './domain/goals'
 export * from './domain/growth'
 export * from './domain/journey'
+export * from './domain/onboarding'
 export * from './domain/rewards'
 export * from './domain/settings'
 export * from './domain/taxonomy'

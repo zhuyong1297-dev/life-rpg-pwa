@@ -24,7 +24,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 test('旧活动必须逐项确认并可定位遗漏项后才进入 V4', async ({ page }, testInfo) => {
   await page.goto('./?legacy-test=1')
-  await expect(page.getByRole('heading', { name: '建立六个成长领域' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
   await page.evaluate(async () => {
     const request = indexedDB.open('earth-online-v2')
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -42,6 +42,19 @@ test('旧活动必须逐项确认并可定位遗漏项后才进入 V4', async ({
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
+    })
+    const settingsTransaction = database.transaction('settings', 'readwrite')
+    const settingsStore = settingsTransaction.objectStore('settings')
+    const metaRequest = settingsStore.get('meta')
+    const meta = await new Promise<{ key: 'meta'; value: Record<string, unknown> }>((resolve, reject) => {
+      metaRequest.onsuccess = () => resolve(metaRequest.result)
+      metaRequest.onerror = () => reject(metaRequest.error)
+    })
+    const { growthDomainSystem: _growthDomainSystem, ...legacyMeta } = meta.value
+    settingsStore.put({ key: 'meta', value: legacyMeta })
+    await new Promise<void>((resolve, reject) => {
+      settingsTransaction.oncomplete = () => resolve()
+      settingsTransaction.onerror = () => reject(settingsTransaction.error)
     })
     database.close()
   })

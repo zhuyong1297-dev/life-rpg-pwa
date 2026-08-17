@@ -1,10 +1,18 @@
-# 地球 Online V5.5.1 技术规格
+# 地球 Online V5.6.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.5.1` 将 App 壳、V5 界面、领域模型、持久层和样式拆成职责模块，原入口保留为兼容 facade。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+`V5.6.0` 在现有模块化 App 壳中增加本地新手状态、环境感知安装引导和主动邮件反馈。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+
+### 新手与反馈边界
+
+- `ensureGrowthDomainsForEmptyDatabase` 只在七张用户数据表均为空且尚未启用领域体系时写入 `Meta.growthDomainSystem`；存在活动、完成、流水、奖励、奖励券、复盘或赛季时均不按全新数据库处理。
+- `Meta.onboarding` 可选保存开始游戏日、第一项活动 ID 和安装/反馈提示时间；完成天数与活跃天数始终从有效 completion 派生。
+- 快速创建调用既有活动事务，并在同一事务内建立新手状态；随机 ID、关键行为上限与活动 Schema 仍由数据层统一校验。
+- 环境检测只使用 User-Agent 的微信标识、平台提示和 `display-mode: standalone`；不保存完整 User-Agent，也不把环境信息发送到网络。
+- 邮件反馈正文由白名单字段构造：普通反馈只含版本与使用方式，七日体验才增加活跃天数和首项行动完成天数。`mailto:` 只交给本机邮件应用；复制回退只写入剪贴板，应用没有反馈 API 或遥测请求。
 
 奖励预览是纯派生视图，不写入数据库：
 

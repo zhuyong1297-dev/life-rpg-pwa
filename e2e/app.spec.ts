@@ -50,7 +50,7 @@ test('创建简单习惯后立即反馈，双击不重复发奖，撤销后可�
     return performance.now() - start
   })
   expect(elapsed).toBeLessThan(250)
-  await expect(page.getByText('+5 XP', { exact: true })).toBeVisible()
+  await expect(page.locator('.feedback-overlay').getByText('+5 XP', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: '撤销' }).click()
   await expect(page.getByText('已撤销，本次成长已用修正流水抵消')).toBeVisible()

@@ -1,5 +1,6 @@
 export * from './db/database'
 export * from './db/priority'
+export * from './db/onboarding'
 export * from './db/planning'
 export * from './db/activities'
 export * from './db/completions'

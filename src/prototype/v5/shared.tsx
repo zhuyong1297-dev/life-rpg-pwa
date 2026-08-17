@@ -13,12 +13,12 @@ export function V5PageHeader({
   eyebrow: string
   title: string
   description?: string
-  onCreate: () => void
+  onCreate?: () => void
 }) {
   return (
     <header className="v5-page-header">
       <div><span>{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>
-      <button type="button" onClick={onCreate} title="创建行动" aria-label="创建行动"><Plus size={24} /></button>
+      {onCreate && <button type="button" onClick={onCreate} title="创建行动" aria-label="创建行动"><Plus size={24} /></button>}
     </header>
   )
 }

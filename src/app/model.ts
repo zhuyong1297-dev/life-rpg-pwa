@@ -185,7 +185,7 @@ import {
 
 
 export type Page = 'today' | 'character' | 'review' | 'settings'
-export type SecondaryPage = 'coach-plan' | 'rewards' | 'data'
+export type SecondaryPage = 'coach-plan' | 'rewards' | 'data' | 'feedback'
 export type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
 
 export function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
@@ -193,6 +193,7 @@ export function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
   if (path === 'coach/plan') return { page: 'today', secondary: 'coach-plan' }
   if (path === 'rewards') return { page: 'character', secondary: 'rewards' }
   if (path === 'profile/data') return { page: 'settings', secondary: 'data' }
+  if (path === 'profile/feedback') return { page: 'settings', secondary: 'feedback' }
   if (path === 'growth') return { page: 'character' }
   if (path === 'profile') return { page: 'settings' }
   if (path === 'character' || path === 'review' || path === 'settings') return { page: path }
@@ -201,8 +202,15 @@ export function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
 
 export function navigateTo(path: string, replace = false) {
   const url = `${window.location.pathname}${window.location.search}#/${path}`
-  if (replace) window.history.replaceState(null, '', url)
-  else window.location.hash = `/${path}`
+  const state = { ...window.history.state, earthOnlineRoute: true }
+  if (replace) window.history.replaceState(state, '', url)
+  else window.history.pushState(state, '', url)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
+
+export function navigateBackTo(path: string) {
+  if (window.history.state?.earthOnlineRoute) window.history.back()
+  else navigateTo(path, true)
 }
 
 export const emptySnapshot: Snapshot = {
@@ -435,4 +443,4 @@ export function activityDomainLabel(activity: Activity) {
 }
 
 export const isPreview = import.meta.env.MODE === 'preview'
-export const displayVersion = isPreview ? 'V5.5.1 预览版' : 'V5.5.1'
+export const displayVersion = isPreview ? 'V5.6.0 预览版' : 'V5.6.0'

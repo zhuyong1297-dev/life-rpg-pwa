@@ -11,9 +11,17 @@ async function openV5(page: Page) {
   await expect(today).toBeVisible()
 }
 
+async function openNonKeyActivityForm(page: Page) {
+  const fullSettings = page.getByRole('button', { name: '完整设置' })
+  if (await fullSettings.isVisible().catch(() => false)) await fullSettings.click()
+  else await page.getByRole('button', { name: '创建行动' }).last().click()
+  const keyActivity = page.getByLabel('关键行为')
+  if (await keyActivity.isChecked()) await keyActivity.uncheck()
+}
+
 async function createSimpleActivity(page: Page, title: string) {
-  await page.getByRole('button', { name: '创建行动' }).last().click()
-  await page.getByLabel('名称').fill(title)
+  await openNonKeyActivityForm(page)
+  await page.getByLabel('名称', { exact: true }).fill(title)
   await page.getByRole('button', { name: '创建', exact: true }).click()
 }
 
@@ -141,8 +149,8 @@ test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async
 })
 
 test('每日评分习惯选择分数即完成，改分不会重复发奖', async ({ page }) => {
-  await page.getByRole('button', { name: '创建行动' }).last().click()
-  await page.getByLabel('名称').fill('每日恢复体验')
+  await openNonKeyActivityForm(page)
+  await page.getByLabel('名称', { exact: true }).fill('每日恢复体验')
   await page.getByRole('button', { name: '评分体验' }).click()
   await page.getByLabel('评分问题').fill('今天的恢复感如何？')
   await page.getByLabel('1 分锚点').fill('很差')
@@ -195,8 +203,8 @@ test('每日评分习惯选择分数即完成，改分不会重复发奖', async
 })
 
 test('分层行动达到基础层后仍留在今天并可直接继续提升', async ({ page }) => {
-  await page.getByRole('button', { name: '创建行动' }).last().click()
-  await page.getByLabel('名称').fill('分层晚间行动')
+  await openNonKeyActivityForm(page)
+  await page.getByLabel('名称', { exact: true }).fill('分层晚间行动')
   await page.getByRole('button', { name: '分层目标' }).click()
   await page.getByLabel('基础层（分钟）').fill('5')
   await page.getByLabel('标准层（分钟）').fill('15')
@@ -244,6 +252,7 @@ test('成长总值并入旅者主卡且页面没有旧总成长信息行', async
 })
 
 test('目标规划器和愿望商店保留为可返回的二级页面', async ({ page }) => {
+  await createSimpleActivity(page, '导航验证行动')
   await page.getByRole('button', { name: '规划一个 28 天目标' }).click()
   await expect(page).toHaveURL(/#\/coach\/plan$/)
   await expect(page.getByRole('heading', { name: '目标规划器' })).toBeVisible()

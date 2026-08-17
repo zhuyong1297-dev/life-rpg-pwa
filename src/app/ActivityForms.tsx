@@ -184,7 +184,7 @@ import {
 } from '../prototype/V5Experience'
 
 import { buildRatingGoal, buildTierGoal, defaultRatingGoalDraft, defaultTierGoalDraft, draftStandardCount, draftUsesIncremental, timeInputSeconds, timeInputValue, type RatingGoalDraft, type StringQuad, type StringTriple, type TierGoalDraft } from './model'
-export function CreateActivityModal({ today, onClose, onCreate }: { today: string; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
+export function CreateActivityModal({ today, initialIsKey = false, onClose, onCreate }: { today: string; initialIsKey?: boolean; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const [type, setType] = useState<'habit' | 'task'>('habit')
   const [title, setTitle] = useState('')
   const [scheduledTime, setScheduledTime] = useState('')
@@ -198,7 +198,7 @@ export function CreateActivityModal({ today, onClose, onCreate }: { today: strin
   const [tierDraft, setTierDraft] = useState<TierGoalDraft>(defaultTierGoalDraft)
   const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(defaultRatingGoalDraft)
   const [plannedOn, setPlannedOn] = useState(today)
-  const [isKey, setIsKey] = useState(false)
+  const [isKey, setIsKey] = useState(initialIsKey)
 
   function submit(event: FormEvent) {
     event.preventDefault()

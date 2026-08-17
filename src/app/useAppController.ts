@@ -59,6 +59,7 @@ import {
   createReward,
   db,
   getSnapshot,
+  ensureGrowthDomainsForEmptyDatabase,
   fulfillRewardClaim,
   initializeDatabase,
   acknowledgeLevelMilestone,
@@ -107,6 +108,8 @@ import {
   getLevel,
   getLevelReport,
   getJourneyMonths,
+  getOnboardingSummary,
+  isNewcomerDataFootprintEmpty,
   getMilestoneVoucherCost,
   getNextVoucherLevel,
   getTotalXpForLevel,
@@ -263,6 +266,7 @@ export function useAppController() {
 
   useEffect(() => {
     initializeDatabase()
+      .then(() => ensureGrowthDomainsForEmptyDatabase())
       .then(() => applyRewardBudgetRollover())
       .then(() => syncLevelMilestones())
       .then(refresh)
@@ -306,6 +310,21 @@ export function useAppController() {
   const targetRewardId = rewardSystem?.activeRewardId ?? (metaSetting?.key === 'meta' ? metaSetting.value.targetRewardId : undefined)
   const gameDayBoundaryActivatedAt = metaSetting?.key === 'meta' ? metaSetting.value.gameDayBoundaryActivatedAt : undefined
   const growthDomainSystem = metaSetting?.key === 'meta' ? metaSetting.value.growthDomainSystem : undefined
+  const onboarding = metaSetting?.key === 'meta' ? metaSetting.value.onboarding : undefined
+  const onboardingSummary = useMemo(
+    () => getOnboardingSummary(onboarding, snapshot.completions, effectiveGameDate(clock, gameDayBoundaryActivatedAt)),
+    [onboarding, snapshot.completions, clock, gameDayBoundaryActivatedAt],
+  )
+  const newcomerEligible = isNewcomerDataFootprintEmpty({
+    activityCount: snapshot.activities.length,
+    completionCount: snapshot.completions.length,
+    ledgerEventCount: snapshot.ledgerEvents.length,
+    rewardCount: snapshot.rewards.length,
+    rewardClaimCount: snapshot.rewardClaims.length,
+    weeklyReviewCount: snapshot.weeklyReviews.length,
+    seasonCount: snapshot.seasons.length,
+    settings: snapshot.settings,
+  })
   const coachDraftSetting = snapshot.settings.find((item) => item.key === 'coachPlanDraft')
   const coachDraft = coachDraftSetting?.key === 'coachPlanDraft' ? coachDraftSetting.value : undefined
   const applicationTrialSetting = snapshot.settings.find((item) => item.key === 'applicationTrial')
@@ -580,6 +599,9 @@ export function useAppController() {
     targetRewardId,
     gameDayBoundaryActivatedAt,
     growthDomainSystem,
+    onboarding,
+    onboardingSummary,
+    newcomerEligible,
     coachDraft,
     applicationTrial,
     applicationTrialRestart,

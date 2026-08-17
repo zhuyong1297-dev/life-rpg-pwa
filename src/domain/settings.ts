@@ -110,6 +110,20 @@ export const LevelSystemSchema = z
 
 export type LevelSystem = z.infer<typeof LevelSystemSchema>
 
+export const OnboardingStateSchema = z.object({
+  startedOn: dateString.optional(),
+  primaryActivityId: z.string().min(1).optional(),
+  installHintDismissedAt: timestamp.optional(),
+  feedbackPromptedAt: timestamp.optional(),
+  feedbackCompletedAt: timestamp.optional(),
+}).strict().superRefine((onboarding, context) => {
+  if ((onboarding.startedOn === undefined) !== (onboarding.primaryActivityId === undefined)) {
+    context.addIssue({ code: 'custom', path: ['primaryActivityId'], message: '新手体验开始日期和首项行动必须同时保存' })
+  }
+})
+
+export type OnboardingState = z.infer<typeof OnboardingStateSchema>
+
 export const MetaSchema = z.object({
   lastBackupAt: timestamp.optional(),
   migrationImportedAt: timestamp.optional(),
@@ -117,6 +131,7 @@ export const MetaSchema = z.object({
   targetRewardId: z.string().min(1).optional(),
   gameDayBoundaryActivatedAt: timestamp.optional(),
   growthDomainSystem: z.object({ version: z.literal(1), activatedAt: timestamp }).optional(),
+  onboarding: OnboardingStateSchema.optional(),
   todayActionPriority: z.object({
     gameDate: dateString,
     activityIds: z.array(z.string().min(1)).max(5).refine((ids) => new Set(ids).size === ids.length, '今日优先行动不能重复'),
