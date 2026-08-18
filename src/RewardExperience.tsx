@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import {
   ArrowDown,
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   type LedgerEvent,
   type LevelSystem,
   type Reward,
+  type RewardBudgetInput,
   type RewardClaim,
   type RewardHorizon,
   type RewardRepeatPolicy,
@@ -50,6 +51,7 @@ interface RewardExperienceProps {
   onCreate: (input: RewardInput) => Promise<void>
   onUpdate: (id: string, input: RewardInput) => Promise<void>
   onEnabled: (id: string, enabled: boolean) => Promise<void>
+  onBudget: (input: RewardBudgetInput) => Promise<void>
   onQueue: (activeId: string | undefined, queueIds: string[]) => Promise<void>
   onReserve: (rewardId: string, plannedFor: string, source: ReserveSource) => Promise<void>
   onFulfill: (claimId: string, satisfaction: number, repeatAgain: boolean) => Promise<void>
@@ -67,7 +69,10 @@ const inspiration = [
 ] as const
 
 function formatMoney(cents: number) {
-  return `¥${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`
+  return `¥${(cents / 100).toLocaleString('zh-CN', {
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 function nextWeekend(today: string) {
@@ -87,6 +92,7 @@ export function RewardExperience(props: RewardExperienceProps) {
   const [editor, setEditor] = useState<Reward | 'new' | null>(null)
   const [reserveReward, setReserveReward] = useState<Reward | null>(null)
   const [reviewClaim, setReviewClaim] = useState<RewardClaim | null>(null)
+  const [budgetEditor, setBudgetEditor] = useState(false)
   const [satisfaction, setSatisfaction] = useState<number>()
   const [wishQuery, setWishQuery] = useState('')
   const [busy, setBusy] = useState(false)
@@ -158,11 +164,11 @@ export function RewardExperience(props: RewardExperienceProps) {
         <button className="icon-button" type="button" title="新增愿望" onClick={() => setEditor('new')}><Plus aria-hidden="true" /></button>
       </header>
 
-      <section className="reward-fund-strip" aria-label="奖励基金">
-        <div><span>奖励基金</span><strong>{formatMoney(system?.availableCents ?? 0)}</strong></div>
-        <div><span>每个游戏月</span><b>+¥400</b></div>
-        <div><span>累计上限</span><b>¥1,200</b></div>
-      </section>
+      <button className="reward-fund-strip" type="button" disabled={!system} onClick={() => setBudgetEditor(true)} aria-label="设置奖励基金额度">
+        <span className="reward-fund-balance"><small>奖励基金</small><strong>{formatMoney(system?.availableCents ?? 0)}</strong></span>
+        <span className="reward-fund-policy"><small>每月补充 · 累计上限</small><b>+{formatMoney(system?.monthlyAllowanceCents ?? 0)} · {formatMoney(system?.maxFundCents ?? 0)}</b></span>
+        <span className="reward-fund-action"><Pencil aria-hidden="true" /><small>设置额度</small></span>
+      </button>
 
       <nav className="reward-tabs" aria-label="奖励商店视图">
         <button className={view === 'target' ? 'selected' : ''} type="button" onClick={() => setView('target')}><Target aria-hidden="true" />目标</button>
@@ -297,6 +303,18 @@ export function RewardExperience(props: RewardExperienceProps) {
           onNotice={props.onNotice}
         />
       )}
+      {budgetEditor && system && (
+        <RewardBudgetEditor
+          system={system}
+          reservedCents={reservedClaims.reduce((total, claim) => total + claim.cashCostCentsSnapshot, 0)}
+          busy={busy}
+          onClose={() => setBudgetEditor(false)}
+          onSave={(input) => void run(async () => {
+            await props.onBudget(input)
+            setBudgetEditor(false)
+          })}
+        />
+      )}
       {reserveReward && isRewardConfigured(reserveReward) && (
         <ReserveModal
           reward={reserveReward}
@@ -397,13 +415,98 @@ function WishEditor({ reward, target, suggestions, onClose, onSave, onNotice }: 
         </label>
         <label className="full-field">名称<input required maxLength={60} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <label className="full-field">为什么期待它<textarea required maxLength={100} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="它会怎样改善真实生活？" /></label>
-        <fieldset className="choice-field"><legend>愿望距离</legend><div className="segmented-control">{(['near', 'medium', 'far'] as const).map((value) => <button className={horizon === value ? 'selected' : ''} type="button" key={value} onClick={() => { setHorizon(value); setCost(String(suggestions[value])) }}>{horizonLabels[value]} · 建议 {suggestions[value]}</button>)}</div></fieldset>
-        <div className="two-column-fields"><label>金币价格<input type="number" min={1} step={1} value={cost} onChange={(event) => setCost(event.target.value)} /></label><label>预计成本（元）<input type="number" min={0} max={1200} step="0.01" value={cash} onChange={(event) => setCash(event.target.value)} /></label></div>
+        <fieldset className="choice-field"><legend>愿望距离</legend><div className="segmented-control">{(['near', 'medium', 'far'] as const).map((value) => <button className={horizon === value ? 'selected' : ''} type="button" key={value} onClick={() => setHorizon(value)}>{horizonLabels[value]}</button>)}</div></fieldset>
+        <div className="two-column-fields"><label>金币价格<span className="field-hint" aria-hidden="true">可自定义</span><input type="number" min={1} step={1} value={cost} onChange={(event) => setCost(event.target.value)} /><button className="suggested-price" type="button" onClick={() => setCost(String(suggestions[horizon]))}>使用建议价 {suggestions[horizon]}</button></label><label>预计成本（元）<span className="field-hint" aria-hidden="true">可自定义</span><input type="number" min={0} max={1200} step="0.01" value={cash} onChange={(event) => setCash(event.target.value)} /></label></div>
         <fieldset className="choice-field"><legend>重复方式</legend><div className="segmented-control"><button className={repeatKind === 'one_time' ? 'selected' : ''} type="button" onClick={() => setRepeatKind('one_time')}>一次性</button><button className={repeatKind === 'repeatable' ? 'selected' : ''} type="button" onClick={() => setRepeatKind('repeatable')}>可以重复</button></div></fieldset>
         {repeatKind === 'repeatable' && <label className="full-field">兑现后冷却天数<input type="number" min={1} max={365} step={1} value={cooldown} onChange={(event) => setCooldown(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isTarget} onChange={(event) => setIsTarget(event.target.checked)} /><Target aria-hidden="true" />设为主目标</label>
         <p className="form-detail-note">{suggestions.observedDays >= 14 ? `价格建议来自最近 28 个游戏日，日均约 ${suggestions.dailyCoins?.toFixed(1)} 金币。` : '数据不足 14 天，暂用 30 / 80 / 200 金币建议。保存后价格不会自动变化。'}</p>
         <button className="primary-action" type="submit" disabled={!valid || imageBusy}><Check aria-hidden="true" />保存愿望</button>
+      </form>
+    </div>
+  )
+}
+
+function parseYuan(value: string) {
+  return /^\d+(?:\.\d{1,2})?$/.test(value.trim()) ? Math.round(Number(value) * 100) : Number.NaN
+}
+
+function RewardBudgetEditor({ system, reservedCents, busy, onClose, onSave }: {
+  system: RewardSystem
+  reservedCents: number
+  busy: boolean
+  onClose: () => void
+  onSave: (input: RewardBudgetInput) => void
+}) {
+  const panelRef = useRef<HTMLFormElement>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const [monthlyAllowance, setMonthlyAllowance] = useState(String(system.monthlyAllowanceCents / 100))
+  const [maxFund, setMaxFund] = useState(String(system.maxFundCents / 100))
+  const monthlyAllowanceCents = parseYuan(monthlyAllowance)
+  const maxFundCents = parseYuan(maxFund)
+  const committedCents = system.availableCents + reservedCents
+  const error = !Number.isInteger(monthlyAllowanceCents) || monthlyAllowanceCents < 100 || monthlyAllowanceCents > 1_000_000
+    ? '每月额度需在 1～10,000 元之间，最多保留两位小数。'
+    : !Number.isInteger(maxFundCents) || maxFundCents < 100 || maxFundCents > 3_000_000
+      ? '累计上限需在 1～30,000 元之间，最多保留两位小数。'
+      : maxFundCents < monthlyAllowanceCents
+        ? '累计上限不能低于每月额度。'
+        : maxFundCents < committedCents
+          ? `累计上限不能低于当前已承诺的 ${formatMoney(committedCents)}。`
+          : undefined
+
+  useEffect(() => {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.setTimeout(() => panelRef.current?.querySelector<HTMLInputElement>('input')?.focus(), 0)
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeOnEscape)
+      openerRef.current?.focus()
+    }
+  }, [])
+
+  function trapFocus(event: ReactKeyboardEvent<HTMLFormElement>) {
+    if (event.key !== 'Tab') return
+    const focusable = [...(panelRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])',
+    ) ?? [])]
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable.at(-1)!
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <form ref={panelRef} className="modal compact-modal reward-budget-editor" role="dialog" aria-modal="true" onKeyDown={trapFocus} onSubmit={(event) => {
+        event.preventDefault()
+        if (!error) onSave({ monthlyAllowanceCents, maxFundCents })
+      }} aria-labelledby="reward-budget-title">
+        <div className="modal-header"><div><span className="modal-kicker">现实奖励基金</span><h2 id="reward-budget-title">设置奖励额度</h2></div><button className="icon-button" type="button" title="关闭" aria-label="关闭设置奖励额度" onClick={onClose}><X aria-hidden="true" /></button></div>
+        <div className="reward-budget-current">
+          <span>当前可用<strong>{formatMoney(system.availableCents)}</strong></span>
+          <span>奖励券已预留<strong>{formatMoney(reservedCents)}</strong></span>
+        </div>
+        <div className="two-column-fields">
+          <label>每月补充额度（元）<input type="number" min={1} max={10000} step="0.01" inputMode="decimal" value={monthlyAllowance} onChange={(event) => setMonthlyAllowance(event.target.value)} /></label>
+          <label>最高累计额度（元）<input type="number" min={1} max={30000} step="0.01" inputMode="decimal" value={maxFund} onChange={(event) => setMaxFund(event.target.value)} /></label>
+        </div>
+        <p className={error ? 'form-detail-note field-error' : 'form-detail-note'}>{error ?? '保存时先按旧额度完成本月结转；新额度从下个游戏月起生效，当前基金不会被补发或扣减。'}</p>
+        <button className="primary-action" type="submit" disabled={Boolean(error) || busy}><Check aria-hidden="true" />{busy ? '保存中' : '保存额度'}</button>
       </form>
     </div>
   )

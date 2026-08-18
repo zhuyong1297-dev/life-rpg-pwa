@@ -86,6 +86,18 @@ export const RewardClaimSchema = z
 
 export type RewardClaim = z.infer<typeof RewardClaimSchema>
 
+export const RewardBudgetInputSchema = z
+  .object({
+    monthlyAllowanceCents: z.number().int().min(100).max(1_000_000),
+    maxFundCents: z.number().int().min(100).max(3_000_000),
+  })
+  .refine((budget) => budget.maxFundCents >= budget.monthlyAllowanceCents, {
+    path: ['maxFundCents'],
+    message: '奖励基金上限不能低于每月额度',
+  })
+
+export type RewardBudgetInput = z.infer<typeof RewardBudgetInputSchema>
+
 export const RewardSystemSchema = z
   .object({
     version: z.literal(1),

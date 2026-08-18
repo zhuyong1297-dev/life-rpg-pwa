@@ -774,6 +774,8 @@ test('奖励愿望支持二级页面、新增编辑、目标和停用恢复', as
   await createdAgain.getByTitle('编辑愿望').click()
   await page.getByLabel('名称').fill('周末电影之夜')
   await page.getByLabel('金币价格').fill('80')
+  await page.getByRole('button', { name: '远期', exact: true }).click()
+  await expect(page.getByLabel('金币价格')).toHaveValue('80')
   await page.getByRole('button', { name: '保存愿望' }).click()
   const edited = page.locator('.wish-row').filter({ hasText: '周末电影之夜' })
   await expect(edited).toContainText('80')
@@ -785,6 +787,33 @@ test('奖励愿望支持二级页面、新增编辑、目标和停用恢复', as
   await expect(page.locator('.wish-row').filter({ hasText: '周末电影之夜' })).toBeVisible()
   await page.getByRole('button', { name: '返回' }).click()
   await expect(page.locator('.shop-summary')).toContainText('选择一个真正期待的愿望')
+})
+
+test('奖励基金支持自定义月额度和累计上限', async ({ page }) => {
+  await page.getByRole('button', { name: '角色' }).click()
+  await page.getByRole('button', { name: '查看奖励愿望' }).click()
+  const budgetTrigger = page.getByRole('button', { name: '设置奖励基金额度' })
+  await budgetTrigger.click()
+
+  const dialog = page.getByRole('dialog', { name: '设置奖励额度' })
+  await expect(dialog.getByLabel('每月补充额度（元）')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(budgetTrigger).toBeFocused()
+  await budgetTrigger.click()
+  await expect(dialog).toContainText('当前可用')
+  await dialog.getByLabel('每月补充额度（元）').fill('600')
+  await dialog.getByLabel('最高累计额度（元）').fill('500')
+  await expect(dialog.getByText('累计上限不能低于每月额度。')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '保存额度' })).toBeDisabled()
+
+  await dialog.getByLabel('最高累计额度（元）').fill('1800')
+  await dialog.getByRole('button', { name: '保存额度' }).click()
+  await expect(page.getByText('奖励基金额度已更新，将从下个游戏月起生效')).toBeVisible()
+  await expect(page.getByRole('button', { name: '设置奖励基金额度' })).toContainText('+¥600 · ¥1,800')
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: '设置奖励基金额度' })).toContainText('+¥600 · ¥1,800')
 })
 
 test('愿望可以锁定为奖励券并用两次点击完成轻复盘', async ({ page }) => {

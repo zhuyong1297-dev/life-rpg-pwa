@@ -7,6 +7,8 @@ import {
   type RewardHorizon,
   type RewardRepeatPolicy,
   type RewardSystem,
+  type RewardBudgetInput,
+  RewardBudgetInputSchema,
   RewardSystemSchema,
   getRewardCooldownUntil,
   isRewardConfigured,
@@ -162,6 +164,32 @@ export async function applyRewardBudgetRollover(database = db, now = new Date())
     const next = await rollRewardSystem(stored.value, await currentGameDate(database, now), database)
     if (next !== stored.value) await database.settings.put({ ...stored, value: next })
     return next
+  })
+}
+
+export async function updateRewardBudget(input: RewardBudgetInput, database = db, now = new Date()) {
+  const budget = RewardBudgetInputSchema.parse(input)
+  return database.transaction('rw', database.settings, database.rewardClaims, async () => {
+    const stored = await database.settings.get('rewardSystem')
+    if (stored?.key !== 'rewardSystem') throw new Error('奖励系统尚未初始化')
+    const today = await currentGameDate(database, now)
+    const rolled = await rollRewardSystem(stored.value, today, database)
+    const reservedCents = (await database.rewardClaims.where('status').equals('reserved').toArray())
+      .reduce((total, claim) => total + claim.cashCostCentsSnapshot, 0)
+    if (budget.maxFundCents < rolled.availableCents + reservedCents) {
+      throw new Error('奖励基金上限不能低于当前可用与已预留金额之和')
+    }
+    if (
+      rolled === stored.value &&
+      stored.value.monthlyAllowanceCents === budget.monthlyAllowanceCents &&
+      stored.value.maxFundCents === budget.maxFundCents
+    ) return stored.value
+    const value = RewardSystemSchema.parse({
+      ...rolled,
+      ...budget,
+    })
+    await database.settings.put({ ...stored, value })
+    return value
   })
 }
 

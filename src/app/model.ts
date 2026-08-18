@@ -443,4 +443,4 @@ export function activityDomainLabel(activity: Activity) {
 }
 
 export const isPreview = import.meta.env.MODE === 'preview'
-export const displayVersion = isPreview ? 'V5.6.0 预览版' : 'V5.6.0'
+export const displayVersion = isPreview ? 'V5.7.0 预览版' : 'V5.7.0'

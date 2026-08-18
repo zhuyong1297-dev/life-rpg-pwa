@@ -1,6 +1,6 @@
 import { Activity as ActivityIcon, Award, Bell, BellOff, BookOpen, Brain, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Coins, Crosshair, Download, Dumbbell, FileJson, Gift, Home, History, Leaf, ListTodo, Pause, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, ShieldCheck, Star, Target, Trash2, TrendingUp, Upload, UserRound, Vibrate, Volume2, X, Zap, } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from '../backup'
-import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
+import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, updateRewardBudget, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
 import { addDays, applicationDecisions, coachBehaviorRoleLabels, CoachPlanDraftSchema, createCoachPlanDraft, domainLabel, calculateStats, calculateIncrementalProgress, difficulties, growthDomainDetails, growthDomains, legacyDomainSuggestions, getCharacterStage, getCharacterStageName, getCompletionTierGoal, getLevel, getLevelReport, getJourneyMonths, getMilestoneVoucherCost, getNextVoucherLevel, getTotalXpForLevel, getTierAchievement, getTierCount, getTierLevels, getTierReward, getIncrementalCycleGoal, identityMessage, formatDurationSeconds, isDurationGoal, isRatingGoal, isTieredGoal, effectiveGameDate, localDate, nextGameDayBoundary, rewardTable, reviewDecisions, startOfWeek, formatTierGoalValue, getRewardPriceSuggestions, tierLabels, tierLevels, TieredGoalSchema, RatingGoalSchema, type Activity, type ApplicationDecision, type ApplicationTrial, type ApplicationTrialRestart, type CoachBehaviorRole, type CoachPlanBehavior, type CoachPlanDraft, type GrowthDomain, type Completion, type Difficulty, type FeedbackIntensity, type CombinedMode, type LedgerEvent, type LevelSystem, type Preferences, type Reward, type RewardClaim, type ReviewDecision, type TierLevel, type TierMetric, type TieredGoal, type RatingGoal, type TimeInputUnit, type WeeklyReview, type JourneyEntry, type JourneyMonth, } from '../domain'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from '../SeasonExperience'
@@ -22,10 +22,9 @@ import { DataCenterPage, ReviewPage } from './ReviewData'
 import { ActivityManagerModal, SettingsPage } from './SettingsPages'
 import { CreateActivityModal } from './ActivityForms'
 import { ArchiveActivityModal, CompletionActionsModal, CompletionModal, DeleteActivityModal, EditHabitModal, FeedbackOverlay, IncrementalDurationPickerModal, IncrementalProgressModal, TierPickerModal, WeeklyActivityDetailModal } from './ActivityModals'
-
 const isPreview = import.meta.env.MODE === 'preview'
 const useV5Experience = !(navigator.webdriver && new URLSearchParams(window.location.search).has('legacy-test'))
-const displayVersion = isPreview ? 'V5.6.0 预览版' : 'V5.6.0'
+const displayVersion = isPreview ? 'V5.7.0 预览版' : 'V5.7.0'
 
 export function AppShell() {
   const {
@@ -265,6 +264,7 @@ export function AppShell() {
               await refresh()
               setNotice(enabled ? '愿望已恢复' : '愿望已停用')
             }}
+            onBudget={async (input) => { await updateRewardBudget(input); await refresh(); setNotice('奖励基金额度已更新，将从下个游戏月起生效') }}
             onQueue={async (activeRewardId, queueIds) => {
               await setRewardQueue(activeRewardId, queueIds)
               await refresh()

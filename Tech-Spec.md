@@ -1,10 +1,10 @@
-# 地球 Online V5.6.0 技术规格
+# 地球 Online V5.7.0 技术规格
 
 ## 1. 系统结构
 
 应用是部署在 GitHub Pages 的静态 React PWA。所有用户数据保存在浏览器 IndexedDB，界面通过 Dexie 事务和快照读取。Service Worker 只负责静态资源缓存和完成通知，不执行定时提醒或业务写入。
 
-`V5.6.0` 在现有模块化 App 壳中增加本地新手状态、环境感知安装引导和主动邮件反馈。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
+`V5.7.0` 复用现有 `settings.rewardSystem` 增加奖励基金额度编辑事务，不新增字段或数据表。正式版固定使用 `earth-online-v2`，预览版固定使用 `earth-online-preview-v2`，两者不自动读取或复制对方数据。Dexie 仍为 version 4、八张表，备份保持 JSON schema 12 并兼容 schema 1～11。
 
 ### 新手与反馈边界
 
@@ -57,6 +57,7 @@
 - `Reward` 可兼容保存愿望理由、现实成本、档位、WebP 图片和重复策略；缺少字段的旧商品处于待整理状态。
 - `RewardClaim` 保存愿望、金币、预算和重复方式快照，状态为 `reserved | fulfilled | cancelled`；历史不随愿望编辑重写。
 - `settings.rewardSystem` 保存主目标、候选队列、月额度、基金上限、可用额度和最后补充月份；旧 `meta.targetRewardId` 只用于迁移。
+- `updateRewardBudget` 在 `settings + rewardClaims` 单个事务内先按旧配置结转到当前游戏月，再保存新的月额度和累计上限；新配置从下个游戏月起生效。新上限不得低于月额度，也不得低于当前可用基金与已预留奖励券预算之和。
 - `preferences.feedbackIntensity` 为 `gentle | clear | strong`，旧数据默认 `clear`。
 - `settings.meta.gameDayBoundaryActivatedAt` 保存 04:00 游戏日规则的启用时间；旧记录的 `occurredOn` 不迁移。
 - `settings.meta.growthDomainSystem` 保存领域体系版本和启用时间；领域 XP 只汇总带 `domain` 的新流水，角色总 XP 和金币继续汇总全部流水。

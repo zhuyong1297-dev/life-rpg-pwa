@@ -258,11 +258,14 @@
 .secondary-header h1 { margin: 3px 0 0; font-family: var(--font-display); font-size: 30px; line-height: 1.15; }
 .secondary-header .icon-button { color: var(--color-on-accent); border-color: var(--color-night-rule); }
 .back-button { min-height: 44px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--color-night-rule); border-radius: var(--radius-sm); color: var(--color-on-accent); background: transparent; cursor: pointer; }
-.reward-fund-strip { min-height: 74px; margin-bottom: 12px; padding: 12px 16px; display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; color: var(--color-reward-deep); background: var(--color-reward-soft); border: 1px solid var(--color-reward-rule); border-radius: var(--radius-md); }
-.reward-fund-strip > div { min-width: 0; display: grid; align-content: center; gap: 3px; }
-.reward-fund-strip span { color: var(--color-reward-ink); font-size: 11px; }
+.reward-fund-strip { width: 100%; min-height: 74px; margin-bottom: 12px; padding: 12px 14px; display: grid; grid-template-columns: minmax(86px, 0.8fr) minmax(0, 1.5fr) auto; align-items: center; gap: 12px; color: var(--color-reward-deep); background: var(--color-reward-soft); border: 1px solid var(--color-reward-rule); border-radius: var(--radius-md); font: inherit; text-align: left; cursor: pointer; }
+.reward-fund-balance, .reward-fund-policy { min-width: 0; display: grid; align-content: center; gap: 3px; }
+.reward-fund-strip small { color: var(--color-reward-ink); font-size: 11px; }
 .reward-fund-strip strong { font-size: 23px; }
 .reward-fund-strip b { font-size: 15px; }
+.reward-fund-action { min-width: 58px; display: grid; grid-template-columns: 18px auto; align-items: center; gap: 5px; color: var(--forest); font-weight: 800; }
+.reward-fund-action svg { width: 18px; height: 18px; }
+.reward-fund-action small { color: inherit; }
 .reward-tabs { position: sticky; z-index: var(--z-sticky); top: 0; margin-bottom: 14px; padding: 4px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; background: var(--color-control); border-radius: var(--radius-md); }
 .reward-tabs button { position: relative; min-width: 0; padding: 0 10px; display: inline-flex; justify-content: center; align-items: center; gap: 7px; border: 0; border-radius: var(--radius-sm); color: var(--muted); background: transparent; font-weight: 800; cursor: pointer; }
 .reward-tabs button.selected { color: var(--forest); background: var(--surface); box-shadow: var(--shadow-control); }
@@ -342,6 +345,12 @@
 .two-column-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .two-column-fields label { min-width: 0; display: grid; gap: 6px; font-size: 12px; font-weight: 800; }
 .two-column-fields input { width: 100%; min-height: 44px; padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.field-hint { margin-top: -4px; color: var(--muted); font-size: 10px; font-weight: 400; }
+.suggested-price { min-height: 44px; border: 1px solid var(--color-accent-rule); border-radius: var(--radius-sm); color: var(--forest); background: var(--forest-soft); font-weight: 800; cursor: pointer; }
+.reward-budget-current { margin-bottom: 14px; padding: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; color: var(--muted); background: var(--color-reward-soft); border-radius: var(--radius-sm); }
+.reward-budget-current span { display: grid; gap: 3px; font-size: 11px; }
+.reward-budget-current strong { color: var(--color-reward-deep); font-size: 18px; }
+.field-error { color: var(--color-danger-ink); }
 .reserve-summary { padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--color-reward-soft); border-radius: var(--radius-sm); }
 .reserve-summary span { display: flex; align-items: center; gap: 5px; color: var(--color-reward-deep); font-weight: 900; }
 .reserve-summary small { grid-column: 1 / -1; color: var(--muted); }
@@ -355,6 +364,7 @@
   .icon-button:hover, .nav-item:not(.active):hover { background: var(--surface-soft); }
   .season-summary:hover, .coach-template-grid button:hover, .focus-picker button:hover, .tier-choice:hover, .domain-choice-grid button:hover { border-color: var(--forest); background: var(--forest-soft); }
   .primary-action:hover { background: var(--forest-strong); }
+  .reward-fund-strip:not(:disabled):hover, .suggested-price:hover { border-color: var(--forest); background: var(--forest-soft); }
   .secondary-action:hover, .season-hub-actions button:hover, .suggestion-actions button:hover, .suggestion-response button:hover { border-color: var(--color-accent-rule); background: var(--forest-soft); }
   .weekly-detail-link:hover, .weekly-detail-button:hover, .weekly-view-all:hover { color: var(--forest-strong); text-decoration: underline; text-underline-offset: 3px; }
   .duration-options button:hover { border-color: var(--forest); background: var(--forest-soft); }
@@ -453,6 +463,7 @@
   .claim-card { grid-template-columns: 1fr; }
   .claim-card-actions { grid-template-columns: 1fr 1fr; }
   .two-column-fields { grid-template-columns: 1fr; }
+  .reward-budget-current { grid-template-columns: 1fr 1fr; }
   .wish-editor .segmented-control { grid-template-columns: 1fr; }
   .satisfaction-grid { gap: 4px; }
   .satisfaction-grid button { height: 56px; }
@@ -566,7 +577,7 @@
   .report-stat-grid { grid-template-columns: 1fr; }
   .secondary-header { grid-template-columns: 44px minmax(0, 1fr) 44px; }
   .secondary-header h1 { font-size: 21px; }
-  .reward-fund-strip span { font-size: 9px; }
+  .reward-fund-strip small { font-size: 9px; }
   .reward-fund-strip strong { font-size: 17px; }
   .reward-tabs button { gap: 3px; font-size: 11px; }
   .reward-tabs button svg { width: 17px; height: 17px; }

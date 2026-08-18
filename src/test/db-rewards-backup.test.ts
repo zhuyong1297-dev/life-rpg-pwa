@@ -45,6 +45,7 @@ import {
   updateHabit,
   updateTodayRating,
   updateReward,
+  updateRewardBudget,
   type NewActivity,
 } from '../db'
 import { calculateStats, createCoachPlanDraft, getJourneyMonths, growthDomains, type CoachPlanDraft } from '../domain'
@@ -187,6 +188,114 @@ describe('IndexedDB 奖励与备份事务', () => {
     expect(await applyRewardBudgetRollover(database, new Date('2026-04-20T08:00:00.000Z'))).toEqual(rolled)
   })
 
+  it('自定义奖励基金先按旧额度结转至本月，新额度从下月生效', async () => {
+    const stored = await database.settings.get('rewardSystem')
+    if (stored?.key !== 'rewardSystem') throw new Error('奖励系统未初始化')
+    await database.settings.put({
+      ...stored,
+      value: { ...stored.value, lastFundedMonth: '2026-01', availableCents: 35_000, maxFundCents: 300_000 },
+    })
+
+    const updated = await updateRewardBudget(
+      { monthlyAllowanceCents: 50_000, maxFundCents: 300_000 },
+      database,
+      new Date('2026-04-10T08:00:00.000Z'),
+    )
+    expect(updated).toMatchObject({
+      monthlyAllowanceCents: 50_000,
+      maxFundCents: 300_000,
+      availableCents: 155_000,
+      lastFundedMonth: '2026-04',
+    })
+    expect(await updateRewardBudget(
+      { monthlyAllowanceCents: 50_000, maxFundCents: 300_000 },
+      database,
+      new Date('2026-04-10T08:00:00.000Z'),
+    )).toEqual(updated)
+    expect(await applyRewardBudgetRollover(database, new Date('2026-04-20T08:00:00.000Z'))).toEqual(updated)
+    expect(await updateRewardBudget(
+      { monthlyAllowanceCents: 50_000, maxFundCents: 300_000 },
+      database,
+      new Date('2026-05-10T08:00:00.000Z'),
+    )).toMatchObject({
+      availableCents: 205_000,
+      lastFundedMonth: '2026-05',
+    })
+    const backup = await createBackup(database)
+    await updateRewardBudget({ monthlyAllowanceCents: 60_000, maxFundCents: 300_000 }, database)
+    await restoreBackup(backup, database)
+    expect(await database.settings.get('rewardSystem')).toMatchObject({
+      value: { monthlyAllowanceCents: 50_000, maxFundCents: 300_000, availableCents: 205_000 },
+    })
+  })
+
+  it('自定义奖励基金拒绝越界金额及低于已承诺基金的上限', async () => {
+    await expect(updateRewardBudget(
+      { monthlyAllowanceCents: 99, maxFundCents: 120_000 },
+      database,
+    )).rejects.toThrow()
+    await expect(updateRewardBudget(
+      { monthlyAllowanceCents: 40_000, maxFundCents: 3_000_001 },
+      database,
+    )).rejects.toThrow()
+
+    await database.rewardClaims.add({
+      id: 'reward-claim:budget-limit',
+      rewardId: 'reward-budget-limit',
+      source: 'coins',
+      status: 'reserved',
+      plannedFor: '2026-07-25',
+      reservedOn: '2026-07-23',
+      reservedAt: '2026-07-23T08:00:00.000Z',
+      titleSnapshot: '虚构奖励',
+      coinCostSnapshot: 0,
+      cashCostCentsSnapshot: 10_000,
+      horizonSnapshot: 'near',
+      repeatPolicySnapshot: { kind: 'one_time' },
+    })
+    await expect(updateRewardBudget(
+      { monthlyAllowanceCents: 30_000, maxFundCents: 49_999 },
+      database,
+    )).rejects.toThrow('当前可用与已预留金额之和')
+    expect(await database.settings.get('rewardSystem')).toMatchObject({
+      value: { monthlyAllowanceCents: 40_000, maxFundCents: 120_000, availableCents: 40_000 },
+    })
+  })
+
+  it('存在已预留奖励券时按旧额度跨月结转后再保存新额度', async () => {
+    const stored = await database.settings.get('rewardSystem')
+    if (stored?.key !== 'rewardSystem') throw new Error('奖励系统未初始化')
+    await database.settings.put({
+      ...stored,
+      value: { ...stored.value, lastFundedMonth: '2026-01', availableCents: 20_000, maxFundCents: 120_000 },
+    })
+    await database.rewardClaims.add({
+      id: 'reward-claim:budget-rollover',
+      rewardId: 'reward-budget-rollover',
+      source: 'coins',
+      status: 'reserved',
+      plannedFor: '2026-04-20',
+      reservedOn: '2026-04-01',
+      reservedAt: '2026-04-01T08:00:00.000Z',
+      titleSnapshot: '虚构跨月奖励',
+      coinCostSnapshot: 0,
+      cashCostCentsSnapshot: 10_000,
+      horizonSnapshot: 'near',
+      repeatPolicySnapshot: { kind: 'one_time' },
+    })
+
+    expect(await updateRewardBudget(
+      { monthlyAllowanceCents: 50_000, maxFundCents: 150_000 },
+      database,
+      new Date('2026-04-10T08:00:00.000Z'),
+    )).toMatchObject({
+      monthlyAllowanceCents: 50_000,
+      maxFundCents: 150_000,
+      availableCents: 110_000,
+      lastFundedMonth: '2026-04',
+    })
+  })
+
   it('旧 schema 5 偏好缺少反馈强度时恢复为清晰档', async () => {
     const backup = await createBackup(database)
     const input = structuredClone(backup) as unknown as { settings: Array<{ key: string; value: Record<string, unknown> }> }
@@ -319,7 +428,7 @@ describe('IndexedDB 奖励与备份事务', () => {
     const draft = { ...createCoachPlanDraft(new Date('2026-01-05T00:00:00.000Z'), 'backup-plan'), title: '下一赛季' }
     await saveCoachPlanDraft(draft, database)
     const current = await createBackup(database)
-    expect(current).toMatchObject({ schemaVersion: 12, appVersion: '5.6.0', rewardClaims: [], seasons: [{ id: season.id }] })
+    expect(current).toMatchObject({ schemaVersion: 12, appVersion: '5.7.0', rewardClaims: [], seasons: [{ id: season.id }] })
     expect(current.activities.find((item) => item.id === timedActivity.id)?.scheduledTime).toBe('21:30')
     expect(current.settings.find((setting) => setting.key === 'meta')).toMatchObject({ value: { todayActionPriority: { gameDate: '2026-01-05', activityIds: [priorityActivity.id] } } })
     expect(current.settings.find((setting) => setting.key === 'coachPlanDraft')).toMatchObject({ key: 'coachPlanDraft', value: { id: 'backup-plan' } })
