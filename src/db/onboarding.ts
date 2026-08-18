@@ -1,4 +1,4 @@
-import { MetaSchema, OnboardingStateSchema, isNewcomerDataFootprintEmpty, type OnboardingState } from '../domain'
+import { MetaSchema, OnboardingStateSchema, ReleaseNotesStateSchema, isNewcomerDataFootprintEmpty, type OnboardingState } from '../domain'
 import { db, type LifeRpgDatabase } from './database'
 
 type OnboardingMarkers = Partial<Pick<
@@ -6,7 +6,11 @@ type OnboardingMarkers = Partial<Pick<
   'installHintDismissedAt' | 'feedbackPromptedAt' | 'feedbackCompletedAt'
 >>
 
-export async function ensureGrowthDomainsForEmptyDatabase(database = db, now = new Date()) {
+export async function ensureGrowthDomainsForEmptyDatabase(
+  database = db,
+  now = new Date(),
+  baselineReleaseNotesVersion?: string,
+) {
   return database.transaction(
     'rw',
     [
@@ -32,17 +36,23 @@ export async function ensureGrowthDomainsForEmptyDatabase(database = db, now = n
         database.seasons.count(),
         database.settings.toArray(),
       ])
-      if (meta.growthDomainSystem || !isNewcomerDataFootprintEmpty({
+      if (!isNewcomerDataFootprintEmpty({
         activityCount, completionCount, ledgerEventCount, rewardCount, rewardClaimCount, weeklyReviewCount, seasonCount, settings,
       })) return false
+      const activatesGrowthDomains = !meta.growthDomainSystem
+      const addsReleaseNotesBaseline = Boolean(baselineReleaseNotesVersion && !meta.releaseNotes)
+      if (!activatesGrowthDomains && !addsReleaseNotesBaseline) return false
       await database.settings.put({
         key: 'meta',
         value: MetaSchema.parse({
           ...meta,
-          growthDomainSystem: { version: 1, activatedAt: now.toISOString() },
+          growthDomainSystem: meta.growthDomainSystem ?? { version: 1, activatedAt: now.toISOString() },
+          releaseNotes: meta.releaseNotes ?? (baselineReleaseNotesVersion
+            ? ReleaseNotesStateSchema.parse({ lastSeenVersion: baselineReleaseNotesVersion, acknowledgedAt: now.toISOString() })
+            : undefined),
         }),
       })
-      return true
+      return activatesGrowthDomains
     },
   )
 }

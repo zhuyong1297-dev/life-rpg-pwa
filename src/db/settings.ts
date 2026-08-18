@@ -12,6 +12,8 @@ import {
   getMilestoneVoucherCost,
   getTotalXpForLevel,
   LevelSystemSchema,
+  MetaSchema,
+  ReleaseNotesStateSchema,
 } from '../domain'
 import { SeasonSchema, generateCoachSuggestions } from '../season'
 import { db, currentGameDate } from './database'
@@ -20,6 +22,24 @@ import { reserveRewardClaim } from './rewards'
 export async function updatePreferences(value: Preferences, database = db) {
   await database.settings.put({ key: 'preferences', value })
 }
+
+export async function acknowledgeReleaseNotes(version: string, database = db, now = new Date()) {
+  const releaseNotes = ReleaseNotesStateSchema.parse({
+    lastSeenVersion: version,
+    acknowledgedAt: now.toISOString(),
+  })
+  return database.transaction('rw', database.settings, async () => {
+    const storedMeta = await database.settings.get('meta')
+    const meta = storedMeta?.key === 'meta' ? storedMeta : undefined
+    if (meta?.value.releaseNotes?.lastSeenVersion === releaseNotes.lastSeenVersion) {
+      return meta.value.releaseNotes
+    }
+    const value = MetaSchema.parse({ ...(meta?.value ?? {}), releaseNotes })
+    await database.settings.put({ key: 'meta', value })
+    return releaseNotes
+  })
+}
+
 export async function syncLevelMilestones(database = db, now = new Date()) {
   return database.transaction('rw', database.settings, database.ledgerEvents, async () => {
     const events = await database.ledgerEvents.toArray()

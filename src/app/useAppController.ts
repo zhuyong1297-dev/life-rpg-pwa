@@ -165,6 +165,7 @@ import {
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from '../SeasonExperience'
 import { RewardExperience } from '../RewardExperience'
+import { CURRENT_RELEASE_NOTES_VERSION } from '../features/release-notes'
 import { KnowledgeActionImportModal } from '../KnowledgeActionImportModal'
 import {
   importKnowledgeActionPackage,
@@ -266,7 +267,7 @@ export function useAppController() {
 
   useEffect(() => {
     initializeDatabase()
-      .then(() => ensureGrowthDomainsForEmptyDatabase())
+      .then(() => ensureGrowthDomainsForEmptyDatabase(db, new Date(), CURRENT_RELEASE_NOTES_VERSION))
       .then(() => applyRewardBudgetRollover())
       .then(() => syncLevelMilestones())
       .then(refresh)

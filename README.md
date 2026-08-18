@@ -1,6 +1,6 @@
 # 地球 Online
 
-> README v0.1 · 正式版 V5.6.0
+> README v0.1 · 正式版 V5.7.0
 
 地球 Online 是一个手机优先、本地离线的个人成长教练。它把现实行动转化为即时反馈，再通过每周复盘和 28 天成长赛季，帮助使用者判断哪些行为真的改善了生活。
 
@@ -8,7 +8,7 @@
 
 - **立即使用：[地球 Online 正式版](https://zhuyong1297-dev.github.io/life-rpg-pwa/)**
 - 尝鲜功能：[手机预览版](https://zhuyong1297-dev.github.io/life-rpg-pwa/preview/)
-- 稳定版本：[V5.6.0 Release](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.6.0)
+- 稳定版本：[V5.7.0 Release](https://github.com/zhuyong1297-dev/life-rpg-pwa/releases/tag/v5.7.0)
 - 反馈邮箱：[zhuyong1297@gmail.com](mailto:zhuyong1297@gmail.com)
 - 问题与建议：[GitHub Issues](https://github.com/zhuyong1297-dev/life-rpg-pwa/issues)
 
@@ -19,6 +19,7 @@
 - 用两层或三层目标降低开始门槛，同时保留进阶空间。
 - 通过每周复盘、28 天赛季和评分记录检查现实效果。
 - 使用愿望商店把金币对应到真正想要的现实奖励，并自行设置每月奖励基金。
+- 在“我的 → 本次更新”查看当前版本新增内容和对应功能入口。
 - 在本地离线运行，并通过 JSON 完整备份和恢复数据。
 
 ## 怎么使用
@@ -42,7 +43,7 @@
 | Obsidian 规划上下文与知识行动包 | 实验性功能 |
 | 账号、云同步和社交功能 | 不在当前范围 |
 
-当前正式版运行 V5.6.0，预览版运行 V5.7.0。数据契约仍为 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。
+当前正式版与预览版均运行 V5.7.0。数据契约仍为 Backup JSON schema 12、Dexie version 4 和八张表，并兼容恢复 schema 1～11。
 
 ## 90 天路线图
 

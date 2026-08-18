@@ -12,6 +12,7 @@ import { V5GrowthPage, V5Navigation, V5TodayPage, getV5DailyRewardSummary, type 
 import { FeedbackPage } from '../prototype/v5/FeedbackPage'
 import { useAppController } from './useAppController'
 import { useOnboardingExperience } from './useOnboardingExperience'
+import { useReleaseNotes } from './useReleaseNotes'
 import { navigateBackTo, navigateTo } from './model'
 import { errorMessage } from './shared-ui'
 import { GrowthDomainMigration } from './GrowthDomainMigration'
@@ -115,7 +116,7 @@ export function AppShell() {
     onOpenFeedback: () => navigateTo('profile/feedback'),
     appVersion: displayVersion,
   })
-
+  const releaseNotes = useReleaseNotes({ ready, growthDomainsReady: Boolean(growthDomainSystem), newcomerEligible, autoOpenAllowed: !secondaryPage && !onboardingExperience.blockingOverlayOpen, lastSeenVersion: metaSetting?.key === 'meta' ? metaSetting.value.releaseNotes?.lastSeenVersion : undefined, refresh, onError: setErrorNotice, onOpenRewards: () => navigateTo('rewards') })
   if (!ready) {
     return (
       <main className="loading-screen">
@@ -124,7 +125,6 @@ export function AppShell() {
       </main>
     )
   }
-
   if (!growthDomainSystem) {
     return (
       <GrowthDomainMigration
@@ -142,7 +142,6 @@ export function AppShell() {
       />
     )
   }
-
   const v5Page: V5Page = secondaryPage === 'rewards'
     ? 'rewards'
     : page === 'character'
@@ -489,12 +488,13 @@ export function AppShell() {
             }}
             onOpenData={() => navigateTo('profile/data')}
             onOpenInstallHelp={onboardingExperience.openDataGuide}
+            onOpenReleaseNotes={releaseNotes.open}
             onOpenFeedback={() => navigateTo('profile/feedback')}
             onNotice={setNotice}
           />
         )}
       </main>
-
+      {releaseNotes.modal}
       {knowledgePackagePreview && (
         <KnowledgeActionImportModal
           preview={knowledgePackagePreview}

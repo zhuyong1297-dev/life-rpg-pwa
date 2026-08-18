@@ -23,6 +23,61 @@ async function expandManagedActivity(page: import('@playwright/test').Page, titl
   return row
 }
 
+async function markReleaseNotesUnseen(page: import('@playwright/test').Page) {
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('earth-online-v2')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('settings', 'readwrite')
+      const store = transaction.objectStore('settings')
+      const request = store.get('meta')
+      request.onsuccess = () => {
+        const meta = request.result as { key: 'meta'; value: Record<string, unknown> }
+        const { releaseNotes: _releaseNotes, ...value } = meta.value
+        store.put({ ...meta, value })
+      }
+      request.onerror = () => reject(request.error)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    database.close()
+  })
+}
+
+test('V5.7.0 更新说明可稍后提醒、确认已读并从我的页重看', async ({ page }) => {
+  await expect(page.getByRole('dialog', { name: 'V5.7.0 更新内容' })).toHaveCount(0)
+  await page.getByRole('button', { name: '创建行动' }).click()
+  await page.getByLabel('名称').fill('用于验证更新说明的行动')
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(page.getByRole('button', { name: '完成 用于验证更新说明的行动' })).toBeVisible()
+
+  await page.reload()
+  const dialog = page.getByRole('dialog', { name: 'V5.7.0 更新内容' })
+  await expect(dialog).toHaveCount(0)
+  await markReleaseNotesUnseen(page)
+  await page.reload()
+  await expect(dialog).toContainText('奖励商店更灵活')
+  await expect(dialog).toContainText('新额度从下个游戏月生效')
+  await dialog.getByRole('button', { name: '稍后' }).click()
+  await page.reload()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '知道了' }).click()
+  await expect(dialog).toBeHidden()
+
+  await page.reload()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button', { name: '设置' }).click()
+  await page.getByRole('button', { name: /本次更新 · V5\.7\.0/ }).click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '前往愿望商店' }).click()
+  await expect(page.getByRole('heading', { name: '奖励愿望' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '设置奖励基金额度' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
 test('创建简单习惯后立即反馈，双击不重复发奖，撤销后可重做', async ({ page }) => {
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('示例行动')

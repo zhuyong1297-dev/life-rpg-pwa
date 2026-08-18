@@ -1,0 +1,133 @@
+.release-notes-content {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-row: 2 / -1;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.release-notes-intro {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  border: 1px solid var(--v5-interactive-border);
+  border-radius: 8px;
+  background: var(--v5-green-soft);
+}
+
+.release-notes-intro span {
+  color: var(--v5-green);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.release-notes-intro strong {
+  font-size: 19px;
+  line-height: 1.35;
+}
+
+.release-notes-intro p,
+.release-notes-list p {
+  margin: 0;
+  color: var(--v5-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.release-notes-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.release-notes-list li {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 11px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--v5-line);
+}
+
+.release-notes-list li:first-child {
+  padding-top: 2px;
+}
+
+.release-notes-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 7px;
+  background: #edf5f1;
+  color: var(--v5-green);
+}
+
+.release-notes-list strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.release-notes-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.release-notes-actions button {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.release-notes-later {
+  border: 0;
+  background: transparent;
+  color: var(--v5-muted);
+}
+
+.release-notes-acknowledge {
+  border: 1px solid var(--v5-interactive-border);
+  background: var(--v5-surface);
+  color: var(--v5-green);
+}
+
+.release-notes-primary {
+  border: 1px solid var(--v5-green);
+  background: var(--v5-green);
+  color: #fff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .release-notes-later:hover {
+    background: var(--v5-interactive-hover);
+    color: var(--v5-green);
+  }
+
+  .release-notes-acknowledge:hover {
+    border-color: var(--v5-green);
+    background: var(--v5-interactive-hover);
+  }
+
+  .release-notes-primary:hover {
+    border-color: var(--v5-green-hover);
+    background: var(--v5-green-hover);
+  }
+}
+
+@media (max-width: 359px) {
+  .release-notes-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .release-notes-later {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

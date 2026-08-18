@@ -55,12 +55,24 @@ export function useOnboardingExperience({
   const [progressHidden, setProgressHidden] = useState(false)
   const [wechatGuideDismissed, setWechatGuideDismissed] = useState(false)
   const canStartOnboarding = newcomerEligible && !onboarding?.startedOn
+  const shouldShowWechatGuide = install.environment.wechat
+    && activityCount === 0
+    && canStartOnboarding
+    && !onboarding?.installHintDismissedAt
+    && !wechatGuideDismissed
+  const shouldAutoOpenDataGuide = Boolean(
+    ready
+    && summary?.primaryCompletionDays
+    && !completionFeedbackActive
+    && !onboarding?.installHintDismissedAt
+    && !install.environment.standalone
+    && !install.environment.wechat,
+  )
 
   useEffect(() => {
-    if (!ready || !summary?.primaryCompletionDays || completionFeedbackActive) return
-    if (onboarding?.installHintDismissedAt || install.environment.standalone || install.environment.wechat) return
+    if (!shouldAutoOpenDataGuide) return
     setShowDataGuide(true)
-  }, [ready, summary?.primaryCompletionDays, onboarding?.installHintDismissedAt, install.environment.standalone, install.environment.wechat, completionFeedbackActive])
+  }, [shouldAutoOpenDataGuide])
 
   const saveMarker = async (markers: Parameters<typeof updateOnboardingMarkers>[0]) => {
     await updateOnboardingMarkers(markers)
@@ -121,6 +133,7 @@ export function useOnboardingExperience({
     quickStart,
     newcomerProgress,
     feedbackSummary,
+    blockingOverlayOpen: shouldShowWechatGuide || showDataGuide || shouldAutoOpenDataGuide,
     openDataGuide: () => setShowDataGuide(true),
     markFeedbackCompleted: () => saveMarker({ feedbackCompletedAt: new Date().toISOString() }),
     createConfiguredActivity: (activity: NewActivity) => activityCount === 0
@@ -133,7 +146,7 @@ export function useOnboardingExperience({
       : createActivity(activity),
     overlays: (
       <>
-        {install.environment.wechat && activityCount === 0 && canStartOnboarding && !onboarding?.installHintDismissedAt && !wechatGuideDismissed && (
+        {shouldShowWechatGuide && (
           <WeChatLaunchGuide
             onContinue={() => {
               setWechatGuideDismissed(true)

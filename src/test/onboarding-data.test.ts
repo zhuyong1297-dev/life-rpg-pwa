@@ -33,12 +33,26 @@ describe('新手体验数据层', () => {
   })
 
   it('只为空库启用成长领域', async () => {
-    expect(await ensureGrowthDomainsForEmptyDatabase(database, new Date('2026-08-17T08:00:00.000Z'))).toBe(true)
+    expect(await ensureGrowthDomainsForEmptyDatabase(database, new Date('2026-08-17T08:00:00.000Z'), '5.7.0')).toBe(true)
     expect(await ensureGrowthDomainsForEmptyDatabase(database)).toBe(false)
     const meta = await database.settings.get('meta')
     expect(meta?.key === 'meta' ? meta.value.growthDomainSystem : undefined).toEqual({
       version: 1,
       activatedAt: '2026-08-17T08:00:00.000Z',
+    })
+    expect(meta?.key === 'meta' ? meta.value.releaseNotes : undefined).toEqual({
+      lastSeenVersion: '5.7.0',
+      acknowledgedAt: '2026-08-17T08:00:00.000Z',
+    })
+  })
+
+  it('已有系统初始化但仍为空库时补齐当前版本基线', async () => {
+    await ensureGrowthDomainsForEmptyDatabase(database, new Date('2026-08-17T08:00:00.000Z'))
+    expect(await ensureGrowthDomainsForEmptyDatabase(database, new Date('2026-08-18T08:00:00.000Z'), '5.7.0')).toBe(false)
+    const meta = await database.settings.get('meta')
+    expect(meta?.key === 'meta' ? meta.value.releaseNotes : undefined).toEqual({
+      lastSeenVersion: '5.7.0',
+      acknowledgedAt: '2026-08-18T08:00:00.000Z',
     })
   })
 

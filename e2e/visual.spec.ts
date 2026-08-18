@@ -371,7 +371,7 @@ test('旅程、愿望页和愿望编辑弹层在各视口保持紧凑', async ({
   await page.getByRole('button', { name: '设置奖励基金额度' }).click()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/reward-budget-${testInfo.project.name}.png` })
-  await page.getByRole('dialog', { name: '设置奖励额度' }).getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('dialog', { name: '设置奖励额度' }).getByRole('button', { name: '关闭设置奖励额度', exact: true }).click()
   await page.getByTitle('新增愿望').click()
   await expectNoHorizontalOverflow(page)
   await page.screenshot({ path: `test-results/wish-editor-${testInfo.project.name}.png` })

@@ -124,6 +124,16 @@ export const OnboardingStateSchema = z.object({
 
 export type OnboardingState = z.infer<typeof OnboardingStateSchema>
 
+export const ReleaseNotesStateSchema = z.object({
+  lastSeenVersion: z.string().regex(
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+    '版本号必须使用 SemVer',
+  ),
+  acknowledgedAt: timestamp,
+}).strict()
+
+export type ReleaseNotesState = z.infer<typeof ReleaseNotesStateSchema>
+
 export const MetaSchema = z.object({
   lastBackupAt: timestamp.optional(),
   migrationImportedAt: timestamp.optional(),
@@ -132,6 +142,7 @@ export const MetaSchema = z.object({
   gameDayBoundaryActivatedAt: timestamp.optional(),
   growthDomainSystem: z.object({ version: z.literal(1), activatedAt: timestamp }).optional(),
   onboarding: OnboardingStateSchema.optional(),
+  releaseNotes: ReleaseNotesStateSchema.optional(),
   todayActionPriority: z.object({
     gameDate: dateString,
     activityIds: z.array(z.string().min(1)).max(5).refine((ids) => new Set(ids).size === ids.length, '今日优先行动不能重复'),

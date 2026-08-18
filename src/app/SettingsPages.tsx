@@ -195,6 +195,7 @@ export function SettingsPage({
   onPreferences,
   onOpenData,
   onOpenInstallHelp,
+  onOpenReleaseNotes,
   onOpenFeedback,
   onNotice,
   onManage,
@@ -206,6 +207,7 @@ export function SettingsPage({
   onPreferences: (value: Preferences) => Promise<void>
   onOpenData: () => void
   onOpenInstallHelp: () => void
+  onOpenReleaseNotes: () => void
   onOpenFeedback: () => void
   onNotice: (message: string) => void
   onManage: () => void
@@ -328,6 +330,11 @@ export function SettingsPage({
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>共同改进</span><h2>帮助与反馈</h2></div></div>
+        <button className="data-center-summary" type="button" onClick={onOpenReleaseNotes}>
+          <span className="feature-summary-icon"><History aria-hidden="true" /></span>
+          <span><strong>本次更新 · V5.7.0</strong><small>自定义奖励基金额度，愿望定价更清晰</small></span>
+          <span>查看内容<ChevronRight aria-hidden="true" /></span>
+        </button>
         <button className="data-center-summary" type="button" onClick={onOpenInstallHelp}>
           <span className="feature-summary-icon"><Smartphone aria-hidden="true" /></span>
           <span><strong>安装与数据保存</strong><small>查看安装步骤、浏览器数据隔离和完整备份说明</small></span>
