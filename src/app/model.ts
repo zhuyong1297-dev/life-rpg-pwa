@@ -185,12 +185,13 @@ import {
 
 
 export type Page = 'today' | 'character' | 'review' | 'settings'
-export type SecondaryPage = 'coach-plan' | 'rewards' | 'data' | 'feedback'
+export type SecondaryPage = 'coach-plan' | 'coach-library' | 'rewards' | 'data' | 'feedback'
 export type Snapshot = Awaited<ReturnType<typeof getSnapshot>>
 
 export function routeFromHash(): { page: Page; secondary?: SecondaryPage } {
   const path = window.location.hash.replace(/^#\/?/, '')
   if (path === 'coach/plan') return { page: 'today', secondary: 'coach-plan' }
+  if (path === 'coach/library') return { page: 'today', secondary: 'coach-library' }
   if (path === 'rewards') return { page: 'character', secondary: 'rewards' }
   if (path === 'profile/data') return { page: 'settings', secondary: 'data' }
   if (path === 'profile/feedback') return { page: 'settings', secondary: 'feedback' }
@@ -443,4 +444,4 @@ export function activityDomainLabel(activity: Activity) {
 }
 
 export const isPreview = import.meta.env.MODE === 'preview'
-export const displayVersion = isPreview ? 'V5.7.0 预览版' : 'V5.7.0'
+export const displayVersion = isPreview ? 'V5.8.0 预览版' : 'V5.8.0'

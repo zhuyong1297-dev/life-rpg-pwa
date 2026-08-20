@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Coins,
+  Compass,
   Crosshair,
   Download,
   Dumbbell,
@@ -209,6 +210,7 @@ export function CoachPlanScreen({
   activeSeason,
   activeTrial,
   onBack,
+  onOpenTemplates,
   onSave,
   onFinish,
 }: {
@@ -217,6 +219,7 @@ export function CoachPlanScreen({
   activeSeason?: Snapshot['seasons'][number]
   activeTrial: boolean
   onBack: () => void
+  onOpenTemplates: () => void
   onSave: (draft: CoachPlanDraft) => Promise<void>
   onFinish: (draft: CoachPlanDraft) => Promise<void>
 }) {
@@ -346,6 +349,7 @@ export function CoachPlanScreen({
         {draft.currentStep === 1 && (
           <section className="coach-step-panel">
             <div className="coach-step-heading"><span>第 1 步</span><h2>先定义现实结果</h2><p>成功标准必须能在{cycleLabel}结束后用事实回答，而不是“获得多少 XP”。</p></div>
+            <button className="coach-library-entry" type="button" onClick={onOpenTemplates}><Compass aria-hidden="true" /><span><strong>从计划模板开始</strong><small>预填目标和行为，仍需由你逐项确认</small></span><ChevronRight aria-hidden="true" /></button>
             <label className="full-field">成长主题<input maxLength={40} value={draft.title} onChange={(event) => updateDraft({ title: event.target.value })} placeholder="例如：建立稳定的生活节奏" /></label>
             <label className="full-field">开始状态<textarea maxLength={280} value={draft.baseline} onChange={(event) => updateDraft({ baseline: event.target.value })} placeholder="现在具体是什么状态？" /></label>
             <label className="full-field">期望结果<textarea maxLength={280} value={draft.targetOutcome} onChange={(event) => updateDraft({ targetOutcome: event.target.value })} placeholder={`${cycleLabel}结束后希望现实中发生什么变化？`} /></label>

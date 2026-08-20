@@ -183,22 +183,23 @@ import {
   type V5Page,
 } from '../prototype/V5Experience'
 
-import { buildRatingGoal, buildTierGoal, defaultRatingGoalDraft, defaultTierGoalDraft, draftStandardCount, draftUsesIncremental, timeInputSeconds, timeInputValue, type RatingGoalDraft, type StringQuad, type StringTriple, type TierGoalDraft } from './model'
-export function CreateActivityModal({ today, initialIsKey = false, onClose, onCreate }: { today: string; initialIsKey?: boolean; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
-  const [type, setType] = useState<'habit' | 'task'>('habit')
-  const [title, setTitle] = useState('')
-  const [scheduledTime, setScheduledTime] = useState('')
-  const [cue, setCue] = useState('')
-  const [protocol, setProtocol] = useState('')
-  const [domain, setDomain] = useState<GrowthDomain>('health')
-  const [difficulty, setDifficulty] = useState<Difficulty>('简单')
-  const [frequency, setFrequency] = useState<'daily' | 'weekly'>('daily')
-  const [weeklyTimes, setWeeklyTimes] = useState(3)
-  const [goalMode, setGoalMode] = useState<'single' | 'tiered' | 'rating'>('single')
-  const [tierDraft, setTierDraft] = useState<TierGoalDraft>(defaultTierGoalDraft)
-  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(defaultRatingGoalDraft)
-  const [plannedOn, setPlannedOn] = useState(today)
-  const [isKey, setIsKey] = useState(initialIsKey)
+import { buildRatingGoal, buildTierGoal, defaultRatingGoalDraft, defaultTierGoalDraft, draftStandardCount, draftUsesIncremental, ratingGoalDraftFromGoal, tierGoalDraftFromGoal, timeInputSeconds, timeInputValue, type RatingGoalDraft, type StringQuad, type StringTriple, type TierGoalDraft } from './model'
+export function CreateActivityModal({ today, initialActivity, initialIsKey = false, onClose, onCreate }: { today: string; initialActivity?: NewActivity; initialIsKey?: boolean; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
+  const initialHabit = initialActivity?.type === 'habit' ? initialActivity : undefined
+  const [type, setType] = useState<'habit' | 'task'>(initialActivity?.type ?? 'habit')
+  const [title, setTitle] = useState(initialActivity?.title ?? '')
+  const [scheduledTime, setScheduledTime] = useState(initialHabit?.scheduledTime ?? '')
+  const [cue, setCue] = useState(initialHabit?.cue ?? '')
+  const [protocol, setProtocol] = useState(initialHabit?.protocol ?? '')
+  const [domain, setDomain] = useState<GrowthDomain>(initialActivity?.domain ?? 'health')
+  const [difficulty, setDifficulty] = useState<Difficulty>(initialActivity?.difficulty ?? '简单')
+  const [frequency, setFrequency] = useState<'daily' | 'weekly'>(initialHabit?.schedule.kind === 'weekly' ? 'weekly' : 'daily')
+  const [weeklyTimes, setWeeklyTimes] = useState(initialHabit?.schedule.kind === 'weekly' ? initialHabit.schedule.times : 3)
+  const [goalMode, setGoalMode] = useState<'single' | 'tiered' | 'rating'>(initialHabit?.goal.kind === 'tiered' ? 'tiered' : initialHabit?.goal.kind === 'rating' ? 'rating' : 'single')
+  const [tierDraft, setTierDraft] = useState<TierGoalDraft>(() => initialHabit?.goal.kind === 'tiered' ? tierGoalDraftFromGoal(initialHabit.goal) : defaultTierGoalDraft())
+  const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(() => ratingGoalDraftFromGoal(initialHabit?.goal.kind === 'rating' ? initialHabit.goal : undefined))
+  const [plannedOn, setPlannedOn] = useState(initialActivity?.plannedOn ?? today)
+  const [isKey, setIsKey] = useState(initialActivity?.isKey ?? initialIsKey)
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -254,7 +255,7 @@ export function CreateActivityModal({ today, initialIsKey = false, onClose, onCr
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
-        {type === 'habit' && <details className="execution-details">
+        {type === 'habit' && <details className="execution-details" open={initialHabit?.scheduledTime || initialHabit?.cue || initialHabit?.protocol ? true : undefined}>
           <summary><span><strong>执行提示</strong><small>{scheduledTime || cue.trim() || '可选的时间、触发条件与行动协议'}</small></span><Target aria-hidden="true" /></summary>
           {frequency === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} /></label>}
           <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} placeholder="例如：起床后、第一段工作前" /></label>

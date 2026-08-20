@@ -38,6 +38,32 @@
   gap: 14px;
 }
 
+.v5-quick-recommendations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.v5-quick-recommendations .starter-habit-card {
+  min-height: 168px;
+}
+
+.v5-library-link {
+  gap: 7px;
+}
+
+.v5-custom-toggle {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v5-green, #146b50);
+  text-align: left;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .v5-onboarding-field {
   display: grid;
   gap: 6px;
@@ -148,6 +174,12 @@
 .v5-newcomer-progress button:not(.icon) {
   background: var(--v5-green, #146b50);
   color: #fff;
+}
+
+.v5-newcomer-progress button.secondary {
+  border-color: #aac9ba;
+  background: #fff;
+  color: var(--v5-green, #146b50);
 }
 
 .v5-onboarding-primary:disabled {
@@ -369,6 +401,7 @@
 @media (hover: hover) and (pointer: fine) {
   .v5-domain-choice label:hover,
   .v5-onboarding-secondary:hover,
+  .v5-custom-toggle:hover,
   .v5-quick-start-links button:hover,
   .v5-onboarding-dialog header button:hover,
   .v5-newcomer-progress button.icon:hover {
@@ -386,6 +419,10 @@
 }
 
 @media (max-width: 350px) {
+  .v5-quick-recommendations {
+    grid-template-columns: 1fr;
+  }
+
   .v5-newcomer-progress {
     grid-template-columns: 1fr;
   }

@@ -193,10 +193,12 @@ export function DataStorageGuide({
 export function NewcomerProgress({
   progress,
   onFeedback,
+  onOpenPlans,
   onDismiss,
 }: {
   progress: NewcomerProgressData
   onFeedback: () => void
+  onOpenPlans: () => void
   onDismiss: () => void
 }) {
   return (
@@ -208,6 +210,7 @@ export function NewcomerProgress({
       </div>
       <div className="v5-newcomer-progress-actions">
         {progress.feedbackAvailable && <button type="button" onClick={onFeedback}>分享体验</button>}
+        {!progress.feedbackAvailable && progress.completedDays > 0 && <button className="secondary" type="button" onClick={onOpenPlans}>建立完整计划</button>}
         <button className="icon" type="button" title="关闭七日体验提示" aria-label="关闭七日体验提示" onClick={onDismiss}><X size={18} /></button>
       </div>
     </section>

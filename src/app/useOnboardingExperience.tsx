@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 
 import {
   createActivity,
-  createFirstOnboardingActivity,
   createFirstOnboardingConfiguredActivity,
   updateOnboardingMarkers,
   type NewActivity,
@@ -27,7 +26,8 @@ interface UseOnboardingExperienceInput {
   refresh: () => Promise<void>
   onError: (message: string) => void
   onNotice: (message: string) => void
-  onOpenFullCreate: () => void
+  onOpenFullCreate: (initial?: NewActivity) => void
+  onOpenLibrary: () => void
   onOpenFeedback: () => void
   appVersion: string
 }
@@ -47,6 +47,7 @@ export function useOnboardingExperience({
   onError,
   onNotice,
   onOpenFullCreate,
+  onOpenLibrary,
   onOpenFeedback,
   appVersion,
 }: UseOnboardingExperienceInput) {
@@ -88,11 +89,12 @@ export function useOnboardingExperience({
     <QuickStart
       onSubmit={async (activity) => {
         if (!activity.domain) throw new Error('请选择成长领域')
-        await createFirstOnboardingActivity({ title: activity.title, domain: activity.domain })
+        await createFirstOnboardingConfiguredActivity(activity)
         await refresh()
         onNotice('第一条行动已创建，现在完成一次最低标准')
       }}
       onOpenFullSettings={onOpenFullCreate}
+      onOpenLibrary={onOpenLibrary}
       onLearnDataStorage={() => setShowDataGuide(true)}
     />
   ) : undefined
@@ -113,6 +115,7 @@ export function useOnboardingExperience({
           .then(onOpenFeedback)
           .catch((error) => onError(messageFrom(error)))
       }}
+      onOpenPlans={onOpenLibrary}
       onDismiss={() => {
         setProgressHidden(true)
         if (summary.currentDay >= 7) {

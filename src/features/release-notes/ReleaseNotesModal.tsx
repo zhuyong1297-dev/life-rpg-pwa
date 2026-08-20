@@ -1,4 +1,4 @@
-import { CalendarClock, Coins, SlidersHorizontal } from 'lucide-react'
+import { Compass, Library, ShieldCheck } from 'lucide-react'
 
 import { V5ModalSurface } from '../../prototype/v5/shared'
 import { CURRENT_RELEASE_NOTES, CURRENT_RELEASE_NOTES_VERSION } from './releaseNotes'
@@ -7,19 +7,19 @@ import './release-notes.css'
 export function ReleaseNotesModal({
   onLater,
   onAcknowledge,
-  onOpenRewards,
+  onOpenLibrary,
 }: {
   onLater: () => void
   onAcknowledge: () => void
-  onOpenRewards: () => void
+  onOpenLibrary: () => void
 }) {
-  const icons = [SlidersHorizontal, Coins, CalendarClock]
+  const icons = [Compass, Library, ShieldCheck]
 
   return (
     <V5ModalSurface title={`V${CURRENT_RELEASE_NOTES_VERSION} 更新内容`} kicker="版本更新" onClose={onLater}>
       <div className="release-notes-content">
         <div className="release-notes-intro">
-          <span>奖励商店</span>
+          <span>习惯与计划库</span>
           <strong>{CURRENT_RELEASE_NOTES.title}</strong>
           <p>{CURRENT_RELEASE_NOTES.summary}</p>
         </div>
@@ -39,7 +39,7 @@ export function ReleaseNotesModal({
         <div className="release-notes-actions">
           <button className="release-notes-later" type="button" onClick={onLater}>稍后</button>
           <button className="release-notes-acknowledge" type="button" onClick={onAcknowledge}>知道了</button>
-          <button className="release-notes-primary" type="button" onClick={onOpenRewards}>前往愿望商店</button>
+          <button className="release-notes-primary" type="button" onClick={onOpenLibrary}>查看推荐库</button>
         </div>
       </div>
     </V5ModalSurface>

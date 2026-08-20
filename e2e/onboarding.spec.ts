@@ -1,22 +1,54 @@
 import { expect, test } from '@playwright/test'
 
-test('全新空库直接进入快速创建并完成首次行动', async ({ page }) => {
+async function activityCount(page: import('@playwright/test').Page) {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('earth-online-v2')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const count = await new Promise<number>((resolve, reject) => {
+      const request = database.transaction('activities').objectStore('activities').count()
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    database.close()
+    return count
+  })
+}
+
+test('全新空库选择领域、预览推荐并完成首次行动', async ({ page }) => {
   await page.goto('./')
 
   await expect(page.getByRole('heading', { name: '建立六个成长领域' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: '今天', exact: true })).toBeVisible()
   await expect(page.getByText('地球 Online · 第一次行动')).toBeVisible()
-  await expect(page.getByText('每天 · 1 次 · 简单 · 关键行动')).toBeVisible()
-
-  await page.getByLabel('行动名称').fill('整理十分钟')
   await page.getByText('生活', { exact: true }).click()
-  await page.getByRole('button', { name: '创建并开始' }).click()
+  await expect(page.getByRole('button', { name: /五分钟复位/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /写下明日第一步/ })).toBeVisible()
+
+  await page.getByRole('button', { name: /五分钟复位/ }).click()
+  let preview = page.getByRole('dialog', { name: '五分钟复位' })
+  await expect(preview).toContainText('基础层')
+  await expect(preview).toContainText('标准层')
+  await expect(preview).toContainText('关键行动')
+  await preview.getByRole('button', { name: '关闭' }).click()
+  await expect(page.getByText('地球 Online · 第一次行动')).toBeVisible()
+  await expect.poll(() => activityCount(page)).toBe(0)
+
+  await page.getByRole('button', { name: /五分钟复位/ }).click()
+  preview = page.getByRole('dialog', { name: '五分钟复位' })
+  await preview.getByRole('button', { name: '确认创建' }).evaluate((button) => {
+    button.click()
+    button.click()
+  })
 
   await expect(page.getByText('第一条行动已创建')).toBeVisible()
-  await expect(page.getByText('整理十分钟', { exact: true })).toBeVisible()
+  await expect.poll(() => activityCount(page)).toBe(1)
+  await expect(page.getByText('五分钟复位', { exact: true })).toBeVisible()
   await expect(page.getByText('七日体验 · 第 1/7 天')).toBeVisible()
-  await page.getByRole('button', { name: '完成 整理十分钟' }).click()
-  await expect(page.locator('.v5-feedback')).toContainText('+5 XP')
+  await page.getByRole('button', { name: /^基础 5分钟/ }).click()
+  await expect(page.locator('.v5-feedback')).toContainText('+3 XP')
   await expect(page.getByRole('dialog', { name: '数据保存在这台设备' })).toHaveCount(0)
 
   await page.reload()
@@ -27,8 +59,73 @@ test('全新空库直接进入快速创建并完成首次行动', async ({ page 
   await expect(page.getByText('第一项行动已完成 1 天')).toBeVisible()
 
   await page.reload()
-  await expect(page.getByText('整理十分钟', { exact: true })).toBeVisible()
+  await expect(page.getByText('五分钟复位', { exact: true })).toBeVisible()
   await expect(page.getByText('第一项行动已完成 1 天')).toBeVisible()
+})
+
+test('已有用户从推荐库创建普通行动且计划模板只生成未确认草稿', async ({ page }) => {
+  await page.goto('./')
+  await page.getByRole('button', { name: '我想自己定义行动' }).click()
+  await page.getByText('生活', { exact: true }).click()
+  await page.getByLabel('行动名称').fill('已有关键行动')
+  await page.getByRole('button', { name: '创建并开始' }).click()
+
+  await page.goto('./#/coach/library')
+  await page.getByRole('tab', { name: '学习' }).click()
+  await page.locator('.starter-habit-grid').getByRole('button', { name: /阅读一点/ }).click()
+  await page.getByRole('dialog', { name: '阅读一点' }).getByRole('button', { name: '确认创建' }).click()
+  await expect(page).toHaveURL(/#\/today$/)
+
+  const state = await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('earth-online-v2')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const activities = await new Promise<Array<{ title: string; isKey: boolean }>>((resolve, reject) => {
+      const request = database.transaction('activities').objectStore('activities').getAll()
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const seasons = await new Promise<unknown[]>((resolve, reject) => {
+      const request = database.transaction('seasons').objectStore('seasons').getAll()
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    database.close()
+    return { activities, seasons }
+  })
+  expect(state.activities.find((activity) => activity.title === '已有关键行动')?.isKey).toBe(true)
+  expect(state.activities.find((activity) => activity.title === '阅读一点')?.isKey).toBe(false)
+  expect(state.seasons).toHaveLength(0)
+
+  await page.goto('./#/coach/library')
+  await page.locator('.starter-plan-grid').getByRole('button', { name: /稳定生活节奏/ }).click()
+  const planPreview = page.getByRole('dialog', { name: '稳定生活节奏' })
+  await expect(planPreview).toContainText('填写个人基线')
+  await planPreview.getByRole('button', { name: '生成规划草稿' }).click()
+  await expect(page).toHaveURL(/#\/coach\/plan$/)
+  await expect(page.getByRole('heading', { name: '先定义现实结果' })).toBeVisible()
+  await expect(page.getByLabel('开始状态')).toHaveValue('')
+
+  await page.goto('./#/coach/library')
+  await page.locator('.starter-plan-grid').getByRole('button', { name: /推进重要项目/ }).click()
+  const replacement = page.getByRole('dialog', { name: '推进重要项目' })
+  await expect(replacement).toContainText('当前已有一份规划草稿')
+  await replacement.getByRole('button', { name: '确认替换并继续' }).click()
+  await expect(page.getByLabel('成长主题')).toHaveValue('推进重要项目')
+})
+
+test('390px 推荐库和预览弹层没有横向溢出', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('./#/coach/library')
+  await expect(page.getByRole('heading', { name: '习惯与计划库' })).toBeVisible()
+  await page.getByRole('tab', { name: '创作' }).click()
+  await page.locator('.starter-habit-grid').getByRole('button', { name: /推进作品十五分钟/ }).click()
+  const dialog = page.getByRole('dialog', { name: '推进作品十五分钟' })
+  await expect(dialog.getByRole('button', { name: '确认创建' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
 test('微信首次打开先说明浏览器数据隔离', async ({ page }) => {

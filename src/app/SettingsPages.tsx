@@ -13,6 +13,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Coins,
+  Compass,
   Crosshair,
   Download,
   Dumbbell,
@@ -197,6 +198,7 @@ export function SettingsPage({
   onOpenInstallHelp,
   onOpenReleaseNotes,
   onOpenFeedback,
+  onOpenLibrary,
   onNotice,
   onManage,
 }: {
@@ -209,6 +211,7 @@ export function SettingsPage({
   onOpenInstallHelp: () => void
   onOpenReleaseNotes: () => void
   onOpenFeedback: () => void
+  onOpenLibrary: () => void
   onNotice: (message: string) => void
   onManage: () => void
 }) {
@@ -326,13 +329,18 @@ export function SettingsPage({
           </span>
           <span className="activity-management-action">管理全部<ChevronRight aria-hidden="true" /></span>
         </button>
+        <button className="data-center-summary" type="button" onClick={onOpenLibrary}>
+          <span className="feature-summary-icon"><Compass aria-hidden="true" /></span>
+          <span><strong>习惯与计划库</strong><small>从通用起点中选习惯，或预填一套 28 天计划</small></span>
+          <span>浏览推荐<ChevronRight aria-hidden="true" /></span>
+        </button>
       </section>
 
       <section className="content-section settings-section">
         <div className="section-heading"><div><span>共同改进</span><h2>帮助与反馈</h2></div></div>
         <button className="data-center-summary" type="button" onClick={onOpenReleaseNotes}>
           <span className="feature-summary-icon"><History aria-hidden="true" /></span>
-          <span><strong>本次更新 · V5.7.0</strong><small>自定义奖励基金额度，愿望定价更清晰</small></span>
+          <span><strong>本次更新 · V5.8.0</strong><small>十二项推荐习惯与四套 28 天计划</small></span>
           <span>查看内容<ChevronRight aria-hidden="true" /></span>
         </button>
         <button className="data-center-summary" type="button" onClick={onOpenInstallHelp}>

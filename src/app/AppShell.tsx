@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Activity as ActivityIcon, Award, Bell, BellOff, BookOpen, Brain, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Coins, Crosshair, Download, Dumbbell, FileJson, Gift, Home, History, Leaf, ListTodo, Pause, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, ShieldCheck, Star, Target, Trash2, TrendingUp, Upload, UserRound, Vibrate, Volume2, X, Zap, } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from '../backup'
 import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, updateRewardBudget, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
@@ -10,6 +11,7 @@ import { importKnowledgeActionPackage, previewKnowledgeActionPackage, type Knowl
 import { applicationResultFilename, createPlanningContextPackage, createSeasonResultPackage, createTrialResultPackage, planningContextFilename, } from '../application-bridge'
 import { V5GrowthPage, V5Navigation, V5TodayPage, getV5DailyRewardSummary, type V5Page, } from '../prototype/V5Experience'
 import { FeedbackPage } from '../prototype/v5/FeedbackPage'
+import { buildStarterActivity, buildStarterPlanDraft, StarterLibraryPage, type StarterHabitTemplate, type StarterPlanTemplate } from '../features/starter-library'
 import { useAppController } from './useAppController'
 import { useOnboardingExperience } from './useOnboardingExperience'
 import { useReleaseNotes } from './useReleaseNotes'
@@ -25,7 +27,7 @@ import { CreateActivityModal } from './ActivityForms'
 import { ArchiveActivityModal, CompletionActionsModal, CompletionModal, DeleteActivityModal, EditHabitModal, FeedbackOverlay, IncrementalDurationPickerModal, IncrementalProgressModal, TierPickerModal, WeeklyActivityDetailModal } from './ActivityModals'
 const isPreview = import.meta.env.MODE === 'preview'
 const useV5Experience = !(navigator.webdriver && new URLSearchParams(window.location.search).has('legacy-test'))
-const displayVersion = isPreview ? 'V5.7.0 预览版' : 'V5.7.0'
+const displayVersion = isPreview ? 'V5.8.0 预览版' : 'V5.8.0'
 
 export function AppShell() {
   const {
@@ -104,6 +106,7 @@ export function AppShell() {
     requestCompletion,
     undoLast,
   } = useAppController()
+  const [initialActivity, setInitialActivity] = useState<NewActivity>()
   const onboardingExperience = useOnboardingExperience({
     ready,
     activityCount: snapshot.activities.length, newcomerEligible, completionFeedbackActive: Boolean(feedback),
@@ -112,11 +115,15 @@ export function AppShell() {
     refresh,
     onError: setErrorNotice,
     onNotice: (message) => setNotice(message, 'success'),
-    onOpenFullCreate: () => setCreateOpen(true),
+    onOpenFullCreate: (activity) => {
+      setInitialActivity(activity)
+      setCreateOpen(true)
+    },
+    onOpenLibrary: () => navigateTo('coach/library'),
     onOpenFeedback: () => navigateTo('profile/feedback'),
     appVersion: displayVersion,
   })
-  const releaseNotes = useReleaseNotes({ ready, growthDomainsReady: Boolean(growthDomainSystem), newcomerEligible, autoOpenAllowed: !secondaryPage && !onboardingExperience.blockingOverlayOpen, lastSeenVersion: metaSetting?.key === 'meta' ? metaSetting.value.releaseNotes?.lastSeenVersion : undefined, refresh, onError: setErrorNotice, onOpenRewards: () => navigateTo('rewards') })
+  const releaseNotes = useReleaseNotes({ ready, growthDomainsReady: Boolean(growthDomainSystem), newcomerEligible, autoOpenAllowed: !secondaryPage && !onboardingExperience.blockingOverlayOpen, lastSeenVersion: metaSetting?.key === 'meta' ? metaSetting.value.releaseNotes?.lastSeenVersion : undefined, refresh, onError: setErrorNotice, onOpenLibrary: () => navigateTo('coach/library') })
   if (!ready) {
     return (
       <main className="loading-screen">
@@ -149,7 +156,7 @@ export function AppShell() {
       : page === 'settings'
         ? 'profile'
         : page
-  const useSecondaryLayout = secondaryPage === 'coach-plan' || secondaryPage === 'data' || secondaryPage === 'feedback'
+  const useSecondaryLayout = secondaryPage === 'coach-plan' || secondaryPage === 'coach-library' || secondaryPage === 'data' || secondaryPage === 'feedback'
   const shellClassName = ['app-shell', useSecondaryLayout ? 'secondary-route' : '', useV5Experience ? 'v5-preview-shell' : ''].filter(Boolean).join(' ')
 
   return (
@@ -197,6 +204,7 @@ export function AppShell() {
             activeSeason={activeSeason}
             activeTrial={applicationTrial?.status === 'active'}
             onBack={() => navigateTo(page)}
+            onOpenTemplates={() => navigateTo('coach/library')}
             onSave={async (draft) => {
               await saveCoachPlanDraft(draft)
               await refresh()
@@ -221,6 +229,29 @@ export function AppShell() {
                 )
               }
               navigateTo('today')
+            }}
+          />
+        ) : secondaryPage === 'coach-library' ? (
+          <StarterLibraryPage
+            firstActivity={newcomerEligible && !onboarding?.startedOn && snapshot.activities.length === 0}
+            hasDraft={Boolean(coachDraft)}
+            onBack={() => navigateBackTo('profile')}
+            onCreateHabit={async (template: StarterHabitTemplate) => {
+              const firstActivity = newcomerEligible && !onboarding?.startedOn && snapshot.activities.length === 0
+              await onboardingExperience.createConfiguredActivity(buildStarterActivity(template, firstActivity))
+              await refresh()
+              setNotice(firstActivity ? '第一条推荐行动已创建，现在完成一次基础层' : '推荐习惯已创建', 'success')
+              navigateTo('today')
+            }}
+            onCustomizeHabit={(template: StarterHabitTemplate) => {
+              const firstActivity = newcomerEligible && !onboarding?.startedOn && snapshot.activities.length === 0
+              setInitialActivity(buildStarterActivity(template, firstActivity))
+              setCreateOpen(true)
+            }}
+            onUsePlan={async (template: StarterPlanTemplate) => {
+              await saveCoachPlanDraft(buildStarterPlanDraft(template))
+              await refresh()
+              navigateTo('coach/plan')
             }}
           />
         ) : secondaryPage === 'data' ? (
@@ -490,6 +521,7 @@ export function AppShell() {
             onOpenInstallHelp={onboardingExperience.openDataGuide}
             onOpenReleaseNotes={releaseNotes.open}
             onOpenFeedback={() => navigateTo('profile/feedback')}
+            onOpenLibrary={() => navigateTo('coach/library')}
             onNotice={setNotice}
           />
         )}
@@ -505,13 +537,16 @@ export function AppShell() {
       )}
       {createOpen && (
         <CreateActivityModal
-          today={today} initialIsKey={useV5Experience && newcomerEligible && !onboarding?.startedOn}
-          onClose={() => setCreateOpen(false)}
+          today={today} initialActivity={initialActivity} initialIsKey={useV5Experience && newcomerEligible && !onboarding?.startedOn}
+          onClose={() => { setCreateOpen(false); setInitialActivity(undefined) }}
           onCreate={async (activity) => {
             try {
+              const createdFromRecommendation = Boolean(initialActivity)
               await onboardingExperience.createConfiguredActivity(activity)
               await refresh()
               setCreateOpen(false)
+              setInitialActivity(undefined)
+              if (createdFromRecommendation) navigateTo('today')
             } catch (error) {
               setErrorNotice(errorMessage(error))
             }
