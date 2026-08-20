@@ -259,6 +259,7 @@ export function TodayPage({
   pendingRewardClaim,
   rewardDailyCoins,
   onOpenRewards,
+  travelerAppearance = 'masculine',
 }: {
   today: string
   totalXp: number
@@ -284,6 +285,7 @@ export function TodayPage({
   pendingRewardClaim?: RewardClaim
   rewardDailyCoins?: number
   onOpenRewards: () => void
+  travelerAppearance?: import('../domain').TravelerAppearance
 }) {
   const stage = getCharacterStage(level.level)
   const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
@@ -314,7 +316,7 @@ export function TodayPage({
             onPlan={onOpenCoach}
           />
           <div className="mobile-status">
-            <TodayStatusPanel today={today} stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} activeReward={activeReward} pendingRewardClaim={pendingRewardClaim} rewardDailyCoins={rewardDailyCoins} onOpenRewards={onOpenRewards} compact />
+            <TodayStatusPanel today={today} stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} activeReward={activeReward} pendingRewardClaim={pendingRewardClaim} rewardDailyCoins={rewardDailyCoins} onOpenRewards={onOpenRewards} travelerAppearance={travelerAppearance} compact />
           </div>
           <ActivitySection
             title="关键行动"
@@ -362,7 +364,7 @@ export function TodayPage({
           />
         </section>
         <aside className="today-sidebar" aria-label="角色状态">
-          <TodayStatusPanel today={today} stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} activeReward={activeReward} pendingRewardClaim={pendingRewardClaim} rewardDailyCoins={rewardDailyCoins} onOpenRewards={onOpenRewards} />
+          <TodayStatusPanel today={today} stage={stage} totalXp={totalXp} level={level} levelSystem={levelSystem} coins={coins} completed={completedKeys} total={keyActivities.length} activeReward={activeReward} pendingRewardClaim={pendingRewardClaim} rewardDailyCoins={rewardDailyCoins} onOpenRewards={onOpenRewards} travelerAppearance={travelerAppearance} />
           <button className="primary-action sidebar-create" type="button" onClick={onCreate}><Plus aria-hidden="true" />创建行动</button>
           <p className="sidebar-note"><ShieldCheck aria-hidden="true" />成长记录仅保存在本机</p>
         </aside>
@@ -384,6 +386,7 @@ export function TodayStatusPanel({
   pendingRewardClaim,
   rewardDailyCoins,
   onOpenRewards,
+  travelerAppearance = 'masculine',
   compact = false,
 }: {
   today: string
@@ -398,6 +401,7 @@ export function TodayStatusPanel({
   pendingRewardClaim?: RewardClaim
   rewardDailyCoins?: number
   onOpenRewards: () => void
+  travelerAppearance?: import('../domain').TravelerAppearance
   compact?: boolean
 }) {
   const keyProgress = total > 0 ? completed / total : 0
@@ -408,7 +412,7 @@ export function TodayStatusPanel({
   if (compact) {
     return (
       <section className="status-strip" aria-label="今日旅者状态">
-        <span className="status-strip-portrait"><TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} /></span>
+        <span className="status-strip-portrait"><TravelerPortrait stage={stage} appearance={travelerAppearance} label={`Lv.${level.level} 像素旅者`} /></span>
         <div className="status-strip-copy">
           <span>旅者状态</span>
           <strong>Lv.{level.level} · {level.current}/{level.needed} XP</strong>
@@ -431,7 +435,7 @@ export function TodayStatusPanel({
   return (
     <section className="status-panel">
       <div className="status-identity">
-        <span className="portrait-frame"><TravelerPortrait stage={stage} label={`Lv.${level.level} 像素旅者`} /></span>
+        <span className="portrait-frame"><TravelerPortrait stage={stage} appearance={travelerAppearance} label={`Lv.${level.level} 像素旅者`} /></span>
         <div><span>旅者状态</span><strong>Lv.{level.level}</strong><small>{getCharacterStageName(level.level)} · 阶段 {stage}</small></div>
       </div>
       <div className="status-stat-grid">

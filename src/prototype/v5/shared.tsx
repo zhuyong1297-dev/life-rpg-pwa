@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Check, ChevronRight, ClipboardCheck, Plus, RotateCcw, X } from 'lucide-react'
-import { getCharacterStage, getCharacterStageName, getLevel } from '../../domain'
+import { getCharacterStage, getCharacterStageName, getLevel, type TravelerAppearance } from '../../domain'
+import { travelerAssetUrl } from '../../traveler'
 import { getV5FeedbackDisplay } from './selectors'
 import type { V5DailyRewardSummary, V5FeedbackView } from './types'
 
@@ -182,11 +183,11 @@ export function V5ModalSurface({
 }
 
 
-export function V5TravelerSummary({ level, totalXp }: { level: ReturnType<typeof getLevel>; totalXp: number }) {
+export function V5TravelerSummary({ level, totalXp, appearance = 'masculine' }: { level: ReturnType<typeof getLevel>; totalXp: number; appearance?: TravelerAppearance }) {
   const stage = getCharacterStage(level.level)
   return (
     <div className="v5-traveler-summary">
-      <img src={`${import.meta.env.BASE_URL}assets/v5/traveler-stage-${stage}.png`} alt={`${getCharacterStageName(level.level)}阶段旅者`} />
+      <img src={travelerAssetUrl(stage, appearance)} alt={`${getCharacterStageName(level.level)}阶段旅者`} />
       <div><span>{getCharacterStageName(level.level)} · 阶段 {stage}</span><strong>Lv.{level.level}</strong><small>{totalXp} XP</small></div>
     </div>
   )

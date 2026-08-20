@@ -25,12 +25,44 @@
 .v5-quick-start header p,
 .v5-quick-start-summary span,
 .v5-onboarding-footnote,
+.v5-traveler-choice-intro,
 .v5-install-guide p,
 .v5-newcomer-progress p {
   margin: 0;
   color: var(--v5-muted, #66736d);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.v5-traveler-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.v5-traveler-choice-grid button {
+  display: grid;
+  min-height: 212px;
+  justify-items: center;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--v5-line, #d7e0db);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--v5-ink, #15231e);
+  font: inherit;
+  cursor: pointer;
+}
+
+.v5-traveler-choice-grid img {
+  width: min(128px, 100%);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.v5-traveler-choice-grid span {
+  color: var(--v5-muted, #66736d);
+  font-size: 12px;
 }
 
 .v5-quick-start form {
@@ -400,6 +432,7 @@
 
 @media (hover: hover) and (pointer: fine) {
   .v5-domain-choice label:hover,
+  .v5-traveler-choice-grid button:hover,
   .v5-onboarding-secondary:hover,
   .v5-custom-toggle:hover,
   .v5-quick-start-links button:hover,
@@ -429,6 +462,11 @@
 
   .v5-newcomer-progress-actions {
     justify-content: space-between;
+  }
+
+  .v5-traveler-choice-grid button {
+    min-height: 190px;
+    padding: 8px;
   }
 }
 

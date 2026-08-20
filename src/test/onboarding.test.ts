@@ -1,9 +1,12 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import {
   buildQuickStartActivity,
   deriveNewcomerProgress,
   detectBrowserEnvironment,
+  TravelerChoice,
 } from '../features/onboarding'
 
 describe('新用户承接', () => {
@@ -56,5 +59,12 @@ describe('新用户承接', () => {
       completedDays: 0,
       feedbackAvailable: true,
     })
+  })
+
+  it('新用户旅者选择同时展示男女形象且不预选', () => {
+    const markup = renderToStaticMarkup(createElement(TravelerChoice, { onChoose: async () => undefined }))
+    expect(markup).toContain('男性旅者')
+    expect(markup).toContain('女性旅者')
+    expect(markup).not.toContain('aria-pressed="true"')
   })
 })

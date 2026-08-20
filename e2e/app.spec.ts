@@ -4,7 +4,12 @@ test.beforeEach(async ({ page }) => {
   await page.goto('./?legacy-test=1')
   const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
   const today = page.getByRole('heading', { name: '今天', exact: true })
-  await Promise.race([wizard.waitFor(), today.waitFor()])
+  const travelerDialog = page.getByRole('dialog', { name: '选择你的旅者' })
+  await Promise.race([wizard.waitFor(), today.waitFor(), travelerDialog.waitFor()])
+  if (await travelerDialog.isVisible()) {
+    await travelerDialog.getByRole('button', { name: /男性旅者/ }).click()
+    await expect(travelerDialog).toBeHidden()
+  }
   if (await wizard.isVisible()) {
     await page.getByRole('button', { name: '启用新领域体系' }).click()
   }
@@ -47,20 +52,20 @@ async function markReleaseNotesUnseen(page: import('@playwright/test').Page) {
   })
 }
 
-test('V5.8.0 更新说明可稍后提醒、确认已读并从我的页重看', async ({ page }) => {
-  await expect(page.getByRole('dialog', { name: 'V5.8.0 更新内容' })).toHaveCount(0)
+test('V5.9.0 更新说明可稍后提醒、确认已读并从我的页重看', async ({ page }) => {
+  await expect(page.getByRole('dialog', { name: 'V5.9.0 更新内容' })).toHaveCount(0)
   await page.getByRole('button', { name: '创建行动' }).click()
   await page.getByLabel('名称').fill('用于验证更新说明的行动')
   await page.getByRole('button', { name: '创建', exact: true }).click()
   await expect(page.getByRole('button', { name: '完成 用于验证更新说明的行动' })).toBeVisible()
 
   await page.reload()
-  const dialog = page.getByRole('dialog', { name: 'V5.8.0 更新内容' })
+  const dialog = page.getByRole('dialog', { name: 'V5.9.0 更新内容' })
   await expect(dialog).toHaveCount(0)
   await markReleaseNotesUnseen(page)
   await page.reload()
-  await expect(dialog).toContainText('从一条适合你的行动开始')
-  await expect(dialog).toContainText('未经确认')
+  await expect(dialog).toContainText('让旅者更像你')
+  await expect(dialog).toContainText('不会限制打卡')
   await dialog.getByRole('button', { name: '稍后' }).click()
   await page.reload()
   await expect(dialog).toBeVisible()
@@ -70,11 +75,10 @@ test('V5.8.0 更新说明可稍后提醒、确认已读并从我的页重看', a
   await page.reload()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: '设置' }).click()
-  await page.getByRole('button', { name: /本次更新 · V5\.8\.0/ }).click()
+  await page.getByRole('button', { name: /本次更新 · V5\.9\.0/ }).click()
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: '查看推荐库' }).click()
-  await expect(page.getByRole('heading', { name: '习惯与计划库' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '推荐习惯' })).toBeVisible()
+  await dialog.getByRole('button', { name: '去选择旅者' }).click()
+  await expect(page.getByRole('group', { name: '旅者外观' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 

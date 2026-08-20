@@ -34,6 +34,12 @@
 .coach-library-entry > svg { color: var(--forest); }
 .coach-library-entry > span { min-width: 0; display: grid; gap: 2px; }
 .coach-library-entry small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.habit-anchor-fields { margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; }
+.habit-anchor-fields legend { padding: 0 5px; font-weight: 800; }
+.habit-anchor-fields legend span { color: var(--muted); font-size: 11px; font-weight: 500; }
+.habit-anchor-fields > p { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.habit-anchor-kinds { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 10px; }
+@media (max-width: 380px) { .habit-anchor-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .coach-step-heading { margin-bottom: 18px; }
 .coach-step-heading > span { color: var(--forest); font-size: 11px; font-weight: 800; }
 .coach-step-heading h2 { margin: 4px 0; font-size: 23px; }
@@ -585,3 +591,15 @@ label textarea { min-height: 84px; resize: vertical; }
 .application-rating-evidence { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; }
 .application-rating-evidence span { display: grid; gap: 3px; }
 .application-rating-evidence > small { grid-column: 1 / -1; color: var(--muted); }
+
+.traveler-appearance-setting { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.traveler-appearance-setting > div:first-child { display: grid; gap: 2px; }
+.traveler-appearance-setting > div:first-child span { color: var(--muted); font-size: 12px; }
+.traveler-appearance-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.traveler-appearance-options button { display: grid; min-height: 72px; grid-template-columns: 52px minmax(0, 1fr) 20px; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; }
+.traveler-appearance-options button.selected { border-color: var(--forest); background: var(--mint-soft); color: var(--forest); }
+.traveler-appearance-options img { width: 52px; height: 52px; object-fit: contain; }
+.traveler-appearance-options svg { width: 18px; }
+.habit-formation-review { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--color-warning-rule); border-radius: 7px; background: var(--color-warning-paper); }
+.habit-formation-review > span { color: var(--color-warning-ink); font-size: 11px; font-weight: 800; }
+.habit-formation-review p, .habit-formation-review small { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }

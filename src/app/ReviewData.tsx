@@ -104,6 +104,7 @@ import {
   getCharacterStage,
   getCharacterStageName,
   getCompletionTierGoal,
+  getHabitFormationReview,
   getLevel,
   getLevelReport,
   getJourneyMonths,
@@ -340,6 +341,7 @@ export function ReviewPage({
           {progress.map(({ activity, completed, planned, adherence, actualDurationMinutes, plannedDurationMinutes, tierCounts, reviewTiers, achievement }) => {
             const draft = drafts[activity.id] ?? { impact: 3, friction: 3, decision: '保留' as const, note: '' }
             const update = (next: Partial<ReviewDraft>) => setDrafts((current) => ({ ...current, [activity.id]: { ...draft, ...next } }))
+            const formationReview = getHabitFormationReview(activity, completions, today)
             return (
               <section className="review-item" key={activity.id}>
                 <div className="review-title">
@@ -355,6 +357,13 @@ export function ReviewPage({
                     {reviewTiers.map((tier, index) => <span key={tier}>{tierLabels[tier]} {tierCounts[index]}</span>)}
                     {achievement.count > 0 && <strong>最低次数：{achievement.count}{achievement.countUnit ?? '次'}</strong>}
                     {achievement.durationSeconds > 0 && <strong>最低时间：{formatDurationSeconds(achievement.durationSeconds)}</strong>}
+                  </div>
+                )}
+                {formationReview && (
+                  <div className="habit-formation-review compact">
+                    <span>启动锚点建议</span>
+                    <strong>首七日完成 {formationReview.completedDays}/7 天 · 当前：{formationReview.anchorLabel}</strong>
+                    <p>可在活动管理中换时间、现实事件或前置行动，也可以缩小基础层；系统不会自动修改。</p>
                   </div>
                 )}
                 <div className="review-fields">

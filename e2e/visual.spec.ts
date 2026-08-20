@@ -11,7 +11,12 @@ async function openApp(page: Page) {
   await page.goto('./?legacy-test=1')
   const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
   const today = page.getByRole('heading', { name: '今天', exact: true })
-  await Promise.race([wizard.waitFor(), today.waitFor()])
+  const travelerDialog = page.getByRole('dialog', { name: '选择你的旅者' })
+  await Promise.race([wizard.waitFor(), today.waitFor(), travelerDialog.waitFor()])
+  if (await travelerDialog.isVisible()) {
+    await travelerDialog.getByRole('button', { name: /男性旅者/ }).click()
+    await expect(travelerDialog).toBeHidden()
+  }
   if (await wizard.isVisible()) {
     await page.getByRole('button', { name: '启用新领域体系' }).click()
   }

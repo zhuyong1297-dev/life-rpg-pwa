@@ -197,6 +197,7 @@ export function CharacterPage({
   targetRewardId,
   onAcknowledge,
   onOpenRewards,
+  travelerAppearance = 'masculine',
 }: {
   stats: ReturnType<typeof calculateStats>
   level: ReturnType<typeof getLevel>
@@ -208,6 +209,7 @@ export function CharacterPage({
   targetRewardId?: string
   onAcknowledge: (level: number, focusDomain: GrowthDomain) => void
   onOpenRewards: () => void
+  travelerAppearance?: import('../domain').TravelerAppearance
 }) {
   const [routeOpen, setRouteOpen] = useState(false)
   const [journeyOpen, setJourneyOpen] = useState(false)
@@ -247,7 +249,7 @@ export function CharacterPage({
     <div className="character-page">
       <header className="page-header"><div><p className="eyebrow">角色 · 成长总览</p><h1>旅者档案</h1><p className="page-lead">现实中的每一次行动，都在这里留下成长。</p></div></header>
       <section className="character-hero">
-        <div className="character-portrait-wrap"><span className="stage-badge">{stageName}</span><TravelerPortrait stage={stage} label={`${stageName}阶段的像素旅者`} /></div>
+        <div className="character-portrait-wrap"><span className="stage-badge">{stageName}</span><TravelerPortrait stage={stage} appearance={travelerAppearance} label={`${stageName}阶段的像素旅者`} /></div>
         <div className="character-progress">
           <div className="character-level-line"><div><span>当前等级</span><strong>Lv.{level.level}</strong></div><div className="coin-balance"><Coins aria-hidden="true" /><span>金币</span><strong>{stats.coins}</strong></div></div>
           <div className="hero-xp"><b>{stats.totalXp} XP</b><span>距离 Lv.{level.level + 1} 还需 {level.needed - level.current} XP</span></div>

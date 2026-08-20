@@ -5,11 +5,13 @@ import {
   type CoachBehaviorRole,
   type CoachPlanDraft,
   type GrowthDomain,
+  type HabitAnchor,
 } from '../../domain'
 
-export interface StarterHabitTemplate extends Omit<NewActivity, 'isKey'> {
+export interface StarterHabitTemplate extends Omit<NewActivity, 'isKey' | 'habitFormation'> {
   id: string
   summary: string
+  habitAnchor?: HabitAnchor
 }
 
 export interface StarterPlanTemplate {
@@ -36,6 +38,7 @@ const dailyDuration = (
   title,
   summary,
   scheduledTime,
+  habitAnchor: scheduledTime ? { kind: 'time', time: scheduledTime } : { kind: 'event', label: cue },
   cue,
   protocol,
   type: 'habit',
@@ -143,9 +146,13 @@ export const starterPlanTemplates: readonly StarterPlanTemplate[] = [
   },
 ]
 
-export function buildStarterActivity(template: StarterHabitTemplate, isKey: boolean): NewActivity {
-  const { id: _id, summary: _summary, ...activity } = template
-  return { ...activity, isKey }
+export function buildStarterActivity(template: StarterHabitTemplate, isKey: boolean, now = new Date()): NewActivity {
+  const { id: _id, summary: _summary, habitAnchor, ...activity } = template
+  return {
+    ...activity,
+    habitFormation: activity.schedule.kind === 'daily' ? { configuredAt: now.toISOString(), anchor: habitAnchor } : undefined,
+    isKey,
+  }
 }
 
 export function buildStarterPlanDraft(template: StarterPlanTemplate, now = new Date(), id = crypto.randomUUID()): CoachPlanDraft {
@@ -155,8 +162,9 @@ export function buildStarterPlanDraft(template: StarterPlanTemplate, now = new D
     title: template.title,
     successCriterion: template.successCriterion,
     targetOutcome: template.targetOutcome,
-    behaviors: template.behaviors.map(({ id: _templateId, summary: _summary, role, ...behavior }) => ({
+    behaviors: template.behaviors.map(({ id: _templateId, summary: _summary, habitAnchor, role, ...behavior }) => ({
       ...behavior,
+      habitAnchor: behavior.schedule.kind === 'daily' ? habitAnchor : undefined,
       id: crypto.randomUUID(),
       role,
       source: 'new' as const,

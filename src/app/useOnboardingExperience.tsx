@@ -4,13 +4,15 @@ import {
   createActivity,
   createFirstOnboardingConfiguredActivity,
   updateOnboardingMarkers,
+  updateTravelerAppearance,
   type NewActivity,
 } from '../db'
-import type { OnboardingState, OnboardingSummary } from '../domain'
+import type { OnboardingState, OnboardingSummary, TravelerAppearance } from '../domain'
 import {
   DataStorageGuide,
   NewcomerProgress,
   QuickStart,
+  TravelerChoice,
   WeChatLaunchGuide,
   usePwaInstall,
 } from '../features/onboarding'
@@ -30,6 +32,7 @@ interface UseOnboardingExperienceInput {
   onOpenLibrary: () => void
   onOpenFeedback: () => void
   appVersion: string
+  travelerAppearance?: TravelerAppearance
 }
 
 function messageFrom(error: unknown) {
@@ -50,6 +53,7 @@ export function useOnboardingExperience({
   onOpenLibrary,
   onOpenFeedback,
   appVersion,
+  travelerAppearance,
 }: UseOnboardingExperienceInput) {
   const install = usePwaInstall()
   const [showDataGuide, setShowDataGuide] = useState(false)
@@ -61,6 +65,12 @@ export function useOnboardingExperience({
     && canStartOnboarding
     && !onboarding?.installHintDismissedAt
     && !wechatGuideDismissed
+  const shouldShowTravelerChoice = Boolean(
+    ready
+    && canStartOnboarding
+    && !travelerAppearance
+    && !shouldShowWechatGuide,
+  )
   const shouldAutoOpenDataGuide = Boolean(
     ready
     && summary?.primaryCompletionDays
@@ -85,7 +95,7 @@ export function useOnboardingExperience({
     void saveMarker({ installHintDismissedAt: new Date().toISOString() }).catch((error) => onError(messageFrom(error)))
   }
 
-  const quickStart = activityCount === 0 && canStartOnboarding ? (
+  const quickStart = activityCount === 0 && canStartOnboarding && travelerAppearance ? (
     <QuickStart
       onSubmit={async (activity) => {
         if (!activity.domain) throw new Error('请选择成长领域')
@@ -136,7 +146,7 @@ export function useOnboardingExperience({
     quickStart,
     newcomerProgress,
     feedbackSummary,
-    blockingOverlayOpen: shouldShowWechatGuide || showDataGuide || shouldAutoOpenDataGuide,
+    blockingOverlayOpen: shouldShowWechatGuide || shouldShowTravelerChoice || showDataGuide || shouldAutoOpenDataGuide,
     openDataGuide: () => setShowDataGuide(true),
     markFeedbackCompleted: () => saveMarker({ feedbackCompletedAt: new Date().toISOString() }),
     createConfiguredActivity: (activity: NewActivity) => activityCount === 0
@@ -154,6 +164,14 @@ export function useOnboardingExperience({
             onContinue={() => {
               setWechatGuideDismissed(true)
               void saveMarker({ installHintDismissedAt: new Date().toISOString() }).catch((error) => onError(messageFrom(error)))
+            }}
+          />
+        )}
+        {shouldShowTravelerChoice && (
+          <TravelerChoice
+            onChoose={async (appearance) => {
+              await updateTravelerAppearance(appearance)
+              await refresh()
             }}
           />
         )}

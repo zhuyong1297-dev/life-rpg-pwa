@@ -158,10 +158,12 @@ import {
   type TieredGoal,
   type RatingGoal,
   type TimeInputUnit,
+  type TravelerAppearance,
   type WeeklyReview,
   type JourneyEntry,
   type JourneyMonth,
 } from '../domain'
+import { travelerAssetUrl } from '../traveler'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from '../SeasonExperience'
 import { RewardExperience } from '../RewardExperience'
@@ -193,7 +195,9 @@ export function SettingsPage({
   activities,
   completions,
   lastBackupAt,
+  travelerAppearance,
   onPreferences,
+  onTravelerAppearance,
   onOpenData,
   onOpenInstallHelp,
   onOpenReleaseNotes,
@@ -206,7 +210,9 @@ export function SettingsPage({
   activities: Activity[]
   completions: Completion[]
   lastBackupAt?: string
+  travelerAppearance: TravelerAppearance
   onPreferences: (value: Preferences) => Promise<void>
+  onTravelerAppearance: (appearance: TravelerAppearance) => Promise<void>
   onOpenData: () => void
   onOpenInstallHelp: () => void
   onOpenReleaseNotes: () => void
@@ -317,6 +323,24 @@ export function SettingsPage({
           </div>
         </div>
         <button className="secondary-action feedback-test" type="button" onClick={() => void testImmediateFeedback()}><Zap aria-hidden="true" />测试反馈</button>
+        <div className="traveler-appearance-setting">
+          <div><strong>旅者外观</strong><span>只改变形象，不影响等级、奖励或能力</span></div>
+          <div className="traveler-appearance-options" role="group" aria-label="旅者外观">
+            {(['masculine', 'feminine'] as const).map((appearance) => (
+              <button
+                type="button"
+                key={appearance}
+                className={travelerAppearance === appearance ? 'selected' : ''}
+                aria-pressed={travelerAppearance === appearance}
+                onClick={() => void onTravelerAppearance(appearance)}
+              >
+                <img src={travelerAssetUrl(1, appearance)} alt="" />
+                <span>{appearance === 'masculine' ? '男性旅者' : '女性旅者'}</span>
+                {travelerAppearance === appearance && <Check aria-hidden="true" />}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="content-section settings-section">
@@ -340,7 +364,7 @@ export function SettingsPage({
         <div className="section-heading"><div><span>共同改进</span><h2>帮助与反馈</h2></div></div>
         <button className="data-center-summary" type="button" onClick={onOpenReleaseNotes}>
           <span className="feature-summary-icon"><History aria-hidden="true" /></span>
-          <span><strong>本次更新 · V5.8.0</strong><small>十二项推荐习惯与四套 28 天计划</small></span>
+          <span><strong>本次更新 · V5.9.0</strong><small>双旅者、习惯启动锚点与七日复查</small></span>
           <span>查看内容<ChevronRight aria-hidden="true" /></span>
         </button>
         <button className="data-center-summary" type="button" onClick={onOpenInstallHelp}>

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { addDays } from './dates'
 import { ActivityGoalSchema, RatingGoalSchema, ScheduleSchema, TieredGoalSchema } from './goals'
+import { HabitAnchorSchema, HabitFormationSchema } from './activities'
 import { dateString, scheduledTime, timestamp } from './shared'
 import { difficulties, growthDomains } from './taxonomy'
 
@@ -28,6 +29,7 @@ export const CoachPlanNewBehaviorBaseSchema = z.object({
   scheduledTime: scheduledTime.optional(),
   cue: z.string().trim().max(80),
   protocol: z.string().trim().max(280),
+  habitAnchor: HabitAnchorSchema.optional(),
   domain: z.enum(growthDomains),
   difficulty: z.enum(difficulties),
   goal: z.union([TieredGoalSchema, RatingGoalSchema]),
@@ -41,6 +43,9 @@ export const CoachPlanNewBehaviorBaseSchema = z.object({
 export const CoachPlanNewBehaviorSchema = CoachPlanNewBehaviorBaseSchema.superRefine((behavior, context) => {
   if (behavior.goal.kind === 'rating' && behavior.schedule.kind !== 'daily') {
     context.addIssue({ code: 'custom', path: ['schedule'], message: '评分体验只能设置为每日习惯' })
+  }
+  if (behavior.habitAnchor && behavior.schedule.kind !== 'daily') {
+    context.addIssue({ code: 'custom', path: ['habitAnchor'], message: '启动锚点只适用于每日习惯' })
   }
 })
 
@@ -182,6 +187,7 @@ export const ApplicationTrialActivitySchema = z.object({
   scheduledTime: scheduledTime.optional(),
   cue: z.string().trim().min(1).max(80).optional(),
   protocol: z.string().trim().min(1).max(280).optional(),
+  habitFormation: HabitFormationSchema.optional(),
   domain: z.enum(growthDomains),
   difficulty: z.enum(difficulties),
   goal: ActivityGoalSchema,

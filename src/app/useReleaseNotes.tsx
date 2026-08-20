@@ -12,7 +12,7 @@ export function useReleaseNotes({
   lastSeenVersion,
   refresh,
   onError,
-  onOpenLibrary,
+  onOpenFeature,
 }: {
   ready: boolean
   growthDomainsReady: boolean
@@ -21,7 +21,7 @@ export function useReleaseNotes({
   lastSeenVersion?: string
   refresh: () => Promise<void>
   onError: (message: string) => void
-  onOpenLibrary: () => void
+  onOpenFeature: () => void
 }) {
   const [open, setOpen] = useState(false)
   const checkedThisSession = useRef(false)
@@ -54,7 +54,7 @@ export function useReleaseNotes({
       <ReleaseNotesModal
         onLater={() => setOpen(false)}
         onAcknowledge={() => void acknowledge()}
-        onOpenLibrary={() => void acknowledge(onOpenLibrary)}
+        onOpenFeature={() => void acknowledge(onOpenFeature)}
       />
     ) : null,
   }

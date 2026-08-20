@@ -7,6 +7,7 @@ import {
   startOfWeek,
   type Activity,
   type Completion,
+  type TravelerAppearance,
   type TierLevel,
 } from '../../domain'
 import {
@@ -57,6 +58,7 @@ export function V5TodayPage({
   onSetTodayPriority,
   quickStart,
   newcomerProgress,
+  travelerAppearance = 'masculine',
 }: {
   today: string
   stats: V5Stats
@@ -86,17 +88,31 @@ export function V5TodayPage({
   onSetTodayPriority: (activity: Activity, prioritized: boolean) => Promise<void>
   quickStart?: ReactNode
   newcomerProgress?: ReactNode
+  travelerAppearance?: TravelerAppearance
 }) {
   const [minute, setMinute] = useState(() => currentMinute())
   const [preferredId, setPreferredId] = useState<string>()
   const [heldCompletedId, setHeldCompletedId] = useState<string>()
   const nonWeeklyKeys = keyActivities.filter((activity) => activity.schedule.kind !== 'weekly')
+  const allDailyHabits = useMemo(
+    () => [
+      ...keyActivities.filter((activity) => activity.type === 'habit' && activity.schedule.kind === 'daily'),
+      ...dailyHabits,
+    ].filter((activity, index, source) => source.findIndex((item) => item.id === activity.id) === index),
+    [dailyHabits, keyActivities],
+  )
+  const completedActivityIds = useMemo(
+    () => new Set(completions.filter((completion) => completion.status === 'active' && completion.occurredOn === today).map((completion) => completion.activityId)),
+    [completions, today],
+  )
   const incompleteCandidates = useMemo(
     () => orderFocusCandidates(
-      nonWeeklyKeys.filter((activity) => !activeCompletion(activity)),
+      allDailyHabits.filter((activity) => !activeCompletion(activity)),
       minute,
+      allDailyHabits,
+      completedActivityIds,
     ),
-    [nonWeeklyKeys, activeCompletion, minute],
+    [allDailyHabits, activeCompletion, completedActivityIds, minute],
   )
 
   useEffect(() => {
@@ -117,16 +133,19 @@ export function V5TodayPage({
   }, [incompleteCandidates, preferredId])
 
   useEffect(() => {
-    if (!feedback?.activityId || !nonWeeklyKeys.some((activity) => activity.id === feedback.activityId)) return
+    if (!feedback?.activityId || !allDailyHabits.some((activity) => activity.id === feedback.activityId)) return
     setHeldCompletedId(feedback.activityId)
     const timer = window.setTimeout(() => setHeldCompletedId(undefined), 1_000)
     return () => window.clearTimeout(timer)
-  }, [feedback?.activityId])
+  }, [allDailyHabits, feedback?.activityId])
 
   const focusActivity = heldCompletedId
-    ? nonWeeklyKeys.find((activity) => activity.id === heldCompletedId)
+    ? allDailyHabits.find((activity) => activity.id === heldCompletedId)
     : incompleteCandidates.find((activity) => activity.id === preferredId) ?? incompleteCandidates[0]
   const orderedKeyActivities = orderTimeline(nonWeeklyKeys)
+  const focusSequence = focusActivity && !orderedKeyActivities.some((activity) => activity.id === focusActivity.id)
+    ? [focusActivity, ...orderedKeyActivities]
+    : orderedKeyActivities
   const completedKeyCount = keyActivities.filter((activity) => {
     if (activity.schedule.kind !== 'weekly') return Boolean(activeCompletion(activity))
     const cycleStart = startOfWeek(new Date(`${today}T12:00:00`))
@@ -151,7 +170,7 @@ export function V5TodayPage({
           {quickStart}
         </section>
         <aside className="v5-today-aside">
-          <V5TravelerSummary level={level} totalXp={stats.totalXp} />
+          <V5TravelerSummary level={level} totalXp={stats.totalXp} appearance={travelerAppearance} />
         </aside>
       </div>
     )
@@ -196,7 +215,7 @@ export function V5TodayPage({
             />
           )}
           <div className="v5-focus-sequence">
-            {orderedKeyActivities.map((activity) => {
+            {focusSequence.map((activity) => {
               if (activity.id === focusActivity?.id) {
                 return (
                   <V5FocusAction
@@ -205,6 +224,9 @@ export function V5TodayPage({
                     canSwitch={incompleteCandidates.length > 1 && !heldCompletedId}
                     coins={stats.coins}
                     activeRewardGoal={activeRewardGoal}
+                    allActivities={allDailyHabits}
+                    completedActivityIds={completedActivityIds}
+                    minute={minute}
                     key={activity.id}
                     onComplete={() => onComplete(activity)}
                     onCompleteTier={(tier) => onCompleteTier(activity, tier)}
@@ -219,6 +241,9 @@ export function V5TodayPage({
                   completion={completion}
                   key={activity.id}
                   onClick={() => completion ? onCompleted(activity) : onComplete(activity)}
+                  allActivities={allDailyHabits}
+                  completedActivityIds={completedActivityIds}
+                  minute={minute}
                 />
               )
             })}
@@ -229,7 +254,9 @@ export function V5TodayPage({
         </section>
 
         <V5DailySection
-          activities={dailyHabits}
+          activities={dailyHabits.filter((activity) => activity.id !== focusActivity?.id)}
+          allActivities={allDailyHabits}
+          completedActivityIds={completedActivityIds}
           minute={minute}
           priorityIds={todayPriorityIds}
           feedbackActivityId={feedback?.activityId}
@@ -256,7 +283,7 @@ export function V5TodayPage({
         />
       </section>
       <aside className="v5-today-aside">
-        <V5TravelerSummary level={level} totalXp={stats.totalXp} />
+        <V5TravelerSummary level={level} totalXp={stats.totalXp} appearance={travelerAppearance} />
         <div className="v5-aside-card"><span>今日进度</span><strong>{completedKeyCount}/{keyActivities.length} 项关键行动</strong><p>完成最低标准就算向前推进。</p></div>
       </aside>
     </div>

@@ -14,6 +14,24 @@ import {
 import { dateString, scheduledTime, timestamp } from './shared'
 import { attributes, difficulties, growthDomains, type TierLevel } from './taxonomy'
 
+export const HabitAnchorSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('time'), time: scheduledTime }).strict(),
+  z.object({ kind: z.literal('event'), label: z.string().trim().min(1).max(80) }).strict(),
+  z.object({
+    kind: z.literal('after_activity'),
+    activityId: z.string().min(1),
+    titleSnapshot: z.string().trim().min(1).max(60),
+  }).strict(),
+])
+
+export const HabitFormationSchema = z.object({
+  configuredAt: timestamp,
+  anchor: HabitAnchorSchema.optional(),
+}).strict()
+
+export type HabitAnchor = z.infer<typeof HabitAnchorSchema>
+export type HabitFormation = z.infer<typeof HabitFormationSchema>
+
 export const ActivitySchema = z
   .object({
     id: z.string().min(1),
@@ -21,6 +39,7 @@ export const ActivitySchema = z
     scheduledTime: scheduledTime.optional(),
     cue: z.string().trim().min(1).max(80).optional(),
     protocol: z.string().trim().min(1).max(280).optional(),
+    habitFormation: HabitFormationSchema.optional(),
     type: z.enum(['habit', 'task']),
     attribute: z.enum(attributes).optional(),
     domain: z.enum(growthDomains).optional(),
@@ -53,6 +72,9 @@ export const ActivitySchema = z
     if (activity.goal.kind === 'rating' && (activity.type !== 'habit' || activity.schedule.kind !== 'daily')) {
       context.addIssue({ code: 'custom', path: ['goal'], message: '评分体验只能用于每日习惯' })
     }
+    if (activity.habitFormation && (activity.type !== 'habit' || activity.schedule.kind !== 'daily')) {
+      context.addIssue({ code: 'custom', path: ['habitFormation'], message: '启动锚点只适用于每日习惯' })
+    }
     if (activity.archivedAt && (activity.enabled || activity.isKey)) {
       context.addIssue({ code: 'custom', path: ['archivedAt'], message: '已归档活动不能启用或设为关键行为' })
     }
@@ -82,8 +104,19 @@ export function parseScheduledTime(cue?: string) {
   return match ? `${match[1]}:${match[2]}` : undefined
 }
 
-export function getActivityScheduledTime(activity: Pick<Activity, 'scheduledTime' | 'cue'>) {
-  return activity.scheduledTime ?? parseScheduledTime(activity.cue)
+export function getActivityScheduledTime(activity: Pick<Activity, 'scheduledTime' | 'cue' | 'habitFormation'>) {
+  return (activity.habitFormation?.anchor?.kind === 'time'
+    ? activity.habitFormation.anchor.time
+    : activity.scheduledTime) ?? parseScheduledTime(activity.cue)
+}
+
+export function getEffectiveHabitAnchor(activity: Pick<Activity, 'scheduledTime' | 'cue' | 'habitFormation'>): HabitAnchor | undefined {
+  if (activity.habitFormation?.anchor) return activity.habitFormation.anchor
+  if (activity.scheduledTime) return { kind: 'time', time: activity.scheduledTime }
+  const legacyTime = parseScheduledTime(activity.cue)
+  if (legacyTime) return { kind: 'time', time: legacyTime }
+  if (activity.cue) return { kind: 'event', label: activity.cue }
+  return undefined
 }
 
 export const IncrementalProgressSchema = z.object({

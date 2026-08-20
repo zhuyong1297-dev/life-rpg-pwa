@@ -185,6 +185,7 @@ import {
 } from '../prototype/V5Experience'
 
 import { RatingGoalFields, TierGoalFields } from './ActivityForms'
+import { HabitFormationFields } from './HabitFormationFields'
 import { activityFrequencyLabel, activityGoalLabel, errorMessage } from './shared-ui'
 import { buildRatingGoal, buildTierGoal, defaultTierGoalDraft, draftStandardCount, draftUsesIncremental, ratingGoalDraftFromGoal, tierGoalDraftFromGoal, type RatingGoalDraft, type Snapshot, type TierGoalDraft } from './model'
 export type NewCoachBehavior = Extract<CoachPlanBehavior, { source: 'new' }>
@@ -388,7 +389,7 @@ export function CoachPlanScreen({
             <div className="coach-step-heading"><span>第 3 步</span><h2>确认最低标准</h2><p>状态差时先做到基础层；标准层是状态正常时的完整行动。</p></div>
             <div className="coach-behavior-editors">
               {draft.behaviors.map((behavior) => behavior.source === 'new' ? (
-                <CoachNewBehaviorEditor key={behavior.id} behavior={behavior} onChange={(next) => updateBehavior(behavior.id, () => next)} />
+                <CoachNewBehaviorEditor key={behavior.id} behavior={behavior} activities={activities} onChange={(next) => updateBehavior(behavior.id, () => next)} />
               ) : (
                 <CoachExistingBehaviorEditor key={behavior.id} behavior={behavior} activity={activityById.get(behavior.activityId)} onChange={(next) => updateBehavior(behavior.id, () => next)} />
               ))}
@@ -453,7 +454,7 @@ export function CoachExistingBehaviorEditor({ behavior, activity, onChange }: { 
   )
 }
 
-export function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCoachBehavior; onChange: (behavior: NewCoachBehavior) => void }) {
+export function CoachNewBehaviorEditor({ behavior, activities, onChange }: { behavior: NewCoachBehavior; activities: Activity[]; onChange: (behavior: NewCoachBehavior) => void }) {
   const [goalMode, setGoalMode] = useState<'tiered' | 'rating'>(behavior.goal.kind === 'rating' ? 'rating' : 'tiered')
   const [goalDraft, setGoalDraft] = useState<TierGoalDraft>(() => behavior.goal.kind === 'tiered' ? tierGoalDraftFromGoal(behavior.goal) : defaultTierGoalDraft())
   const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(() => ratingGoalDraftFromGoal(behavior.goal.kind === 'rating' ? behavior.goal : undefined))
@@ -464,7 +465,7 @@ export function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCo
       const goal = goalMode === 'rating'
         ? buildRatingGoal(ratingDraft)
         : TieredGoalSchema.parse(buildTierGoal(goalDraft))
-      if (!behavior.title.trim() || !behavior.cue.trim() || !behavior.protocol.trim()) throw new Error('请填写名称、触发条件和执行协议')
+      if (!behavior.title.trim() || !behavior.protocol.trim()) throw new Error('请填写名称和执行协议')
       setLocalError('')
       onChange({
         ...behavior,
@@ -487,8 +488,8 @@ export function CoachNewBehaviorEditor({ behavior, onChange }: { behavior: NewCo
       <div className="field-grid"><label>成长领域<select value={behavior.domain} onChange={(event) => change({ domain: event.target.value as GrowthDomain })}>{growthDomains.map((domain) => <option key={domain} value={domain}>{domainLabel(domain)}</option>)}</select></label><label>难度<select value={behavior.difficulty} onChange={(event) => change({ difficulty: event.target.value as Difficulty })}>{difficulties.map((difficulty) => <option key={difficulty}>{difficulty}</option>)}</select></label></div>
       <p className="domain-definition"><strong>{growthDomainDetails[behavior.domain].description}</strong><span>例如：{growthDomainDetails[behavior.domain].examples}</span></p>
       <div className="field-grid"><label>频率<select value={goalMode === 'rating' ? 'daily' : behavior.schedule.kind} disabled={goalMode === 'rating'} onChange={(event) => change({ schedule: event.target.value === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: 3 } })}><option value="daily">每天</option><option value="weekly">每周 N 次</option></select></label>{behavior.schedule.kind === 'weekly' && goalMode !== 'rating' && <label>每周次数<input type="number" min={1} max={draftUsesIncremental(goalDraft, true) ? 999 : 7} value={draftUsesIncremental(goalDraft, true) ? draftStandardCount(goalDraft) : behavior.schedule.times} disabled={draftUsesIncremental(goalDraft, true)} onChange={(event) => change({ schedule: { kind: 'weekly', times: Number(event.target.value) } })} /></label>}</div>
-      {behavior.schedule.kind === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={behavior.scheduledTime ?? ''} onChange={(event) => change({ scheduledTime: event.target.value || undefined })} /></label>}
-      <label className="full-field">触发条件<input maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="什么时候、什么之后开始" /></label>
+      {behavior.schedule.kind === 'daily' && <HabitFormationFields anchor={behavior.habitAnchor} activities={activities} onChange={(habitAnchor) => change({ habitAnchor, scheduledTime: undefined })} />}
+      <label className="full-field">补充场景说明（可选）<input aria-label="触发条件" maxLength={80} value={behavior.cue} onChange={(event) => change({ cue: event.target.value })} placeholder="例如：准备开始工作时" /></label>
       <label className="full-field">执行协议<textarea maxLength={280} value={behavior.protocol} onChange={(event) => change({ protocol: event.target.value })} placeholder="具体做什么，走神或中断后怎样返回" /></label>
       <div className="coach-goal-box">
         <strong>完成标准</strong>

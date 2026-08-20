@@ -4,6 +4,7 @@ import {
   domainLabel,
   formatDurationSeconds,
   getActivityScheduledTime,
+  getEffectiveHabitAnchor,
   getCompletionTierGoal,
   getIncrementalCycleGoal,
   getLevel,
@@ -314,19 +315,63 @@ export function gameDayMinute(minute: number) {
   return (minute - 4 * 60 + 24 * 60) % (24 * 60)
 }
 
-export function orderDailyActions(activities: Activity[], minute: number, priorityIds: string[]) {
+export interface HabitAnchorView {
+  group: 0 | 1 | 2 | 3
+  label: string
+  needsAdjustment: boolean
+}
+
+export function getHabitAnchorView(
+  activity: Activity,
+  activities: Activity[],
+  completedActivityIds: ReadonlySet<string>,
+  minute: number,
+): HabitAnchorView {
+  const anchor = getEffectiveHabitAnchor(activity)
+  if (!anchor) return { group: 2, label: '随时', needsAdjustment: false }
+  if (anchor.kind === 'time') {
+    const anchorMinute = parseTimeMinute(anchor.time)!
+    return {
+      group: gameDayMinute(anchorMinute) <= gameDayMinute(minute) ? 0 : 3,
+      label: anchor.time,
+      needsAdjustment: false,
+    }
+  }
+  if (anchor.kind === 'event') {
+    return { group: 2, label: `${anchor.label}之后`, needsAdjustment: false }
+  }
+  const predecessor = activities.find((candidate) => candidate.id === anchor.activityId)
+  const valid = predecessor?.type === 'habit'
+    && predecessor.schedule.kind === 'daily'
+    && predecessor.enabled
+    && !predecessor.archivedAt
+  return {
+    group: valid && completedActivityIds.has(anchor.activityId) ? 1 : 2,
+    label: valid
+      ? `${anchor.titleSnapshot}完成后${completedActivityIds.has(anchor.activityId) ? ' · 已触发' : ''}`
+      : `${anchor.titleSnapshot}完成后 · 锚点需要调整`,
+    needsAdjustment: !valid,
+  }
+}
+
+export function orderDailyActions(
+  activities: Activity[],
+  minute: number,
+  priorityIds: string[],
+  allActivities: Activity[] = activities,
+  completedActivityIds: ReadonlySet<string> = new Set(),
+) {
   const originalOrder = new Map(activities.map((activity, index) => [activity.id, index]))
   const priorityOrder = new Map(priorityIds.map((id, index) => [id, priorityIds.length - index - 1]))
-  const now = gameDayMinute(minute)
   return [...activities].sort((left, right) => {
     const leftMinute = activityScheduledMinute(left)
     const rightMinute = activityScheduledMinute(right)
     const leftGameMinute = leftMinute === undefined ? undefined : gameDayMinute(leftMinute)
     const rightGameMinute = rightMinute === undefined ? undefined : gameDayMinute(rightMinute)
-    const group = (value: number | undefined) => value === undefined ? 1 : value <= now ? 0 : 2
-    const leftGroup = group(leftGameMinute)
-    const rightGroup = group(rightGameMinute)
+    const leftGroup = getHabitAnchorView(left, allActivities, completedActivityIds, minute).group
+    const rightGroup = getHabitAnchorView(right, allActivities, completedActivityIds, minute).group
     if (leftGroup !== rightGroup) return leftGroup - rightGroup
+    if (left.isKey !== right.isKey) return Number(right.isKey) - Number(left.isKey)
     if (leftGameMinute !== undefined && rightGameMinute !== undefined) {
       return leftGameMinute - rightGameMinute || (originalOrder.get(left.id)! - originalOrder.get(right.id)!)
     }
@@ -336,22 +381,21 @@ export function orderDailyActions(activities: Activity[], minute: number, priori
   })
 }
 
-export function orderFocusCandidates(activities: Activity[], minute: number) {
+export function orderFocusCandidates(
+  activities: Activity[],
+  minute: number,
+  allActivities: Activity[] = activities,
+  completedActivityIds: ReadonlySet<string> = new Set(),
+) {
   return [...activities].sort((left, right) => {
-    const now = gameDayMinute(minute)
     const leftMinute = activityScheduledMinute(left)
     const rightMinute = activityScheduledMinute(right)
     const leftGameMinute = leftMinute === undefined ? undefined : gameDayMinute(leftMinute)
     const rightGameMinute = rightMinute === undefined ? undefined : gameDayMinute(rightMinute)
-    const group = (cueMinute: number | undefined) => {
-      if (cueMinute !== undefined && cueMinute <= now) return 0
-      if (cueMinute !== undefined && cueMinute - now <= 90) return 1
-      if (cueMinute === undefined) return 2
-      return 3
-    }
-    const leftGroup = group(leftGameMinute)
-    const rightGroup = group(rightGameMinute)
+    const leftGroup = getHabitAnchorView(left, allActivities, completedActivityIds, minute).group
+    const rightGroup = getHabitAnchorView(right, allActivities, completedActivityIds, minute).group
     if (leftGroup !== rightGroup) return leftGroup - rightGroup
+    if (left.isKey !== right.isKey) return Number(right.isKey) - Number(left.isKey)
     if (leftGameMinute === undefined || rightGameMinute === undefined) return 0
     return leftGameMinute - rightGameMinute
   })

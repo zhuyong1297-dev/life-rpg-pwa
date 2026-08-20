@@ -79,11 +79,33 @@ function parseNewActivity(input: NewActivity, now = new Date()) {
 }
 
 async function addActivityRecord(activity: Activity, database: LifeRpgDatabase) {
+  await validateAfterActivityAnchor(activity, database)
   if (activity.enabled && activity.isKey) {
     const keyCount = await countOpenKeyActivities(database)
     if (keyCount >= 3) throw new Error('关键行为最多只能启用 3 项')
   }
   await database.activities.add(activity)
+}
+
+export async function validateAfterActivityAnchor(activity: Activity, database: LifeRpgDatabase) {
+  const anchor = activity.habitFormation?.anchor
+  if (anchor?.kind !== 'after_activity') return
+  const activities = await database.activities.toArray()
+  const byId = new Map([...activities.filter((item) => item.id !== activity.id), activity].map((item) => [item.id, item]))
+  const target = byId.get(anchor.activityId)
+  if (!target || target.type !== 'habit' || target.schedule.kind !== 'daily' || !target.enabled || target.archivedAt) {
+    throw new Error('启动锚点只能选择另一项正在进行的每日习惯')
+  }
+  const seen = new Set([activity.id])
+  let current: Activity | undefined = target
+  while (current) {
+    if (seen.has(current.id)) throw new Error('启动锚点不能形成循环行动链')
+    seen.add(current.id)
+    const nextId: string | undefined = current.habitFormation?.anchor?.kind === 'after_activity'
+      ? current.habitFormation.anchor.activityId
+      : undefined
+    current = nextId ? byId.get(nextId) : undefined
+  }
 }
 
 export async function createActivity(input: NewActivity, database = db) {
@@ -297,7 +319,7 @@ export async function updateActivityGoal(activityId: string, goal: Activity['goa
   }, database)
 }
 
-export type HabitUpdate = Pick<Activity, 'title' | 'scheduledTime' | 'cue' | 'protocol' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
+export type HabitUpdate = Pick<Activity, 'title' | 'scheduledTime' | 'cue' | 'protocol' | 'habitFormation' | 'domain' | 'difficulty' | 'schedule' | 'goal' | 'isKey'>
 
 export async function updateHabit(activityId: string, input: HabitUpdate, database = db, occurredOn?: string) {
   return database.transaction('rw', database.activities, database.completions, database.settings, async () => {
@@ -323,6 +345,9 @@ export async function updateHabit(activityId: string, input: HabitUpdate, databa
       })))
     }
     const updated = ActivitySchema.parse({ ...activity, ...input, revision: (activity.revision ?? 1) + 1 })
+    if (JSON.stringify(updated.habitFormation?.anchor) !== JSON.stringify(activity.habitFormation?.anchor)) {
+      await validateAfterActivityAnchor(updated, database)
+    }
     if (!isIncrementalGoal(activity) && isIncrementalGoal(updated)) {
       const eventDate = occurredOn ?? await currentGameDate(database)
       const cycleStart = startOfWeek(new Date(`${eventDate}T12:00:00`))

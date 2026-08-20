@@ -40,14 +40,41 @@ describe('V5 当前行动推荐', () => {
     expect(ordered.map((item) => item.id)).toEqual(['morning', 'noon', 'flexible', 'night'])
   })
 
-  it('临近的下一时间锚点优先于无固定时间行动', () => {
+  it('无固定时间行动排在尚未到点的时间锚点之前', () => {
     const ordered = orderFocusCandidates([
       activity('night', '23:00'),
       activity('morning', '07:00'),
       activity('flexible'),
     ], 6 * 60)
 
-    expect(ordered.map((item) => item.id)).toEqual(['morning', 'flexible', 'night'])
+    expect(ordered.map((item) => item.id)).toEqual(['flexible', 'morning', 'night'])
+  })
+
+  it('按已到点、已触发行动链、事件或无锚点、尚未到点排序，并在同组优先关键行动', () => {
+    const predecessor = { ...activity('predecessor'), isKey: false }
+    const ready = {
+      ...activity('ready'),
+      isKey: false,
+      habitFormation: {
+        configuredAt: '2026-08-20T08:00:00.000Z',
+        anchor: { kind: 'after_activity' as const, activityId: predecessor.id, titleSnapshot: predecessor.title },
+      },
+    }
+    const event = {
+      ...activity('event'),
+      isKey: false,
+      habitFormation: {
+        configuredAt: '2026-08-20T08:00:00.000Z',
+        anchor: { kind: 'event' as const, label: '午饭后' },
+      },
+    }
+    const keyFlexible = { ...activity('key-flexible'), cue: undefined }
+    const overdue = { ...activity('overdue'), habitFormation: { configuredAt: '2026-08-20T08:00:00.000Z', anchor: { kind: 'time' as const, time: '07:30' } } }
+    const future = { ...activity('future'), habitFormation: { configuredAt: '2026-08-20T08:00:00.000Z', anchor: { kind: 'time' as const, time: '23:00' } } }
+    const candidates = [future, event, ready, keyFlexible, overdue]
+
+    expect(orderFocusCandidates(candidates, 14 * 60, [predecessor, ...candidates], new Set([predecessor.id])).map((item) => item.id))
+      .toEqual(['overdue', 'ready', 'key-flexible', 'event', 'future'])
   })
 })
 

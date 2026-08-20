@@ -5,6 +5,8 @@ import type { BrowserEnvironment } from './browser'
 import { copyText, OFFICIAL_APP_URL } from './browser'
 import type { InstallPromptOutcome } from './usePwaInstall'
 import type { NewcomerProgressData } from './progress'
+import type { TravelerAppearance } from '../../domain'
+import { travelerAssetUrl } from '../../traveler'
 
 function OnboardingDialog({ title, children, onClose }: { title: string; children: ReactNode; onClose?: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -186,6 +188,38 @@ export function DataStorageGuide({
       </div>
       <InstallInstructions environment={environment} onInstall={onInstall} />
       <button className="v5-onboarding-secondary" type="button" onClick={onClose}>我知道了</button>
+    </OnboardingDialog>
+  )
+}
+
+export function TravelerChoice({ onChoose }: { onChoose: (appearance: TravelerAppearance) => Promise<void> }) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function choose(appearance: TravelerAppearance) {
+    setSaving(true)
+    setError('')
+    try {
+      await onChoose(appearance)
+    } catch {
+      setError('旅者外观暂时无法保存，请重试')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <OnboardingDialog title="选择你的旅者">
+      <p className="v5-traveler-choice-intro">旅者会陪你一起成长。外观不影响等级、奖励或任何能力，以后可在“我的”随时切换。</p>
+      <div className="v5-traveler-choice-grid">
+        {(['masculine', 'feminine'] as const).map((appearance) => (
+          <button type="button" key={appearance} disabled={saving} onClick={() => void choose(appearance)}>
+            <img src={travelerAssetUrl(1, appearance)} alt={appearance === 'masculine' ? '男性旅者' : '女性旅者'} />
+            <strong>{appearance === 'masculine' ? '男性旅者' : '女性旅者'}</strong>
+            <span>选择外观</span>
+          </button>
+        ))}
+      </div>
+      {error && <p className="v5-onboarding-error" role="alert">{error}</p>}
     </OnboardingDialog>
   )
 }

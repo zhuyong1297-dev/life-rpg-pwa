@@ -4,7 +4,12 @@ async function openV5(page: Page) {
   await page.goto('./')
   const wizard = page.getByRole('heading', { name: '建立六个成长领域' })
   const today = page.getByRole('heading', { name: '今天', exact: true })
-  await Promise.race([wizard.waitFor(), today.waitFor()])
+  const travelerDialog = page.getByRole('dialog', { name: '选择你的旅者' })
+  await Promise.race([wizard.waitFor(), today.waitFor(), travelerDialog.waitFor()])
+  if (await travelerDialog.isVisible()) {
+    await travelerDialog.getByRole('button', { name: /男性旅者/ }).click()
+    await expect(travelerDialog).toBeHidden()
+  }
   if (await wizard.isVisible()) {
     await page.getByRole('button', { name: '启用新领域体系' }).click()
   }
@@ -127,7 +132,7 @@ test('正式入口使用 V5 导航且不显示预览提示', async ({ page }) =>
 
 test('记录行动、即时反馈、撤销与刷新形成持久化闭环', async ({ page }) => {
   await createSimpleActivity(page, 'V5 闭环验证')
-  const actionRow = page.locator('.v5-compact-action').filter({ hasText: 'V5 闭环验证' })
+  const actionRow = page.locator('.v5-focus-action, .v5-compact-action').filter({ hasText: 'V5 闭环验证' })
   await expect(actionRow.locator('.v5-action-reward')).toContainText('本次 +5 XP · +2 金币')
   await page.getByRole('button', { name: '完成 V5 闭环验证' }).click()
   const feedback = page.locator('.v5-feedback')
@@ -211,11 +216,10 @@ test('分层行动达到基础层后仍留在今天并可直接继续提升', as
   await page.getByLabel('突破层（分钟）').fill('30')
   await page.getByRole('button', { name: '创建', exact: true }).click()
 
-  await expect(page.locator('.v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('可得 +3～5 XP · +2 金币')
-  await page.getByRole('button', { name: '完成 分层晚间行动' }).click()
-  await page.getByRole('button', { name: '选择 基础层' }).click()
+  await expect(page.locator('.v5-focus-action, .v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('可得 +3～5 XP · +2 金币')
+  await page.getByRole('button', { name: /^基础 5分钟/ }).click()
   await expect(page.getByText('基础已达标 · 可升级标准', { exact: true })).toBeVisible()
-  await expect(page.locator('.v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('升级可再得 +1～2 XP · 金币已领取')
+  await expect(page.locator('.v5-focus-action, .v5-compact-action').filter({ hasText: '分层晚间行动' }).locator('.v5-action-reward')).toContainText('升级可再得 +1～2 XP · 金币已领取')
   await page.getByRole('button', { name: '继续提升 分层晚间行动' }).click()
   await page.getByRole('button', { name: '升级到 标准层' }).click()
   await expect(page.getByText('标准已达标 · 可升级突破', { exact: true })).toBeVisible()
@@ -223,6 +227,30 @@ test('分层行动达到基础层后仍留在今天并可直接继续提升', as
   await page.getByText(/今日已达标 1 项 · 1 项仍可提升/).click()
   await page.getByRole('tab', { name: '可提升 1' }).click()
   await expect(page.getByRole('button', { name: '继续提升', exact: true })).toBeVisible()
+})
+
+test('旅者外观切换后刷新仍保留', async ({ page }) => {
+  await createSimpleActivity(page, '外观持久化行动')
+  await page.getByRole('button', { name: '我的' }).click()
+  const appearance = page.getByRole('group', { name: '旅者外观' })
+  await appearance.getByRole('button', { name: /女性旅者/ }).click()
+  await expect(appearance.getByRole('button', { name: /女性旅者/ })).toHaveAttribute('aria-pressed', 'true')
+  await page.reload()
+  await expect(page.getByRole('group', { name: '旅者外观' }).getByRole('button', { name: /女性旅者/ })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('完成前置行动后会触发行动链推荐', async ({ page }) => {
+  await createSimpleActivity(page, '晨间启动')
+  await page.getByRole('button', { name: '创建行动' }).last().click()
+  await page.getByLabel('名称').fill('开始阅读')
+  await page.getByText('启动与执行', { exact: true }).click()
+  await page.getByRole('button', { name: '另一行动后' }).click()
+  await page.getByLabel('完成这项行动后').selectOption({ label: '晨间启动' })
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+
+  await expect(page.getByText('晨间启动完成后', { exact: false }).first()).toBeVisible()
+  await page.getByRole('button', { name: '完成 晨间启动' }).click()
+  await expect(page.getByText('晨间启动完成后 · 已触发', { exact: false }).first()).toBeVisible()
 })
 
 test('成长总值并入旅者主卡且页面没有旧总成长信息行', async ({ page }, testInfo) => {

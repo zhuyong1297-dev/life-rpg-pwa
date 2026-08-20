@@ -25,7 +25,9 @@ import {
   type GrowthDomain,
   type JourneyMonth,
   type LevelSystem,
+  type TravelerAppearance,
 } from '../../domain'
+import { travelerAssetUrl } from '../../traveler'
 import { formatCompactDate, getV5DomainGrowthDetail } from './selectors'
 import { V5ModalSurface, V5PageHeader, V5SectionHeading } from './shared'
 import type { V5DomainGrowthDetail, V5Stats } from './types'
@@ -57,6 +59,7 @@ export function V5GrowthPage({
   today,
   onCreate,
   onOpenRewards,
+  travelerAppearance = 'masculine',
 }: {
   stats: V5Stats
   level: ReturnType<typeof getLevel>
@@ -65,6 +68,7 @@ export function V5GrowthPage({
   today: string
   onCreate: () => void
   onOpenRewards: () => void
+  travelerAppearance?: TravelerAppearance
 }) {
   const [selectedDomain, setSelectedDomain] = useState<GrowthDomain>()
   const nextRewardLevel = getNextVoucherLevel(level.level)
@@ -78,7 +82,7 @@ export function V5GrowthPage({
       <section className="v5-growth-primary">
         <V5PageHeader eyebrow="角色成长" title="成长" description="现实中的每一次行动，都在这里留下成长。" onCreate={onCreate} />
         <div className="v5-growth-overview">
-          <V5GrowthHero stats={stats} level={level} focusDomain={levelSystem?.focusDomain} />
+          <V5GrowthHero stats={stats} level={level} focusDomain={levelSystem?.focusDomain} travelerAppearance={travelerAppearance} />
           <button className="v5-feature-row" type="button" onClick={onOpenRewards}>
             <Gift size={22} />
             <div><span>下一奖励</span><strong>Lv.{nextRewardLevel} · {nextRewardCost} 金币档礼券</strong><small>还需 {remainingXp} XP</small></div>
@@ -117,16 +121,18 @@ function V5GrowthHero({
   stats,
   level,
   focusDomain,
+  travelerAppearance,
 }: {
   stats: V5Stats
   level: ReturnType<typeof getLevel>
   focusDomain?: GrowthDomain
+  travelerAppearance: TravelerAppearance
 }) {
   const stage = getCharacterStage(level.level)
   return (
     <section className="v5-growth-hero" aria-label="旅者成长状态">
       <div className="v5-growth-identity">
-        <img src={`${import.meta.env.BASE_URL}assets/v5/traveler-stage-${stage}.png`} alt={`${getCharacterStageName(level.level)}阶段旅者`} />
+        <img src={travelerAssetUrl(stage, travelerAppearance)} alt={`${getCharacterStageName(level.level)}阶段旅者`} />
         <div>
           <span>{getCharacterStageName(level.level)} · 阶段 {stage}</span>
           <strong>Lv.{level.level}</strong>

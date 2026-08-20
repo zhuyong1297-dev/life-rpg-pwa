@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { ApplicationTrialSchema, CoachPlanDraftSchema } from './coach'
 import { ActivityGoalSchema, ScheduleSchema } from './goals'
+import { HabitFormationSchema } from './activities'
 import { RewardSystemSchema } from './rewards'
 import { dateString, scheduledTime, timestamp } from './shared'
 import { attributes, difficulties, growthDomains, reviewDecisions } from './taxonomy'
@@ -134,6 +135,9 @@ export const ReleaseNotesStateSchema = z.object({
 
 export type ReleaseNotesState = z.infer<typeof ReleaseNotesStateSchema>
 
+export const travelerAppearances = ['masculine', 'feminine'] as const
+export type TravelerAppearance = typeof travelerAppearances[number]
+
 export const MetaSchema = z.object({
   lastBackupAt: timestamp.optional(),
   migrationImportedAt: timestamp.optional(),
@@ -143,6 +147,7 @@ export const MetaSchema = z.object({
   growthDomainSystem: z.object({ version: z.literal(1), activatedAt: timestamp }).optional(),
   onboarding: OnboardingStateSchema.optional(),
   releaseNotes: ReleaseNotesStateSchema.optional(),
+  travelerAppearance: z.enum(travelerAppearances).optional(),
   todayActionPriority: z.object({
     gameDate: dateString,
     activityIds: z.array(z.string().min(1)).max(5).refine((ids) => new Set(ids).size === ids.length, '今日优先行动不能重复'),
@@ -168,6 +173,7 @@ export const ApplicationTrialRestartSchema = z.object({
     scheduledTime: scheduledTime.optional(),
     cue: z.string().trim().min(1).max(80).optional(),
     protocol: z.string().trim().min(1).max(280).optional(),
+    habitFormation: HabitFormationSchema.optional(),
     domain: z.enum(growthDomains),
     difficulty: z.enum(difficulties),
     goal: ActivityGoalSchema,

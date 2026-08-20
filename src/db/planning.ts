@@ -20,6 +20,7 @@ import {
 } from '../season'
 import { aggregateApplicationBehaviors } from '../application-bridge'
 import { db, currentGameDate } from './database'
+import { validateAfterActivityAnchor } from './activities'
 
 export interface CreateSeasonInput {
   title: string
@@ -90,6 +91,9 @@ export async function activateCoachPlanDraft(
           scheduledTime: behavior.schedule.kind === 'daily' ? behavior.scheduledTime : undefined,
           cue: behavior.cue,
           protocol: behavior.protocol,
+          habitFormation: behavior.schedule.kind === 'daily'
+            ? { configuredAt: createdAt, anchor: behavior.habitAnchor }
+            : undefined,
           type: 'habit',
           domain: behavior.domain,
           difficulty: behavior.difficulty,
@@ -101,6 +105,7 @@ export async function activateCoachPlanDraft(
           createdAt,
         })]
       : [])
+    for (const activity of createdActivities) await validateAfterActivityAnchor(activity, database)
 
     const allActivities = await database.activities.toArray()
     const previousKeyActivityIds = allActivities
@@ -136,6 +141,7 @@ export async function activateCoachPlanDraft(
           scheduledTime: activity.scheduledTime,
           cue: activity.cue,
           protocol: activity.protocol,
+          habitFormation: activity.habitFormation,
           domain: activity.domain,
           difficulty: activity.difficulty,
           goal: activity.goal,
@@ -275,6 +281,7 @@ export async function activateApplicationTrialRestart(
       scheduledTime: replacement.scheduledTime,
       cue: replacement.cue,
       protocol: replacement.protocol,
+      habitFormation: replacement.habitFormation,
       type: 'habit',
       domain: replacement.domain,
       difficulty: replacement.difficulty,
@@ -304,6 +311,7 @@ export async function activateApplicationTrialRestart(
         scheduledTime: activity.scheduledTime,
         cue: activity.cue,
         protocol: activity.protocol,
+        habitFormation: activity.habitFormation,
         domain: activity.domain,
         difficulty: activity.difficulty,
         goal: activity.goal,

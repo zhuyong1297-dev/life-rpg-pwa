@@ -104,6 +104,8 @@ import {
   getCharacterStage,
   getCharacterStageName,
   getCompletionTierGoal,
+  getEffectiveHabitAnchor,
+  getHabitFormationReview,
   getLevel,
   getLevelReport,
   getJourneyMonths,
@@ -187,6 +189,7 @@ import { RatingGoalFields, TierGoalFields } from './ActivityForms'
 import { buildRatingGoal, buildTierGoal, draftStandardCount, draftUsesIncremental, ratingGoalDraftFromGoal, tierGoalDraftFromLegacy, type AwardFeedback, type RatingGoalDraft, type TierGoalDraft } from './model'
 import { formatIncrementalCurrent, formatIncrementalNext, weeklyDirectCompletions, WeeklyMilestoneTrack } from './LegacyToday'
 import { activityGoalLabel, formatIncrementalSummary, formatShortDate, ProgressBar, TravelerPortrait } from './shared-ui'
+import { HabitFormationFields } from './HabitFormationFields'
 export function TierPickerModal({
   activity,
   completion,
@@ -224,13 +227,12 @@ export function TierPickerModal({
     </div>
   )
 }
-export function EditHabitModal({ activity, onClose, onSave }: { activity: Activity; onClose: () => void; onSave: (input: HabitUpdate) => void }) {
+export function EditHabitModal({ activity, activities, completions, today, onClose, onSave }: { activity: Activity; activities: Activity[]; completions: Completion[]; today: string; onClose: () => void; onSave: (input: HabitUpdate) => void }) {
   const tiered = isTieredGoal(activity)
   const rating = isRatingGoal(activity)
   const legacy = activity.goal.kind !== 'tiered' && activity.goal.kind !== 'rating' && (isDurationGoal(activity) || activity.goal.count !== 1 || activity.goal.unit !== '次')
   const [title, setTitle] = useState(activity.title)
-  const [scheduledTime, setScheduledTime] = useState(activity.scheduledTime ?? '')
-  const [cue, setCue] = useState(activity.cue ?? '')
+  const [habitAnchor, setHabitAnchor] = useState(() => getEffectiveHabitAnchor(activity))
   const [protocol, setProtocol] = useState(activity.protocol ?? '')
   const [domain, setDomain] = useState<GrowthDomain>(activity.domain ?? 'health')
   const [difficulty, setDifficulty] = useState<Difficulty>(activity.difficulty)
@@ -240,6 +242,7 @@ export function EditHabitModal({ activity, onClose, onSave }: { activity: Activi
   const [mode, setMode] = useState<'legacy' | 'single' | 'tiered' | 'rating'>(rating ? 'rating' : tiered ? 'tiered' : legacy ? 'legacy' : 'single')
   const [tierDraft, setTierDraft] = useState<TierGoalDraft>(() => tierGoalDraftFromLegacy(activity))
   const [ratingDraft, setRatingDraft] = useState<RatingGoalDraft>(() => ratingGoalDraftFromGoal(rating ? activity.goal : undefined))
+  const formationReview = getHabitFormationReview(activity, completions, today)
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -253,9 +256,17 @@ export function EditHabitModal({ activity, onClose, onSave }: { activity: Activi
     const nextFrequency = mode === 'rating' ? 'daily' : frequency
     onSave({
       title: title.trim(),
-      scheduledTime: nextFrequency === 'daily' && scheduledTime ? scheduledTime : undefined,
-      cue: cue.trim() || undefined,
+      scheduledTime: undefined,
+      cue: undefined,
       protocol: protocol.trim() || undefined,
+      habitFormation: nextFrequency === 'daily'
+        ? {
+            configuredAt: activity.habitFormation && JSON.stringify(activity.habitFormation.anchor) === JSON.stringify(habitAnchor)
+              ? activity.habitFormation.configuredAt
+              : new Date().toISOString(),
+            anchor: habitAnchor,
+          }
+        : undefined,
       domain,
       difficulty,
       schedule: nextFrequency === 'daily' ? { kind: 'daily' } : { kind: 'weekly', times: draftUsesIncremental(tierDraft, mode === 'tiered') ? draftStandardCount(tierDraft) : weeklyTimes },
@@ -269,10 +280,9 @@ export function EditHabitModal({ activity, onClose, onSave }: { activity: Activi
       <form className="modal" onSubmit={submit} aria-labelledby="edit-habit-title">
         <div className="modal-header"><h2 id="edit-habit-title">编辑习惯</h2><button className="icon-button" type="button" title="关闭" onClick={onClose}><X aria-hidden="true" /></button></div>
         <label className="full-field">习惯名称<input required maxLength={40} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <details className="execution-details" open={Boolean(activity.scheduledTime || activity.cue || activity.protocol)}>
-          <summary><span><strong>执行提示</strong><small>{scheduledTime || cue.trim() || '可选'}</small></span><Target aria-hidden="true" /></summary>
-          {frequency === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} /></label>}
-          <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} /></label>
+        <details className="execution-details" open={Boolean(habitAnchor || activity.protocol)}>
+          <summary><span><strong>启动与执行</strong><small>{habitAnchor?.kind === 'time' ? habitAnchor.time : habitAnchor?.kind === 'event' ? habitAnchor.label : habitAnchor?.kind === 'after_activity' ? `${habitAnchor.titleSnapshot}后` : '建议设置一个稳定的开始条件'}</small></span><Target aria-hidden="true" /></summary>
+          {(mode === 'rating' || frequency === 'daily') && <HabitFormationFields anchor={habitAnchor} activities={activities} excludeId={activity.id} onChange={setHabitAnchor} />}
           <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} /></label>
         </details>
         <div className="field-grid">
@@ -297,6 +307,14 @@ export function EditHabitModal({ activity, onClose, onSave }: { activity: Activi
         )}
         {mode === 'rating' && <RatingGoalFields value={ratingDraft} onChange={setRatingDraft} />}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />设为关键行为</label>
+        {formationReview && (
+          <section className="habit-formation-review" aria-label="七日启动锚点复查">
+            <span>七日锚点复查</span>
+            <strong>首七日完成 {formationReview.completedDays}/7 天</strong>
+            <p>当前锚点：{formationReview.anchorLabel}。可以换成更稳定的时间或现实事件、接到一项更稳定的每日行动后，或缩小基础层；也可以保持不变继续观察。</p>
+            <small>这里只提供依据。只有你修改并点击“保存修改”后，新的锚点才会生效并重新开始七日观察。</small>
+          </section>
+        )}
         <button className="primary-action" type="submit"><Check aria-hidden="true" />保存修改</button>
       </form>
     </div>
@@ -595,7 +613,7 @@ export function CompletionModal({ activity, onClose, onComplete }: { activity: A
   )
 }
 
-export function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback; onUndo: () => void }) {
+export function FeedbackOverlay({ feedback, onUndo, travelerAppearance = 'masculine' }: { feedback: AwardFeedback; onUndo: () => void; travelerAppearance?: import('../domain').TravelerAppearance }) {
   const stage = getCharacterStage(feedback.level.level)
   const [condensed, setCondensed] = useState(false)
 
@@ -607,7 +625,7 @@ export function FeedbackOverlay({ feedback, onUndo }: { feedback: AwardFeedback;
 
   return (
     <aside className={condensed ? 'feedback-overlay condensed' : 'feedback-overlay'} role="status" aria-live="assertive">
-      <span className="feedback-portrait"><TravelerPortrait stage={stage} label="像素旅者成长反馈" /></span>
+      <span className="feedback-portrait"><TravelerPortrait stage={stage} appearance={travelerAppearance} label="像素旅者成长反馈" /></span>
       <div className="feedback-copy">
         <span>{feedback.leveledUp ? `角色升级 · Lv.${feedback.level.level}` : feedback.upgraded ? '委托升级' : feedback.incremental && feedback.xp === 0 ? '进度已记录' : '委托完成'}</span>
         <strong>{feedback.title}</strong>

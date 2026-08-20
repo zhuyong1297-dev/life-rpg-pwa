@@ -23,6 +23,16 @@ export async function updatePreferences(value: Preferences, database = db) {
   await database.settings.put({ key: 'preferences', value })
 }
 
+export async function updateTravelerAppearance(appearance: 'masculine' | 'feminine', database = db) {
+  return database.transaction('rw', database.settings, async () => {
+    const stored = await database.settings.get('meta')
+    const current = stored?.key === 'meta' ? stored.value : {}
+    const value = MetaSchema.parse({ ...current, travelerAppearance: appearance })
+    await database.settings.put({ key: 'meta', value })
+    return value.travelerAppearance!
+  })
+}
+
 export async function acknowledgeReleaseNotes(version: string, database = db, now = new Date()) {
   const releaseNotes = ReleaseNotesStateSchema.parse({
     lastSeenVersion: version,

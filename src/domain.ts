@@ -22,6 +22,7 @@ export {
   type TieredGoal,
 } from './domain/goals'
 export * from './domain/growth'
+export * from './domain/habit-formation'
 export * from './domain/journey'
 export * from './domain/onboarding'
 export * from './domain/rewards'

@@ -40,6 +40,8 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import type { TravelerAppearance } from '../domain'
+import { travelerAssetUrl } from '../traveler'
 import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from '../backup'
 import {
   archiveActivity as archiveActivityDefinition,
@@ -194,11 +196,11 @@ export function ProgressBar({ value, label, compact = false }: { value: number; 
   )
 }
 
-export function TravelerPortrait({ stage, label }: { stage: number; label: string }) {
+export function TravelerPortrait({ stage, label, appearance = 'masculine' }: { stage: number; label: string; appearance?: TravelerAppearance }) {
   return (
     <span
-      className={`traveler-portrait traveler-stage-${stage}`}
-      style={{ backgroundImage: `url("${assetUrl('traveler-stages.png')}")` }}
+      className="traveler-portrait"
+      style={{ backgroundImage: `url("${travelerAssetUrl(stage, appearance)}")`, backgroundPosition: 'center', backgroundSize: 'contain' }}
       role="img"
       aria-label={label}
     />

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Activity as ActivityIcon, Award, Bell, BellOff, BookOpen, Brain, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Coins, Crosshair, Download, Dumbbell, FileJson, Gift, Home, History, Leaf, ListTodo, Pause, Pencil, Plus, RotateCcw, Search, Settings as SettingsIcon, ShieldCheck, Star, Target, Trash2, TrendingUp, Upload, UserRound, Vibrate, Volume2, X, Zap, } from 'lucide-react'
 import { createBackup, createLedgerMarkdown, previewBackupRestore, restoreBackup, type BackupRestorePreview } from '../backup'
-import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, updateRewardBudget, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
+import { archiveActivity as archiveActivityDefinition, activateGrowthDomains, activateCoachPlanDraft, applyRewardBudgetRollover, calibrateSeasonWithStableLife, cancelRewardClaim, cancelTodayCompletion, completeApplicationSeason, completeApplicationTrial, completeSeason, completeActivity, activateApplicationTrialRestart, createSeason, createReward, db, getSnapshot, fulfillRewardClaim, initializeDatabase, acknowledgeLevelMilestone, recordIncrementalProgress, reserveRewardClaim, respondToSeasonSuggestion, permanentlyDeleteActivity, saveWeeklyReview, saveCoachPlanDraft, prepareApplicationTrialRestart, saveSeasonDailySignal, setActivityEnabled, setActivityKey, setRewardEnabled, setRewardQueue, setSeasonDailyFocus, setTodayActionPriority, undoCompletion, undoLatestIncrementalProgress, updateTodayRating, updateHabit, updateTravelerAppearance, restoreActivity, syncLevelMilestones, updatePreferences, updateReward, updateRewardBudget, type CompletionDetails, type HabitUpdate, type NewActivity, } from '../db'
 import { addDays, applicationDecisions, coachBehaviorRoleLabels, CoachPlanDraftSchema, createCoachPlanDraft, domainLabel, calculateStats, calculateIncrementalProgress, difficulties, growthDomainDetails, growthDomains, legacyDomainSuggestions, getCharacterStage, getCharacterStageName, getCompletionTierGoal, getLevel, getLevelReport, getJourneyMonths, getMilestoneVoucherCost, getNextVoucherLevel, getTotalXpForLevel, getTierAchievement, getTierCount, getTierLevels, getTierReward, getIncrementalCycleGoal, identityMessage, formatDurationSeconds, isDurationGoal, isRatingGoal, isTieredGoal, effectiveGameDate, localDate, nextGameDayBoundary, rewardTable, reviewDecisions, startOfWeek, formatTierGoalValue, getRewardPriceSuggestions, tierLabels, tierLevels, TieredGoalSchema, RatingGoalSchema, type Activity, type ApplicationDecision, type ApplicationTrial, type ApplicationTrialRestart, type CoachBehaviorRole, type CoachPlanBehavior, type CoachPlanDraft, type GrowthDomain, type Completion, type Difficulty, type FeedbackIntensity, type CombinedMode, type LedgerEvent, type LevelSystem, type Preferences, type Reward, type RewardClaim, type ReviewDecision, type TierLevel, type TierMetric, type TieredGoal, type RatingGoal, type TimeInputUnit, type WeeklyReview, type JourneyEntry, type JourneyMonth, } from '../domain'
 import { playCompletionChime, playCompletionVibration, prepareCompletionAudio, requestNotificationPermission, sendCompletionFeedback } from '../feedback'
 import { CoachSuggestionSummary, SeasonHubModal, SeasonTodaySummary } from '../SeasonExperience'
@@ -27,7 +27,7 @@ import { CreateActivityModal } from './ActivityForms'
 import { ArchiveActivityModal, CompletionActionsModal, CompletionModal, DeleteActivityModal, EditHabitModal, FeedbackOverlay, IncrementalDurationPickerModal, IncrementalProgressModal, TierPickerModal, WeeklyActivityDetailModal } from './ActivityModals'
 const isPreview = import.meta.env.MODE === 'preview'
 const useV5Experience = !(navigator.webdriver && new URLSearchParams(window.location.search).has('legacy-test'))
-const displayVersion = isPreview ? 'V5.8.0 预览版' : 'V5.8.0'
+const displayVersion = isPreview ? 'V5.9.0 预览版' : 'V5.9.0'
 
 export function AppShell() {
   const {
@@ -106,6 +106,8 @@ export function AppShell() {
     requestCompletion,
     undoLast,
   } = useAppController()
+  const travelerAppearance = metaSetting?.key === 'meta' ? (metaSetting.value.travelerAppearance ?? 'masculine') : 'masculine'
+  const storedTravelerAppearance = metaSetting?.key === 'meta' ? metaSetting.value.travelerAppearance : undefined
   const [initialActivity, setInitialActivity] = useState<NewActivity>()
   const onboardingExperience = useOnboardingExperience({
     ready,
@@ -122,8 +124,9 @@ export function AppShell() {
     onOpenLibrary: () => navigateTo('coach/library'),
     onOpenFeedback: () => navigateTo('profile/feedback'),
     appVersion: displayVersion,
+    travelerAppearance: storedTravelerAppearance,
   })
-  const releaseNotes = useReleaseNotes({ ready, growthDomainsReady: Boolean(growthDomainSystem), newcomerEligible, autoOpenAllowed: !secondaryPage && !onboardingExperience.blockingOverlayOpen, lastSeenVersion: metaSetting?.key === 'meta' ? metaSetting.value.releaseNotes?.lastSeenVersion : undefined, refresh, onError: setErrorNotice, onOpenLibrary: () => navigateTo('coach/library') })
+  const releaseNotes = useReleaseNotes({ ready, growthDomainsReady: Boolean(growthDomainSystem), newcomerEligible, autoOpenAllowed: !secondaryPage && !onboardingExperience.blockingOverlayOpen, lastSeenVersion: metaSetting?.key === 'meta' ? metaSetting.value.releaseNotes?.lastSeenVersion : undefined, refresh, onError: setErrorNotice, onOpenFeature: () => navigateTo('profile') })
   if (!ready) {
     return (
       <main className="loading-screen">
@@ -344,6 +347,7 @@ export function AppShell() {
               coachPlanLabel={coachDraft ? '继续规划' : '规划一个 28 天目标'}
               quickStart={createOpen ? undefined : onboardingExperience.quickStart}
               newcomerProgress={onboardingExperience.newcomerProgress}
+              travelerAppearance={travelerAppearance}
               onComplete={requestCompletion}
               onCompleteTier={(activity, tier) => void finishActivity(activity, { tier })}
               onCompleted={setCompletionActivity}
@@ -419,6 +423,7 @@ export function AppShell() {
               pendingRewardClaim={pendingRewardClaim}
               rewardDailyCoins={rewardPriceSuggestions.dailyCoins}
               onOpenRewards={() => navigateTo('rewards')}
+              travelerAppearance={travelerAppearance}
             />
           )
         )}
@@ -432,6 +437,7 @@ export function AppShell() {
               today={today}
               onCreate={() => setCreateOpen(true)}
               onOpenRewards={() => navigateTo('rewards')}
+              travelerAppearance={travelerAppearance}
             />
           ) : (
             <CharacterPage
@@ -453,6 +459,7 @@ export function AppShell() {
                 }
               }}
               onOpenRewards={() => navigateTo('rewards')}
+              travelerAppearance={travelerAppearance}
             />
           )
         )}
@@ -478,6 +485,7 @@ export function AppShell() {
                 scheduledTime: activity.scheduledTime,
                 cue: activity.cue,
                 protocol: activity.protocol,
+                habitFormation: activity.habitFormation,
                 domain: activity.domain,
                 difficulty: activity.difficulty,
                 goal: activity.activityId === activityId ? goal : activity.goal,
@@ -512,9 +520,14 @@ export function AppShell() {
             activities={snapshot.activities}
             completions={snapshot.completions}
             lastBackupAt={metaSetting?.key === 'meta' ? metaSetting.value.lastBackupAt : undefined}
+            travelerAppearance={travelerAppearance}
             onManage={() => setActivityManagerOpen(true)}
             onPreferences={async (value) => {
               await updatePreferences(value)
+              await refresh()
+            }}
+            onTravelerAppearance={async (appearance) => {
+              await updateTravelerAppearance(appearance)
               await refresh()
             }}
             onOpenData={() => navigateTo('profile/data')}
@@ -537,7 +550,7 @@ export function AppShell() {
       )}
       {createOpen && (
         <CreateActivityModal
-          today={today} initialActivity={initialActivity} initialIsKey={useV5Experience && newcomerEligible && !onboarding?.startedOn}
+          today={today} activities={snapshot.activities} initialActivity={initialActivity} initialIsKey={useV5Experience && newcomerEligible && !onboarding?.startedOn}
           onClose={() => { setCreateOpen(false); setInitialActivity(undefined) }}
           onCreate={async (activity) => {
             try {
@@ -574,6 +587,9 @@ export function AppShell() {
       {goalActivity && (
         <EditHabitModal
           activity={goalActivity}
+          activities={snapshot.activities}
+          completions={snapshot.completions}
+          today={today}
           onClose={() => setGoalActivity(null)}
           onSave={async (input) => {
             try {
@@ -828,7 +844,7 @@ export function AppShell() {
         />
       )}
       {onboardingExperience.overlays}
-      {feedback && (!useV5Experience || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} onUndo={() => void undoLast()} />}
+      {feedback && (!useV5Experience || page !== 'today' || secondaryPage) && <FeedbackOverlay feedback={feedback} travelerAppearance={travelerAppearance} onUndo={() => void undoLast()} />}
     </div>
   )
 }

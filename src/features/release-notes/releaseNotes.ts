@@ -1,23 +1,23 @@
-export const CURRENT_RELEASE_NOTES_VERSION = '5.8.0' as const
+export const CURRENT_RELEASE_NOTES_VERSION = '5.9.0' as const
 
 export const CURRENT_RELEASE_NOTES = {
-  title: '从一条适合你的行动开始',
-  summary: '不知道该建立什么习惯时，现在可以先从本地推荐库挑选。',
+  title: '让旅者更像你，让行动更容易开始',
+  summary: '选择旅者外观，并用时间、现实事件或上一项行动为习惯建立启动锚点。',
   items: [
     {
-      id: 'starter-habits',
-      title: '十二项推荐习惯',
-      description: '六个成长领域各有两个低门槛起点，确认前可以完整查看目标、频率和奖励。',
+      id: 'dual-travelers',
+      title: '男性与女性旅者',
+      description: '新用户先选择旅者；老用户保留现有外观，也可以随时在“我的”中免费切换。',
     },
     {
-      id: 'starter-plans',
-      title: '四套 28 天计划',
-      description: '生活、身体、学习和重要项目模板可直接进入规划器，再按你的现实情况逐项确认。',
+      id: 'habit-anchors',
+      title: '为习惯指定开始时机',
+      description: '可选择固定时间、某件现实事件之后，或接在另一项每日行动之后；锚点只影响推荐，不会限制打卡。',
     },
     {
-      id: 'confirmation-first',
-      title: '推荐不会替你做决定',
-      description: '模板只负责预填；未经确认，不会创建活动、改动赛季或写入个人数据。',
+      id: 'anchor-review',
+      title: '七天后检查锚点是否合适',
+      description: '坚持率偏低时会展示依据和调整建议。系统不会自动修改习惯，也不会因错过而惩罚。',
     },
   ],
 } as const

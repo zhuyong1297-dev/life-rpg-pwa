@@ -18,6 +18,7 @@ import {
   activityFrequency,
   activityScheduledMinute,
   formatMinute,
+  getHabitAnchorView,
   getV5ActionRewardPreview,
   getV5NextTier,
   orderDailyActions,
@@ -34,6 +35,9 @@ export function V5FocusAction({
   onComplete,
   onCompleteTier,
   onSwitch,
+  allActivities,
+  completedActivityIds,
+  minute,
 }: {
   activity: Activity
   completion?: Completion
@@ -43,6 +47,9 @@ export function V5FocusAction({
   onComplete: () => void
   onCompleteTier: (tier: TierLevel) => void
   onSwitch: () => void
+  allActivities: Activity[]
+  completedActivityIds: ReadonlySet<string>
+  minute: number
 }) {
   const [protocolOpen, setProtocolOpen] = useState(false)
   const goal = isTieredGoal(activity) ? activity.goal : undefined
@@ -50,13 +57,14 @@ export function V5FocusAction({
   const nextTier = getV5NextTier(activity, completion)
   const summary = activity.protocol?.split(/[。；]/)[0] || activity.cue || '完成当前行动的最低标准。'
   const rewardPreview = getV5ActionRewardPreview(activity, completion)
+  const anchorView = getHabitAnchorView(activity, allActivities, completedActivityIds, minute)
   const wishProgress = activeRewardGoal && rewardPreview.coinDelta > 0 && coins < activeRewardGoal.cost
     ? Math.min(activeRewardGoal.cost, coins + rewardPreview.coinDelta)
     : undefined
   return (
     <article className={`v5-focus-action${completion ? ' completed' : ''}`}>
       <div className="v5-focus-meta">
-        <span>现在 · {[getActivityScheduledTime(activity), activity.cue].filter((value, index, values) => value && values.indexOf(value) === index).join(' · ') || '今天随时'}</span>
+        <span>现在 · {anchorView.label}</span>
         <div>
           {activity.protocol && (
             <button type="button" title="查看执行说明" aria-label={`查看 ${activity.title} 执行说明`} onClick={() => setProtocolOpen(true)}>
@@ -109,14 +117,21 @@ export function V5TimelineRow({
   activity,
   completion,
   onClick,
+  allActivities,
+  completedActivityIds,
+  minute,
 }: {
   activity: Activity
   completion?: Completion
   onClick: () => void
+  allActivities: Activity[]
+  completedActivityIds: ReadonlySet<string>
+  minute: number
 }) {
   const cueMinute = activityScheduledMinute(activity)
   const nextTier = getV5NextTier(activity, completion)
   const rewardPreview = getV5ActionRewardPreview(activity, completion)
+  const anchorView = getHabitAnchorView(activity, allActivities, completedActivityIds, minute)
   return (
     <div className="v5-timeline-row">
       <time>{cueMinute === undefined ? '随时' : formatMinute(cueMinute)}</time>
@@ -125,7 +140,7 @@ export function V5TimelineRow({
       </button>
       <div>
         <strong>{activity.title}</strong>
-        <span>{completion ? v5TierProgressLabel(activity, completion) : activity.cue ?? '等待执行'}</span>
+        <span>{completion ? v5TierProgressLabel(activity, completion) : anchorView.label}</span>
         <span className="v5-action-reward"><Medal size={13} />{rewardPreview.label}</span>
       </div>
     </div>
@@ -134,6 +149,8 @@ export function V5TimelineRow({
 
 export function V5DailySection({
   activities,
+  allActivities,
+  completedActivityIds,
   minute,
   priorityIds,
   feedbackActivityId,
@@ -143,6 +160,8 @@ export function V5DailySection({
   onSetPriority,
 }: {
   activities: Activity[]
+  allActivities: Activity[]
+  completedActivityIds: ReadonlySet<string>
   minute: number
   priorityIds: string[]
   feedbackActivityId?: string
@@ -167,11 +186,15 @@ export function V5DailySection({
     activities.filter((activity) => !activeCompletion(activity)),
     minute,
     priorityIds,
+    allActivities,
+    completedActivityIds,
   )
   const upgradeable = orderDailyActions(
     activities.filter((activity) => getV5NextTier(activity, activeCompletion(activity))),
     minute,
     priorityIds,
+    allActivities,
+    completedActivityIds,
   )
   const heldCompleted = activities.filter((activity) => (
     activity.id === heldCompletedId
@@ -191,7 +214,7 @@ export function V5DailySection({
           activity={activity}
           completion={activeCompletion(activity)}
           key={activity.id}
-          meta={`${getActivityScheduledTime(activity) ?? '随时'} · ${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty}`}
+          meta={`${getHabitAnchorView(activity, allActivities, completedActivityIds, minute).label} · ${activity.domain ? domainLabel(activity.domain) : '旧体系'} · ${activity.difficulty}`}
           onClick={() => activeCompletion(activity) ? onCompleted(activity) : onComplete(activity)}
         />
       ))}
@@ -214,6 +237,8 @@ export function V5DailySection({
           initialTab={drawerTab}
           minute={minute}
           priorityIds={priorityIds}
+          allActivities={allActivities}
+          completedActivityIds={completedActivityIds}
           onClose={() => setDrawerTab(undefined)}
           onComplete={(activity) => {
             setDrawerTab(undefined)
@@ -293,6 +318,8 @@ export function V5ActionSection({
 
 function V5DailyDrawer({
   activities,
+  allActivities,
+  completedActivityIds,
   activeCompletion,
   initialTab,
   minute,
@@ -303,6 +330,8 @@ function V5DailyDrawer({
   onSetPriority,
 }: {
   activities: Activity[]
+  allActivities: Activity[]
+  completedActivityIds: ReadonlySet<string>
   activeCompletion: (activity: Activity) => Completion | undefined
   initialTab: 'pending' | 'upgradeable' | 'completed'
   minute: number
@@ -314,12 +343,14 @@ function V5DailyDrawer({
 }) {
   const [tab, setTab] = useState(initialTab)
   const [query, setQuery] = useState('')
-  const pending = orderDailyActions(activities.filter((activity) => !activeCompletion(activity)), minute, priorityIds)
+  const pending = orderDailyActions(activities.filter((activity) => !activeCompletion(activity)), minute, priorityIds, allActivities, completedActivityIds)
   const completed = activities.filter((activity) => Boolean(activeCompletion(activity)))
   const upgradeable = orderDailyActions(
     activities.filter((activity) => getV5NextTier(activity, activeCompletion(activity))),
     minute,
     priorityIds,
+    allActivities,
+    completedActivityIds,
   )
   const source = tab === 'pending' ? pending : tab === 'upgradeable' ? upgradeable : completed
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
@@ -348,18 +379,19 @@ function V5DailyDrawer({
         {visible.map((activity) => {
           const completion = activeCompletion(activity)
           const nextTier = getV5NextTier(activity, completion)
+          const anchorView = getHabitAnchorView(activity, allActivities, completedActivityIds, minute)
           const scheduled = getActivityScheduledTime(activity)
           const prioritized = priorityIds.includes(activity.id)
           return (
             <article className="v5-drawer-row" key={activity.id}>
               <div>
                 <strong>{activity.title}</strong>
-                <span>{scheduled ?? '随时'} · {activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty}</span>
+                <span>{anchorView.label} · {activity.domain ? domainLabel(activity.domain) : '旧体系'} · {activity.difficulty}</span>
                 <span className="v5-action-reward"><Medal size={13} />{getV5ActionRewardPreview(activity, completion).label}</span>
                 {completion && <span className="v5-action-progress">{v5TierProgressLabel(activity, completion)}</span>}
               </div>
               <div className="v5-drawer-row-actions">
-                {!completion && !scheduled && (
+                {!completion && !scheduled && activity.habitFormation?.anchor?.kind !== 'after_activity' && (
                   <button
                     type="button"
                     aria-pressed={prioritized}

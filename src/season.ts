@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   ActivityGoalSchema,
+  HabitFormationSchema,
   CoachPlanKnowledgeSourceV2Schema,
   CoachPlanKnowledgeSourceV3Schema,
   ScheduleSchema,
@@ -29,6 +30,7 @@ export const SeasonActivitySnapshotSchema = z.object({
   title: z.string().trim().min(1).max(60),
   cue: z.string().trim().min(1).max(80).optional(),
   protocol: z.string().trim().min(1).max(280).optional(),
+  habitFormation: HabitFormationSchema.optional(),
   attribute: z.enum(attributes).optional(),
   domain: z.enum(growthDomains).optional(),
   difficulty: z.enum(difficulties),
@@ -364,6 +366,7 @@ export function snapshotSeasonActivity(activity: Activity) {
     title: activity.title,
     cue: activity.cue,
     protocol: activity.protocol,
+    habitFormation: activity.habitFormation,
     attribute: activity.attribute,
     domain: activity.domain,
     difficulty: activity.difficulty,

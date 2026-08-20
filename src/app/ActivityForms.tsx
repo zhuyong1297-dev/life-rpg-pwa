@@ -104,6 +104,7 @@ import {
   getCharacterStage,
   getCharacterStageName,
   getCompletionTierGoal,
+  getEffectiveHabitAnchor,
   getLevel,
   getLevelReport,
   getJourneyMonths,
@@ -140,6 +141,7 @@ import {
   type CoachPlanBehavior,
   type CoachPlanDraft,
   type GrowthDomain,
+  type HabitAnchor,
   type Completion,
   type Difficulty,
   type FeedbackIntensity,
@@ -184,12 +186,12 @@ import {
 } from '../prototype/V5Experience'
 
 import { buildRatingGoal, buildTierGoal, defaultRatingGoalDraft, defaultTierGoalDraft, draftStandardCount, draftUsesIncremental, ratingGoalDraftFromGoal, tierGoalDraftFromGoal, timeInputSeconds, timeInputValue, type RatingGoalDraft, type StringQuad, type StringTriple, type TierGoalDraft } from './model'
-export function CreateActivityModal({ today, initialActivity, initialIsKey = false, onClose, onCreate }: { today: string; initialActivity?: NewActivity; initialIsKey?: boolean; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
+import { HabitFormationFields } from './HabitFormationFields'
+export function CreateActivityModal({ today, activities, initialActivity, initialIsKey = false, onClose, onCreate }: { today: string; activities: Activity[]; initialActivity?: NewActivity; initialIsKey?: boolean; onClose: () => void; onCreate: (activity: NewActivity) => void }) {
   const initialHabit = initialActivity?.type === 'habit' ? initialActivity : undefined
   const [type, setType] = useState<'habit' | 'task'>(initialActivity?.type ?? 'habit')
   const [title, setTitle] = useState(initialActivity?.title ?? '')
-  const [scheduledTime, setScheduledTime] = useState(initialHabit?.scheduledTime ?? '')
-  const [cue, setCue] = useState(initialHabit?.cue ?? '')
+  const [habitAnchor, setHabitAnchor] = useState<HabitAnchor | undefined>(() => initialHabit ? getEffectiveHabitAnchor(initialHabit) : undefined)
   const [protocol, setProtocol] = useState(initialHabit?.protocol ?? '')
   const [domain, setDomain] = useState<GrowthDomain>(initialActivity?.domain ?? 'health')
   const [difficulty, setDifficulty] = useState<Difficulty>(initialActivity?.difficulty ?? '简单')
@@ -211,9 +213,17 @@ export function CreateActivityModal({ today, initialActivity, initialIsKey = fal
     const habitFrequency = goalMode === 'rating' ? 'daily' : frequency
     onCreate({
       title,
-      scheduledTime: type === 'habit' && habitFrequency === 'daily' && scheduledTime ? scheduledTime : undefined,
-      cue: type === 'habit' && cue.trim() ? cue.trim() : undefined,
+      scheduledTime: undefined,
+      cue: undefined,
       protocol: type === 'habit' && protocol.trim() ? protocol.trim() : undefined,
+      habitFormation: type === 'habit' && habitFrequency === 'daily'
+        ? {
+            configuredAt: initialHabit?.habitFormation && JSON.stringify(initialHabit.habitFormation.anchor) === JSON.stringify(habitAnchor)
+              ? initialHabit.habitFormation.configuredAt
+              : new Date().toISOString(),
+            anchor: habitAnchor,
+          }
+        : undefined,
       type,
       domain,
       difficulty,
@@ -255,10 +265,9 @@ export function CreateActivityModal({ today, initialActivity, initialIsKey = fal
           </>
         ) : <label className="full-field">计划日期<input type="date" required value={plannedOn} onChange={(event) => setPlannedOn(event.target.value)} /></label>}
         <label className="checkbox-field"><input type="checkbox" checked={isKey} onChange={(event) => setIsKey(event.target.checked)} /><Star aria-hidden="true" />关键行为</label>
-        {type === 'habit' && <details className="execution-details" open={initialHabit?.scheduledTime || initialHabit?.cue || initialHabit?.protocol ? true : undefined}>
-          <summary><span><strong>执行提示</strong><small>{scheduledTime || cue.trim() || '可选的时间、触发条件与行动协议'}</small></span><Target aria-hidden="true" /></summary>
-          {frequency === 'daily' && <label className="full-field">建议执行时间（可选）<input type="time" value={scheduledTime} onChange={(event) => setScheduledTime(event.target.value)} /></label>}
-          <label className="full-field">什么时候开始<input maxLength={80} value={cue} onChange={(event) => setCue(event.target.value)} placeholder="例如：起床后、第一段工作前" /></label>
+        {type === 'habit' && <details className="execution-details" open={Boolean(habitAnchor || initialHabit?.protocol)}>
+          <summary><span><strong>启动与执行</strong><small>{habitAnchor?.kind === 'time' ? habitAnchor.time : habitAnchor?.kind === 'event' ? habitAnchor.label : habitAnchor?.kind === 'after_activity' ? `${habitAnchor.titleSnapshot}后` : '建议设置一个稳定的开始条件'}</small></span><Target aria-hidden="true" /></summary>
+          {(goalMode === 'rating' || frequency === 'daily') && <HabitFormationFields anchor={habitAnchor} activities={activities} onChange={setHabitAnchor} />}
           <label className="full-field">怎样执行<textarea maxLength={280} value={protocol} onChange={(event) => setProtocol(event.target.value)} placeholder="写清最低动作和走神后的返回方式" /></label>
         </details>}
         <details className="form-details">
